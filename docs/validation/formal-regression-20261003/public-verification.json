@@ -1,0 +1,76 @@
+{
+  "checkedAt": "2026-10-03T13:01:11.562571+00:00",
+  "checks": [
+    {
+      "path": "/",
+      "status": 200,
+      "sha256": "32777e71ffeb1073ab262440d458ab86081138b6eedcecd5eeeef25c2d6c3ddd",
+      "bytes": 36144,
+      "cacheControl": "no-store"
+    },
+    {
+      "path": "/bemine-v5/",
+      "status": 200,
+      "sha256": "32777e71ffeb1073ab262440d458ab86081138b6eedcecd5eeeef25c2d6c3ddd",
+      "bytes": 36144,
+      "cacheControl": "no-store"
+    },
+    {
+      "path": "/bemine-v5/fresh-product-release.json",
+      "status": 200,
+      "sha256": "a4eeddcab27277419f38d4273540f3366115a193209152b42540dd780b10ad02",
+      "bytes": 1958,
+      "cacheControl": "no-cache"
+    },
+    {
+      "path": "/bemine-v5/data/frontend-manifest.v5.json",
+      "status": 200,
+      "sha256": "e0455e6d40c2bc4bd2d471ce4df222e03edfc6be1a0a529c91da6e9433363f97",
+      "bytes": 2799,
+      "cacheControl": "no-cache"
+    },
+    {
+      "path": "/bemine-v5/data/bem-price.json",
+      "status": 200,
+      "sha256": "108bda2ed772f8f2bc8302e9ac3cc4f11b597679e3fd4a71fa03ee09fc82bdb7",
+      "bytes": 608,
+      "cacheControl": "no-store"
+    },
+    {
+      "path": "/bemine-v5/_next/static/-mp2teUopnTUGEOxdDW2A/_buildManifest.js",
+      "status": 200,
+      "sha256": "f8e812ab36a157d8e6cbe79c97ced24a624b193a933949e3aa6a2351ead98a76",
+      "bytes": 1016,
+      "cacheControl": "public, max-age=31536000, immutable"
+    }
+  ],
+  "rootMatchesV5": true,
+  "frontendSourceHead": "25d2503c9d3c9f0bbf0a09b4a4d271ed213ac72f",
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+  "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+  "price": {
+    "status": "ok",
+    "chainId": 56,
+    "tokenAddress": "0x5ce033b2bfca3af30b3e8c8457deaf776a8b695a",
+    "poolAddress": "0x28b12792f9d81bd529bc5572434e861c9edbbbc2",
+    "conversionPoolAddress": "0x172fcd41e0913e95784454622d1c3724f546f849",
+    "quoteCurrency": "USDT",
+    "source": "PancakeSwap V3",
+    "priceUsdt": 36.80184579320527,
+    "updatedAt": "2026-10-03T13:00:58.803Z",
+    "blockNumber": 125488714,
+    "blockTimestamp": "2026-10-03T13:00:58.000Z",
+    "bnbUsdt": 771.4278776573635,
+    "bnbQuoteAt": "2026-10-03T13:00:58.000Z",
+    "sources": [
+      {
+        "name": "PancakeSwap V3",
+        "url": "https://bscscan.com/address/0x28b12792f9d81bd529bc5572434e861c9edbbbc2"
+      }
+    ],
+    "refreshSeconds": 15
+  },
+  "publicReleaseMatchesReceipt": true,
+  "retainedOldChunkHttp200": true
+}

@@ -1,0 +1,42 @@
+{
+  "publishedAtUtc": "2026-10-03T11:09:43Z",
+  "url": "https://tapeout.cc.cd/pinkuang-deploy-latest/",
+  "sourceHead": "8404ecc3ba08f635a57b98a847cc9392e455498c",
+  "artifactSourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
+  "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+  "archiveSha256": "3c4d89033d0f8efb63bb6fcd6128beb51039085331fc3445e80434fcccac9b02",
+  "runtime": "/srv/pinkuang-deploy-latest/releases/8404ecc3ba08",
+  "dependencyRelease": "/srv/pinkuang-deploy-v5/releases/console-e81ca24",
+  "service": "pinkuang-deploy-latest",
+  "loopbackPort": 4237,
+  "journal": "/var/lib/pinkuang-deploy-latest/journal.sqlite",
+  "validation": {
+    "consoleTestsPassed": 1067,
+    "consoleTestsSkipped": 1,
+    "consoleTestsFailed": 0,
+    "freshBuildPassed": true,
+    "publicPageStatus": 200,
+    "publicArtifactStatus": 200,
+    "publicFilesEqualLocalBuild": true,
+    "readRpcChainId": 56,
+    "rpcWriteStatus": 403,
+    "unauthenticatedJournalStatus": 401,
+    "browserArtifactState": "verified",
+    "serviceActive": true,
+    "serviceEnabled": true,
+    "journalDirectoryMode": "700",
+    "journalFileMode": "600"
+  },
+  "startupRecovery": {
+    "reason": "Type=simple became active before Node listened; health probe was too early",
+    "action": "Verified installed file hashes, restarted only the isolated new console, waited for listener, published route",
+    "installerFixCommit": "455d77e"
+  },
+  "chainTransactionsSent": false,
+  "chainDeploymentPendingWalletConfirmation": true,
+  "existingProductChanged": false,
+  "existingHomeSha256": "7ac16fe9100938cbf7711722bf21dbbb0e51c2e3b2bb00201ae66cd2f6ddcd4b",
+  "oldContractsAndAssetRecordsPreserved": true,
+  "gasRelayEnabledInNewConsole": false,
+  "productCutoverPendingNewFinalizedGraph": true
+}

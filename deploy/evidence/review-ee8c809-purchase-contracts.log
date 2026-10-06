@@ -1,0 +1,20 @@
+Compiling 96 files with Solc 0.8.24
+Solc 0.8.24 finished in 8.25s
+Compiler run successful!
+
+Ran 12 tests for test/unit/FlexiblePurchase.t.sol:FlexiblePurchaseTest
+[PASS] testFuzz_modelChangedDuringClaimOrMarketTransferRollsBack(bool) (runs: 256, μ: 1247316, ~: 1109974)
+[PASS] testFuzz_weightDropsDuringClaimOrMarketTransferRevertsEntirePurchase(bool) (runs: 256, μ: 1945650, ~: 1809447)
+[PASS] test_callbacksCannotReenterAndPurchaseCannotRepeat() (gas: 1539605)
+[PASS] test_extraFundraisingCannotRaiseOriginalPurchaseCap() (gas: 1447416)
+[PASS] test_lowerMinimumDoesNotLowerReferenceDenominatorOrAllowLowWeightTopPrice() (gas: 2193588)
+[PASS] test_originalAffordableListingPreventsThirdPartyAlternativeFrontRun() (gas: 1552896)
+[PASS] test_originalSimulationFailureDoesNotAuthorizeAlternativeButDeadlineRefundWorks() (gas: 1339216)
+[PASS] test_originalSoldThenQualifiedAlternativeActivatesAndSettlesSellerOldRewards() (gas: 1610253)
+[PASS] test_referenceWeightDropAfterLockCannotRebaseUnitPrice() (gas: 2202606)
+[PASS] test_sameWeightWrongTaskRejectedOnBothPurchaseEntries() (gas: 1075558)
+[PASS] test_transferAfterPurchaseKeepsRefundWithOriginalShareholders() (gas: 3298411)
+[PASS] test_unitPriceLimitFloorsFractionalWeiInsteadOfRoundingUp() (gas: 2202516)
+Suite result: ok. 12 passed; 0 failed; 0 skipped; finished in 59.32ms (119.21ms CPU time)
+
+Ran 1 test suite in 59.85ms (59.32ms CPU time): 12 tests passed, 0 failed, 0 skipped (12 total tests)

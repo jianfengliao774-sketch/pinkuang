@@ -1,0 +1,250 @@
+{
+  "schemaVersion": 1,
+  "contract": "src/PoolFactory.sol:PoolFactory",
+  "provenance": {
+    "milestone": "T1c",
+    "commit": "0d676cd666fd2e5e8160e1d3c961d8a15f2caea3",
+    "sourcePath": "contracts/src/PoolFactory.sol",
+    "sourceSha256": "11f5b25b7548a4a61532de30f0d94fb1e07e44ac73c00f070eff12d53ad4f385",
+    "sourceHashDefinition": "SHA-256 of exact compiler-input UTF-8 source bytes, asserted equal to the committed Git blob.",
+    "testedBuildRoot": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-check-5xxlIq",
+    "compilerBuildInfoFile": "47834b92d4415b9f.json",
+    "compilerBuildInfoSha256": "13fddb94090f32b3cf4c2b1ef5ca7d2935e2bd3ecc51e3a0411dca0b80b0b228",
+    "preparedBuildInfoSha256": "f4a61a984ff84099e1cb83824819a17f9a3023417a51ff631d374542b7d45979",
+    "unchangedCompilerOutputSha256": "ea349b2fd581df594903e9a246ed04fdb12639a509e2c472706089e4eed6a483",
+    "metadataVerifiedInputAliasesAdded": 16,
+    "metadataVerifiedInputAliases": [
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/access/AccessControl.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/access/AccessControl.sol",
+        "metadataKeccak256": "0xa0e92d42942f4f57c5be50568dac11e9d00c93efcb458026e18d2d9b9b2e7308"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/access/IAccessControl.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/access/IAccessControl.sol",
+        "metadataKeccak256": "0xb6b36edd6a2999fd243ff226d6cbf84bd71af2432bbd0dfe19392996a1d9cb41"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/access/Ownable.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/access/Ownable.sol",
+        "metadataKeccak256": "0xff6d0bb2e285473e5311d9d3caacb525ae3538a80758c10649a4d61029b017bb"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/proxy/Proxy.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/proxy/Proxy.sol",
+        "metadataKeccak256": "0xc3f2ec76a3de8ed7a7007c46166f5550c72c7709e3fc7e8bb3111a7191cdedbd"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/proxy/beacon/IBeacon.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/proxy/beacon/IBeacon.sol",
+        "metadataKeccak256": "0xc59a78b07b44b2cf2e8ab4175fca91e8eca1eee2df7357b8d2a8833e5ea1f64c"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol",
+        "metadataKeccak256": "0xb69597a63b202e28401128bed6a6d259e8730191274471af7303eafb247881a3"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol",
+        "metadataKeccak256": "0xc26cd2e2bcf59b87c986fc653545b35010db9c585a3f3312fe61d7b1b3805735"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol",
+        "metadataKeccak256": "0x6008dabfe393240d73d7dd7688033f72740d570aa422254d29a7dce8568f3aff"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol",
+        "metadataKeccak256": "0xaad20f8713b5cd98114278482d5d91b9758f9727048527d582e8e88fd4901fd8"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/Address.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/utils/Address.sol",
+        "metadataKeccak256": "0xaf28a975a78550e45f65e559a3ad6a5ad43b9b8a37366999abd1b7084eb70721"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/Context.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/utils/Context.sol",
+        "metadataKeccak256": "0x493033a8d1b176a037b2cc6a04dad01a5c157722049bbecf632ca876224dd4b2"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/StorageSlot.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/utils/StorageSlot.sol",
+        "metadataKeccak256": "0x32ba59b4b7299237c8ba56319110989d7978a039faf754793064e967e5894418"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/introspection/ERC165.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/utils/introspection/ERC165.sol",
+        "metadataKeccak256": "0x9e8778b14317ba9e256c30a76fd6c32b960af621987f56069e1e819c77c6a133"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/introspection/IERC165.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts/utils/introspection/IERC165.sol",
+        "metadataKeccak256": "0x4296879f55019b23e135000eb36896057e7101fb7fb859c5ef690cf14643757b"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol",
+        "metadataKeccak256": "0x631188737069917d2f909d29ce62c4d48611d326686ba6683e26b72a23bfac0b"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-5xxlIq/node_modules/@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol",
+        "metadataKeccak256": "0xdbef5f0c787055227243a7318ef74c8a5a1108ca3a07f2b3a00ef67769e1e397"
+      }
+    ],
+    "compilerBuildInfoScope": "Source-only rebuild performed by Slither in the final passed T1c snapshot; all local production compiler-input sources were verified against both the tested source manifest and the committed Git blobs.",
+    "verifiedLocalSources": [
+      {
+        "sourcePath": "contracts/src/PoolBeacon.sol",
+        "sourceSha256": "54253562b997b6e1257df7cbf8220a53b69712103149c67a9a2464a7407c6854"
+      },
+      {
+        "sourcePath": "contracts/src/PoolFactory.sol",
+        "sourceSha256": "11f5b25b7548a4a61532de30f0d94fb1e07e44ac73c00f070eff12d53ad4f385"
+      },
+      {
+        "sourcePath": "contracts/src/PoolRewardState.sol",
+        "sourceSha256": "2587cd098db53089a36151f9d7988a47da1c58daefc917a91e3240b14f90e7ac"
+      },
+      {
+        "sourcePath": "contracts/src/PoolTimelock.sol",
+        "sourceSha256": "b60375034c995d385c71b1106e524660d2f57d6fff5940a2ec0be9ee731ce682"
+      },
+      {
+        "sourcePath": "contracts/src/PoolVault.sol",
+        "sourceSha256": "d47ec3b061ae8078296fdabeff3628f25df236d92325edffc3e0b86d62ef4a12"
+      },
+      {
+        "sourcePath": "contracts/src/interfaces/ICircuitMarket.sol",
+        "sourceSha256": "c225047d2eaa1bec46d83a57de5de600d09058148757fd97b04d592d892d5890"
+      },
+      {
+        "sourcePath": "contracts/src/interfaces/IPoolVault.sol",
+        "sourceSha256": "812ff03c12d6e95ecb2b8e0b8ab47a8a8c81a5758ba2fc54b72aa5b70f9e575a"
+      },
+      {
+        "sourcePath": "contracts/src/interfaces/ITapeoutMining.sol",
+        "sourceSha256": "981d6a7d14acf89de47eb14d23b6d5512cfe1bc3ae97102d8f5ca4a97317cc93"
+      },
+      {
+        "sourcePath": "contracts/src/libraries/MiningOperations.sol",
+        "sourceSha256": "70a58ed5021da460a2f77ccf65a7510a19357b8aebb98a49a0cd04dbe468bbf9"
+      },
+      {
+        "sourcePath": "contracts/src/libraries/RewardAccounting.sol",
+        "sourceSha256": "a7ac045c0e5e67132cee91ecb21a473c28bb09c148d35151ec9a686a516aec6b"
+      }
+    ],
+    "solcVersion": "0.8.24",
+    "upgradesCoreVersion": "1.46.0",
+    "extraction": "@openzeppelin/upgrades-core validate(output, solcInputOutputDecoder(input, output), solcVersion, input), then getStorageLayout(validationData, getContractVersion(validationData, fullyQualifiedName)). The returned layout is preserved without hand-authored fields."
+  },
+  "contractVersion": {
+    "withMetadata": "47838cf52fa1d9dd0cce2ffd0ba512a302e3f25e7b3b4a98ab91ab67dda067d2",
+    "withoutMetadata": "f0b8037b604590baf60c8f38a3737693d8ba1b66e5954b61201e85730ea1caba",
+    "linkedWithoutMetadata": "f0b8037b604590baf60c8f38a3737693d8ba1b66e5954b61201e85730ea1caba"
+  },
+  "layout": {
+    "solcVersion": "0.8.24",
+    "storage": [],
+    "types": {
+      "t_address": {
+        "label": "address"
+      },
+      "t_bool": {
+        "label": "bool"
+      },
+      "t_mapping(t_address,t_bool)": {
+        "label": "mapping(address => bool)"
+      },
+      "t_array(t_address)dyn_storage": {
+        "label": "address[]"
+      },
+      "t_uint256": {
+        "label": "uint256"
+      },
+      "t_uint64": {
+        "label": "uint64"
+      }
+    },
+    "namespaces": {
+      "erc7201:tapeout.storage.PoolFactory": [
+        {
+          "contract": "PoolFactory",
+          "label": "operator",
+          "type": "t_address",
+          "src": "src\\PoolFactory.sol:21"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "treasury",
+          "type": "t_address",
+          "src": "src\\PoolFactory.sol:22"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "timelock",
+          "type": "t_address",
+          "src": "src\\PoolFactory.sol:23"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "beacon",
+          "type": "t_address",
+          "src": "src\\PoolFactory.sol:24"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "creationPaused",
+          "type": "t_bool",
+          "src": "src\\PoolFactory.sol:25"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "isPool",
+          "type": "t_mapping(t_address,t_bool)",
+          "src": "src\\PoolFactory.sol:26"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "allPools",
+          "type": "t_array(t_address)dyn_storage",
+          "src": "src\\PoolFactory.sol:27"
+        }
+      ],
+      "erc7201:openzeppelin.storage.ReentrancyGuard": [
+        {
+          "contract": "ReentrancyGuardUpgradeable",
+          "label": "_status",
+          "type": "t_uint256",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\utils\\ReentrancyGuardUpgradeable.sol:40"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Ownable": [
+        {
+          "contract": "OwnableUpgradeable",
+          "label": "_owner",
+          "type": "t_address",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\access\\OwnableUpgradeable.sol:24"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Initializable": [
+        {
+          "contract": "Initializable",
+          "label": "_initialized",
+          "type": "t_uint64",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:69"
+        },
+        {
+          "contract": "Initializable",
+          "label": "_initializing",
+          "type": "t_bool",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:73"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "checkedAt": "2026-10-03T02:50:41.345680+00:00",
+  "apiSourceHead": "788cd0d705ba053615b5f5a8c319a6eeb752a1a7",
+  "requests": [
+    {
+      "path": "/bemine-v5/",
+      "status": 200,
+      "seconds": 1.418116
+    },
+    {
+      "path": "/bemine-v5/api/journal/product-graph",
+      "status": 200,
+      "seconds": 1.176477,
+      "stage": "fresh-active",
+      "verifiedBlockNumber": 125407294,
+      "stale": false,
+      "readMode": "current",
+      "operationalReady": true,
+      "snapshotAgeMs": 1528
+    },
+    {
+      "path": "/bemine-v5/api/journal/product-graph",
+      "status": 200,
+      "seconds": 0.991276,
+      "stage": "fresh-active",
+      "verifiedBlockNumber": 125407294,
+      "stale": false,
+      "readMode": "current",
+      "operationalReady": true,
+      "snapshotAgeMs": 2530
+    },
+    {
+      "path": "/bemine-v5/api/chain-index/v1/display/stats",
+      "status": 200,
+      "seconds": 1.036567,
+      "jsonReceived": true
+    },
+    {
+      "path": "/bemine-v5/api/chain-index/v1/display/pools",
+      "status": 200,
+      "seconds": 1.184449,
+      "jsonReceived": true
+    },
+    {
+      "path": "/bemine-v5/data/bem-price.json",
+      "status": 200,
+      "seconds": 1.251341
+    },
+    {
+      "path": "/bemine-v4/",
+      "status": 503,
+      "seconds": 1.252087
+    },
+    {
+      "path": "/bemine-full-test/",
+      "status": 503,
+      "seconds": 1.088529
+    }
+  ],
+  "browser": {
+    "home": "statistics and BEM price loaded; no read-service banner",
+    "statistics": {
+      "projects": 0,
+      "participants": 0,
+      "machines": 0
+    },
+    "walletActionsPerformed": false
+  }
+}

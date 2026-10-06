@@ -1,0 +1,182 @@
+name: Contracts
+
+on:
+  push:
+    # Feature branches run through pull_request; avoid a duplicate public-RPC
+    # fork run for the same commit on push and PR.
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_fork:
+        description: Run protocol and purchase baseline plus strict Firsto sale regressions on their separate fixed blocks
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # A manual contracts-only run must not cancel a required push/PR fork check.
+  group: contracts-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      FOUNDRY_PROFILE: ci
+      VALIDATION_TASK: T1e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+      - run: npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install slither-analyzer==0.11.5
+      - name: Format, sizes, unit and invariants, T1a through complete T1e layout compatibility, Slither
+        id: validation
+        env:
+          # This directory is outside the checkout and unique to the current run.
+          # Checked-in local logs cannot be uploaded as remote-run evidence.
+          VALIDATION_EVIDENCE_ROOT: ${{ runner.temp }}/t1e-contracts-${{ github.run_id }}-${{ github.run_attempt }}
+        run: node scripts/check-local.mjs
+      - name: Preserve current contracts validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t1e-contracts-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/t1e-contracts-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: warn
+
+  deployment-console:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The deployment bundle proves its Solidity source commit is an
+          # ancestor of this release. A one-commit shallow clone cannot
+          # perform that check and falsely rejects a valid pinned artifact.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            deploy/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: deploy
+      - name: Verify deployment artifacts against Solidity sources and pinned compiler
+        run: npm run artifacts:check
+        working-directory: deploy
+      # These packages require a clean, source-pinned checkout. Run them before
+      # regression suites that may leave generated files in protected paths.
+      - name: Build and package the actual pre-genesis v4 console
+        run: |
+          npm run build:fresh
+          node scripts/package-fresh-console.mjs --out "$RUNNER_TEMP/pinkuang-fresh-package"
+        working-directory: deploy
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.2
+          run_install: false
+      - name: Install product frontend dependencies from its lockfile
+        run: pnpm install --frozen-lockfile
+        working-directory: web
+      - name: Build and bind the actual v4 static and backend packages using a synthetic graph
+        run: node ops/v4/validate-release-ci.mjs --out "$RUNNER_TEMP/v4-release-validation"
+        working-directory: deploy
+      - name: Deployment, keeper and proxy regression tests
+        run: npm test
+        working-directory: deploy
+      - name: Release tooling, notification and ops Node regressions
+        run: node --test ops/v2/*.test.mjs ops/v2/genesis-graph-compat/*.test.mjs ops/v3/*.test.mjs ops/v4/*.test.mjs server/notifications/*.test.mjs
+        working-directory: deploy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline deployment ops Python regressions
+        run: |
+          for test_file in deploy/ops/v2/test-*.py deploy/ops/v3/test-*.py deploy/ops/v4/test-*.py; do
+            case "$test_file" in
+              deploy/ops/v4/test-install-attestor.py|deploy/ops/v4/test-release-stage2-hold.py|deploy/ops/v4/test-product-runtime.py)
+                # These tests use only temporary files and a fake service host,
+                # but must exercise actual POSIX root ownership checks.
+                sudo env HOLD_DEPLOY_ROOT="$PWD/deploy" "$(command -v python)" -B "$test_file" ;;
+              *) python -B "$test_file" ;;
+            esac
+          done
+      - name: Compile source-pinned UI and production server assets
+        run: npm run build
+        working-directory: deploy
+      - name: Verify product frontend ABI against independently compiled Solidity
+        run: node scripts/sync-contracts.mjs --check
+        working-directory: web
+      - name: Product frontend accounting, catalog and chain adapter checks
+        run: pnpm run check
+        working-directory: web
+      - name: Build product frontend with checked contract bindings
+        run: pnpm run build
+        working-directory: web
+      - name: Preserve current v4 release validation manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-release-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/v4-release-validation/
+          if-no-files-found: warn
+
+  fork:
+    if: github.event_name != 'workflow_dispatch' || inputs.run_fork
+    needs: contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Serialize the public RPC across refs. Unlike the default single pending
+    # slot, queue:max retains waiting checks (up to GitHub's 100-job limit).
+    # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idconcurrency
+    concurrency:
+      group: contracts-bsc-public-rpc
+      queue: max
+      cancel-in-progress: false
+    env:
+      FOUNDRY_PROFILE: ci
+      VALIDATION_TASK: T1e
+      # Public archive endpoint: no credentials are exposed to pull request code.
+      BSC_RPC_URL: https://bsc-mainnet.public.blastapi.io
+      FORK_BLOCK: '123728000'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+      - run: npm ci
+      - name: Protocol, official purchase, rewards and shares at the original baseline
+        env:
+          VALIDATION_EVIDENCE_ROOT: ${{ runner.temp }}/t1e-fork-${{ github.run_id }}-${{ github.run_attempt }}
+        run: npm run test:fork
+      - name: Firsto real purchase and strict controlled sale, settlement and fee regressions at block 124308679
+        env:
+          VALIDATION_EVIDENCE_ROOT: ${{ runner.temp }}/t1e-fork-${{ github.run_id }}-${{ github.run_attempt }}/firsto
+        run: npm run test:fork:firsto
+      - name: Preserve current raw fork evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t1e-fork-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/t1e-fork-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: warn

@@ -1,0 +1,6 @@
+node_modules/
+.next/
+out/
+out-v4/
+.bemine-v4-publish-*/
+.env.local

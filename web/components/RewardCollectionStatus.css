@@ -1,0 +1,9 @@
+.reward-collection-status{margin:0 24px 24px;padding:18px;border:1px solid var(--border,#e3e5df);border-radius:12px;background:var(--soft,#f8f7f3);color:var(--ink,#243a32)}
+.reward-collection-status-heading,.reward-collection-status-counts{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.reward-collection-status-heading>span{font-size:13px;color:var(--muted,#617166)}
+.reward-collection-status p{margin:10px 0;line-height:1.6;overflow-wrap:anywhere}
+.reward-collection-status-counts{justify-content:flex-start;font-size:14px;font-variant-numeric:tabular-nums;gap:8px 20px}
+.reward-collection-status-warning{color:var(--danger,#a74d3d)}
+.reward-collection-status .subtle-note{font-size:13px}
+.reward-collection-status .live-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+@media(max-width:760px){.reward-collection-status{margin:0 12px 16px;padding:14px}.reward-collection-status-heading{align-items:flex-start}.reward-collection-status .live-actions>.btn{flex:1}}

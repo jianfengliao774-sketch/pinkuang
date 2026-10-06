@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "kind": "fresh-authority",
+  "chainId": 56,
+  "deployer": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+  "deploymentId": "1790952322662-0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+  "genesisArtifactDigest": "0x9523dd920e91dcab4358eceddff660d65357bfe1fe3bf6f3e7823cbc94af2502",
+  "authority": {
+    "address": "0x434b837ADeE65D81923E8dcB329a36b40Aa68fB3",
+    "deploymentTxHash": "0x7e3f0ce57671ad0f065b24a019bdd31bf35477c961cba23880940495a93ab782",
+    "administratorOne": "0x7674fa446D42b1f7f150DC5e678cc525d275Ea53",
+    "administratorTwo": "0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb",
+    "gasWallet": "0xA285d1933e32b5990625aC1F5BEa205Cf2606619"
+  },
+  "steps": [
+    {
+      "id": "deployAuthority",
+      "txHash": "0x7e3f0ce57671ad0f065b24a019bdd31bf35477c961cba23880940495a93ab782",
+      "blockNumber": 125312129,
+      "blockHash": "0xc162d54c986f75af6d2da952fe9e62d5ef0fe7ef111f1bd2bc3441ab36f8e9d7"
+    },
+    {
+      "id": "coreOperator",
+      "txHash": "0xf819e9f06c61135635b854e4c7a77cda4bae2b122c49b331b2f432612a28e823",
+      "blockNumber": 125312237,
+      "blockHash": "0x4f3b059057ad5405bed1ab5ac4717e3ce0721b83b06657798a2da63fef2a9366"
+    },
+    {
+      "id": "coreTreasury",
+      "txHash": "0x518fda186f33e0560e239da9190ea82f06beb769e9a65c28ac0eb9a7458d93e2",
+      "blockNumber": 125312383,
+      "blockHash": "0x76907386ce887e453b97d0905fbc2bca0a64f204c0e51ac8d668665589f3693a"
+    },
+    {
+      "id": "budgetOperator",
+      "txHash": "0x509f44d731192eeea815125303de73a697c70c3a45517f24afba93d783cadd69",
+      "blockNumber": 125312616,
+      "blockHash": "0x0b426d814e1a6ee7b6deed0f9c4c38fb28d04412724fba4e2b2268221ef0de18"
+    },
+    {
+      "id": "budgetTreasury",
+      "txHash": "0x413928349b1de178d764c23960933a6bb818edfec94a1182b68bd39e2cbc499a",
+      "blockNumber": 125312799,
+      "blockHash": "0x0fb84377f14415ea423ca4aaf570b5f85f380985dbed27a8b11f1a3bfb7a3be0"
+    },
+    {
+      "id": "coreOwner",
+      "txHash": "0x70a954abd1a1ad56850a58d3e7d38af6c12d9eff3dd54656f7786246e312ec5c",
+      "blockNumber": 125312920,
+      "blockHash": "0x1e177d7c6a6e9f00c96ad498915230cd55029037333a05fb66fa7e4d9aa20377"
+    },
+    {
+      "id": "budgetOwner",
+      "txHash": "0x4ceaacb2f5b86d60252d1a7460952c4eb74b6f2f4bbb65a538b03db8d3a172ce",
+      "blockNumber": 125313051,
+      "blockHash": "0x7611957e6cc719e984d3c707249b51830cf7a0058293cfefbcd49d14db3eeae5"
+    }
+  ],
+  "verifiedAt": "2026-10-02T15:33:14.822Z"
+}

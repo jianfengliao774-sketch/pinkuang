@@ -1,0 +1,279 @@
+{
+  "schemaVersion": 1,
+  "kind": "fresh-genesis-public-receipts",
+  "chainId": 56,
+  "deployer": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+  "id": "1791026348155-0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+  "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+  "sourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
+  "status": "complete",
+  "addresses": {
+    "AtomicDeployment": "0x04d1b32B67C1420380f77a6a24Dd2a9Ed6f78158",
+    "BudgetPortfolioFactory": "0x4DB0b69FF98275241083176Fb32c44115Ae2e23E",
+    "BudgetPortfolioVault": "0xFDd25551830a93E5bFfdF2836E0065aF0a93f6f9",
+    "FirstoSale": "0x6b80f98020c5BB4106A86Bca4378E5CBBb200C21",
+    "FlexiblePurchase": "0x413B4AA7E4C1B77C39e5897FcF6a8090Bb513446",
+    "FreshPoolFactory": "0xE277615D720555839D48DBA6BBDbb4eB6bd16bbA",
+    "MiningOperations": "0x99A5F0f6E780D147EcCC053EDBE1BDB7d93d561e",
+    "PoolFunds": "0xE838e303B63b55238daC250Acd0A1dC049365114",
+    "PoolVault": "0x9C359621a531629A43565166f87Db7D3Ae78310d",
+    "PurchaseValidation": "0x7e9f55608B6f00899c61e75A763E86a2ce670A74",
+    "RewardAccounting": "0x86645E27b55cA9fFf0bE5DD9B8dc066E19251823",
+    "SaleGovernance": "0x64F116956E5647791F491da28BAdc645859d4Baf",
+    "SaleSettlement": "0x5550e1d8936C96318A74f812318D3DBfc3244dcB",
+    "ShareCheckpoints": "0xcc32d834457aBFc23c310CFcbAEb3267799B8A70",
+    "ShareMarket": "0x764840f48cA242E4ac5E2Bb359e4B08ba529FE4E",
+    "beacon": "0x326Ef311677d4e2952B7C83D7fc28EF9088d94a9",
+    "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+    "lens": "0x0ba8fB239a6D798D3E52fCeeAF198cE3aAC0C3e1",
+    "portfolioBeacon": "0x8BFF2080B0B04CfDaCBeb05696b07a0cC480c1Ae",
+    "portfolioFactory": "0x533199B4E535C03BBAB4EC3fcf9B69aD16936065",
+    "portfolioFactoryImplementation": "0x4DB0b69FF98275241083176Fb32c44115Ae2e23E",
+    "portfolioShareMarket": "0x043680f37CC8902C2f58bA099d7C43eC7fa7E313",
+    "portfolioVaultImplementation": "0xFDd25551830a93E5bFfdF2836E0065aF0a93f6f9",
+    "shareMarket": "0x6082bfBCC99a4818174230C3351B05faeA18B024",
+    "timelock": "0x2c0AaE63302A7bF7caF5322Cdfc9da67d4ec8F97"
+  },
+  "steps": [
+    {
+      "id": "PoolFunds",
+      "txHash": "0x6b59c84ab5830871d1535a2c9bf1be15376c82993dd91afc9887cfa3716055e8",
+      "address": "0xE838e303B63b55238daC250Acd0A1dC049365114",
+      "codehash": "0x9ba6d9b85521db8ec949b33188d9901041a4b308df3aa63f82986a6bda411ef9",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0xe1a760b1d39e29178b8ea287feb0874685952b2b7b0a9dc56951b0301b3be0ce",
+        "blockNumber": 125475159,
+        "feeWei": "44204800000000",
+        "gasPrice": "50000000",
+        "gasUsed": "884096",
+        "status": 1
+      }
+    },
+    {
+      "id": "PurchaseValidation",
+      "txHash": "0x3b2fb9c76c474c98706c328816ad07d5d7d570aeb5f597b5e82add11220ed996",
+      "address": "0x7e9f55608B6f00899c61e75A763E86a2ce670A74",
+      "codehash": "0x7b3736cb293f007c17fea47721f5ea3fa5b06bf6e603458f39809bbf96de329a",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0x0df732a61a7456e85011228cab59eb47d2b7b89ecd7a48b98555e3c2cc0cc2b5",
+        "blockNumber": 125475244,
+        "feeWei": "57477550000000",
+        "gasPrice": "50000000",
+        "gasUsed": "1149551",
+        "status": 1
+      }
+    },
+    {
+      "id": "FlexiblePurchase",
+      "txHash": "0xa99c9187130c9c6aa5c5220ee50598b4b83a933dd31e3ec4a1ee2c128b2fd85b",
+      "address": "0x413B4AA7E4C1B77C39e5897FcF6a8090Bb513446",
+      "codehash": "0x9a18a725d0797925d491defd15ee6d58acf6b8e9317fa4a6d92cd7722c45dd9c",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0x2f1175fb181d3a2af124a8ccb9a12846185149783789ce633ec9ff3bdfce582f",
+        "blockNumber": 125475313,
+        "feeWei": "143531250000000",
+        "gasPrice": "50000000",
+        "gasUsed": "2870625",
+        "status": 1
+      }
+    },
+    {
+      "id": "MiningOperations",
+      "txHash": "0xfab7d6abf7a9bfb5172eb99290078175c6c388a1b2954fe2964049902b78ab51",
+      "address": "0x99A5F0f6E780D147EcCC053EDBE1BDB7d93d561e",
+      "codehash": "0xb3b3f578e980c4d1b129cf43a26afa229743e9e097ce22a19946706c098e772d",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0x8f6dab0388ecb052e8d9abc0c07d1e091bbb205590bf708f25c537d1e1f13a38",
+        "blockNumber": 125475381,
+        "feeWei": "67463250000000",
+        "gasPrice": "50000000",
+        "gasUsed": "1349265",
+        "status": 1
+      }
+    },
+    {
+      "id": "RewardAccounting",
+      "txHash": "0xc4d8027552f47aabae641dd2c0724f87f1ac9702e548404dc441ea50baaa5b14",
+      "address": "0x86645E27b55cA9fFf0bE5DD9B8dc066E19251823",
+      "codehash": "0x027718174cd272c4e9a50fd7ce7acea0ce119c69da283f968fa888b61a25bd0e",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0x363d499f3e1732d263c2fca795d43a138b9c067d47edf812bb615ea7ed79a542",
+        "blockNumber": 125475443,
+        "feeWei": "55119550000000",
+        "gasPrice": "50000000",
+        "gasUsed": "1102391",
+        "status": 1
+      }
+    },
+    {
+      "id": "SaleGovernance",
+      "txHash": "0x40566fe55129266be18f18021ac45873d29f951c290f79ed07045797262373b5",
+      "address": "0x64F116956E5647791F491da28BAdc645859d4Baf",
+      "codehash": "0x071b1384c10187efb8f265586428d39aa382b8aebcae4ec96b1d7a6c94342f93",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0x791f6b73556cfd246289b273c55889e26ce5f6f9651c66fefb1687a9c78f5c6f",
+        "blockNumber": 125475509,
+        "feeWei": "73329100000000",
+        "gasPrice": "50000000",
+        "gasUsed": "1466582",
+        "status": 1
+      }
+    },
+    {
+      "id": "SaleSettlement",
+      "txHash": "0xc2778c3ba402cb7f85398c4aa6896f842384c73b3586505488cf8b437051d3b4",
+      "address": "0x5550e1d8936C96318A74f812318D3DBfc3244dcB",
+      "codehash": "0x2f60fcba73a2c0b21e49e813c22a756d1e10e8847f55cb8e7a0f26122a14f2b5",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0xf91dbb7384b38c266845d948b66194b2ae19fbed579d22881b033d23d7e86a06",
+        "blockNumber": 125475578,
+        "feeWei": "48137800000000",
+        "gasPrice": "50000000",
+        "gasUsed": "962756",
+        "status": 1
+      }
+    },
+    {
+      "id": "ShareCheckpoints",
+      "txHash": "0xc7096733e76ed6b4f1c11216ad39da4401b5673043128286a1100f3377d72ba0",
+      "address": "0xcc32d834457aBFc23c310CFcbAEb3267799B8A70",
+      "codehash": "0xe5bf0388e8250d78762afeef0af7741847c3ed2cd482aa69bf3a33e1a250b1d4",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0xaf3f43dea874b7111bb0f39d6bf02df034f17523ca808dd79664b6487b31437c",
+        "blockNumber": 125475642,
+        "feeWei": "18525050000000",
+        "gasPrice": "50000000",
+        "gasUsed": "370501",
+        "status": 1
+      }
+    },
+    {
+      "id": "FirstoSale",
+      "txHash": "0x938c2c53101905fd3bd10ed2ceadd1abdc510aaeeeeeee2fcf17f7225e95484c",
+      "address": "0x6b80f98020c5BB4106A86Bca4378E5CBBb200C21",
+      "codehash": "0xd5353498be4e7a9f633206c879baf408f67223759b4ffecd79c2c920c681f349",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0x08b2cebf2237f9737c6e6992fb263a91594f1ed580d072723ed2b28c02e6108e",
+        "blockNumber": 125475707,
+        "feeWei": "199629900000000",
+        "gasPrice": "50000000",
+        "gasUsed": "3992598",
+        "status": 1
+      }
+    },
+    {
+      "id": "AtomicDeployment",
+      "txHash": "0xa8968ebfdad16e42e9bc634b4d604312f97e454550d1f035c61ca804d0d84307",
+      "address": "0x04d1b32B67C1420380f77a6a24Dd2a9Ed6f78158",
+      "codehash": "0xb9f1679e1f4226feca4fa96befbf37c6a193a469b88373ca6bc865c80ca78bb9",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0xfc14c69666ef5f125bc2e64cc8fbf6667f59194357a0d05c6ea3e31707d2e025",
+        "blockNumber": 125475773,
+        "feeWei": "231388600000000",
+        "gasPrice": "50000000",
+        "gasUsed": "4627772",
+        "status": 1
+      }
+    },
+    {
+      "id": "PoolVault",
+      "txHash": "0xaff566770a772655e872cdcb19bab973ea64d18f5af1905cd6c8eebe04064637",
+      "address": "0x9C359621a531629A43565166f87Db7D3Ae78310d",
+      "codehash": "0x638efabac06b4d1bea37f97124a783ed0915569f81e85b5341103dea048f7a74",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0x273e27ff577a6e18617b95e843346ed26cb753acdbb7b972ca36a6fa05bc34c3",
+        "blockNumber": 125475841,
+        "feeWei": "268930750000000",
+        "gasPrice": "50000000",
+        "gasUsed": "5378615",
+        "status": 1
+      }
+    },
+    {
+      "id": "FreshPoolFactory",
+      "txHash": "0x59d69121bbdc719cc92d24078039d160aec2e677ff63686ab7d7ede863d7ecab",
+      "address": "0xE277615D720555839D48DBA6BBDbb4eB6bd16bbA",
+      "codehash": "0xb106bbc83271df969c30d26f4c65dc69961767616f4a97b07a9cf221d91a5bea",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0x64b2552019a2c8f482cd266deda75c346465f65cd67bb379f2f00accc1ac81bd",
+        "blockNumber": 125475973,
+        "feeWei": "255509850000000",
+        "gasPrice": "50000000",
+        "gasUsed": "5110197",
+        "status": 1
+      }
+    },
+    {
+      "id": "ShareMarket",
+      "txHash": "0x6d3bc16ab0baa0ca1a7de3a85bbb464e5998b79f72e14a3aa5cfc093fe5fcbf0",
+      "address": "0x764840f48cA242E4ac5E2Bb359e4B08ba529FE4E",
+      "codehash": "0x3dc161657cdd39271ea3ce32122121f59adc79440b98721295076990c64ede5a",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0x208d2d512bc0fdce9e4acf81610f281b8878edfe65d48565e7240a56e83f6e69",
+        "blockNumber": 125476042,
+        "feeWei": "168437100000000",
+        "gasPrice": "50000000",
+        "gasUsed": "3368742",
+        "status": 1
+      }
+    },
+    {
+      "id": "BudgetPortfolioFactory",
+      "txHash": "0x9a788e8fb2397111f18d9805a65003f405faec016a64e5002fc1e417419a0b67",
+      "address": "0x4DB0b69FF98275241083176Fb32c44115Ae2e23E",
+      "codehash": "0xb61f54ff4a60547b87434c0a4dbb6e5c5a0cb37a670dfa9e6c446ab82ae697be",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0x65b08c94fd0218ea542039ca35234cf654bc4986f36fc59c5af0cfa8830acb79",
+        "blockNumber": 125476105,
+        "feeWei": "108093100000000",
+        "gasPrice": "50000000",
+        "gasUsed": "2161862",
+        "status": 1
+      }
+    },
+    {
+      "id": "BudgetPortfolioVault",
+      "txHash": "0x8182d5c1a8e6b6c83659d828f7704c8226fcd9b8266a9cab8546a8c86db6a1af",
+      "address": "0xFDd25551830a93E5bFfdF2836E0065aF0a93f6f9",
+      "codehash": "0x7bef73eb1c26d4f6e3da943bf7ec11fbe8ea11a2e9a83daf40077d201051dd7c",
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0xf6d64c53047641eef2f08dedaf2e922349a7384ea7eac1c1d7b95bd9af3e727b",
+        "blockNumber": 125476170,
+        "feeWei": "268718750000000",
+        "gasPrice": "50000000",
+        "gasUsed": "5374375",
+        "status": 1
+      }
+    },
+    {
+      "id": "initialize",
+      "txHash": "0x3832f45fefd27e791881664999cff1d76b6561bd604f7bd5e75e88ae94be332a",
+      "address": null,
+      "codehash": null,
+      "status": "confirmed",
+      "receipt": {
+        "blockHash": "0xa65cef31894ec2339a52e9e43452e72b647a46a4c0a0cdab8f08ddce7b08767e",
+        "blockNumber": 125476240,
+        "feeWei": "266524150000000",
+        "gasPrice": "50000000",
+        "gasUsed": "5330483",
+        "status": 1
+      }
+    }
+  ]
+}

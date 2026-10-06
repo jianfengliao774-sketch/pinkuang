@@ -1,0 +1,68 @@
+No files changed, compilation skipped
+
+Ran 5 tests for test/fork/AuditMiningSettlementFork.t.sol:AuditMiningSettlementForkTest
+[PASS] test_Fork_LocalOwnerImpersonatedStopTransitionAllowsExitWithoutStorageOverride() (gas: 1904112)
+Logs:
+  local owner impersonation called real stop; production operator still cannot call stop
+  old-holder BEM paid after safe zero settlement (atoms): 3177019
+  old-holder BNB exit proceeds (wei): 14008000000000000
+
+[PASS] test_Fork_StateOverrideStatus0AllowsSharesMarketAndWholeNftSale() (gas: 1878649)
+Logs:
+  artificial status-byte override, not natural revocation: 0
+  old-holder BEM paid after safe zero settlement (atoms): 3177019
+  old-holder BNB exit proceeds (wei): 14008000000000000
+
+[PASS] test_Fork_StateOverrideStatus2AllowsSharesMarketAndWholeNftSale() (gas: 1878607)
+Logs:
+  artificial status-byte override, not natural revocation: 2
+  old-holder BEM paid after safe zero settlement (atoms): 3177019
+  old-holder BNB exit proceeds (wei): 14008000000000000
+
+[PASS] test_Fork_StateOverrideStatus3AllowsSharesMarketAndWholeNftSale() (gas: 1878607)
+Logs:
+  artificial status-byte override, not natural revocation: 3
+  old-holder BEM paid after safe zero settlement (atoms): 3177019
+  old-holder BNB exit proceeds (wei): 14008000000000000
+
+[PASS] test_Fork_StateOverrideUnknownStatusRejectsZeroSettlement() (gas: 148142)
+Logs:
+  artificial status-byte override, not natural revocation: 255
+
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 9.40ms (6.02ms CPU time)
+
+Ran 1 test for test/fork/BudgetPortfolioFork.t.sol:BudgetPortfolioForkTest
+[PASS] test_Fork_IntegratedBudgetBuysBothSourcesAtExactCostAndReceivesControlledSaleProceeds() (gas: 3534328)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 8.64ms (5.76ms CPU time)
+
+Ran 1 test for test/fork/FirstoPoolFork.t.sol:FirstoPoolForkTest
+[PASS] test_Fork_RealSignedAskSettlesSellerThenDeliversToActualPool() (gas: 652059)
+Logs:
+  fixture block: 124308679
+  seller pre-purchase pending (atoms): 28313
+  seller actual BEM settlement (atoms): 28421
+  actual Pool gross spend (wei): 50500000000000000
+  local-only actual PoolVault: 0x746326d3E4e54BA617F8aB39A21b7420aE8bF97d
+
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 2.91ms (1.05ms CPU time)
+
+Ran 1 test for test/fork/PoolBurnFork.t.sol:PoolBurnForkTest
+[PASS] test_Fork_BurnEntrypointsRejectAndPreserveAllReserves() (gas: 59239)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 3.25ms (121.00µs CPU time)
+
+Ran 4 tests for test/fork/PoolSaleFork.t.sol:PoolSaleForkTest
+[PASS] test_Fork_MissingOwnershipRejectsFinalSettlementAndPreservesBuyerPayment() (gas: 787367)
+[PASS] test_Fork_NoApprovalLetsBuyerOrCircuitMarketBypassControlledSale() (gas: 597617)
+[PASS] test_Fork_ProductionSaleSettlesThenTransfersAndPaysOriginalMembers() (gas: 2590086)
+Logs:
+  real new-owner future BEM (atoms): 38983
+  real final handover gross BEM (atoms): 38983
+  real final handover member net BEM (atoms): 38594
+  sale member BNB (wei): 99000000000000000
+  disabled burn budget (wei): 0
+
+[PASS] test_Fork_RejectingBuyerRollsBackRealFinalMintAndAllSaleAccounting() (gas: 2256381)
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 8.53ms (5.53ms CPU time)
+
+Ran 5 test suites in 623.17ms (32.72ms CPU time): 12 tests passed, 0 failed, 0 skipped (12 total tests)
+2026-09-28T01:21:48.304688Z  WARN evm::traces::external: etherscan config not found

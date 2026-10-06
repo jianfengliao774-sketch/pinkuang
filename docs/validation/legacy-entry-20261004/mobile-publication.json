@@ -1,0 +1,150 @@
+{
+  "publishedAt": "2026-10-04T04:49:27.795278+00:00",
+  "rollback": false,
+  "kind": "single-html-overlay-not-a-rebuilt-parent-release",
+  "target": "/var/www/bemine-v5/current/mobile-review.html",
+  "oldSha256": "d14ed0f055102861ccbfe554c33bb71b82b1b740b000ad44865d72a2a277022c",
+  "newSha256": "3fd2c8d8aa0b934ce37d8f4ed1dace049c1080dcb45a3f64d26ac92af656e374",
+  "productHomeLiveAndUpgradeFilesUnchanged": true,
+  "immutableClientChunksUnchanged": true,
+  "runtimeRestarted": false,
+  "serviceProcessesUnchanged": true,
+  "routes": [
+    {
+      "url": "https://bemine.cc.cd/mobile-review",
+      "status": 200,
+      "sha256": "3fd2c8d8aa0b934ce37d8f4ed1dace049c1080dcb45a3f64d26ac92af656e374"
+    },
+    {
+      "url": "https://bemine.cc.cd/mobile-review.html",
+      "status": 200,
+      "sha256": "3fd2c8d8aa0b934ce37d8f4ed1dace049c1080dcb45a3f64d26ac92af656e374"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v5/mobile-review.html",
+      "status": 200,
+      "sha256": "3fd2c8d8aa0b934ce37d8f4ed1dace049c1080dcb45a3f64d26ac92af656e374"
+    }
+  ],
+  "protected": {
+    "files": {
+      "/var/www/bemine-v5/current/index.html": {
+        "resolved": "/var/www/bemine-v5/releases/catalog-prices-af164a6ad764/index.html",
+        "sha256": "708c2d7123ebc1c1c0a00fe87312de1950374dbca730875217078a25eeeed97b"
+      },
+      "/var/www/bemine-v5/current/live.html": {
+        "resolved": "/var/www/bemine-v5/releases/catalog-prices-af164a6ad764/live.html",
+        "sha256": "ce995ab5d5aa068b136da7173fb771f38784e566bf2a91d24f0cb05e163c2c49"
+      },
+      "/etc/nginx/snippets/bemine-retired-paused.conf": {
+        "resolved": "/etc/nginx/snippets/bemine-retired-paused.conf",
+        "sha256": "9f599d0bdc03a2df158900f2e591cfbc89853b5953ecfd01c334061391b46a58"
+      },
+      "/etc/nginx/snippets/bemine-v5-product.conf": {
+        "resolved": "/etc/nginx/snippets/bemine-v5-product.conf",
+        "sha256": "aa61b0b208f7aea9b73dc67e106099172dfff6f8b35853878558101f6f2848c2"
+      },
+      "/etc/nginx/snippets/pinkuang-target-owner-upgrade.conf": {
+        "resolved": "/etc/nginx/snippets/pinkuang-target-owner-upgrade.conf",
+        "sha256": "628ee75655bfa065b58ff91b7bcfab6cfd7f6b13b9a057e6802228cb92c4cf27"
+      },
+      "upgrade-directory": {
+        "resolved": "/srv/pinkuang-target-owner-upgrade/releases/83bd2180fea2ea7cb066004d75fa4339b39222b7",
+        "files": {
+          "assets/target-owner-upgrade-B-blP-HZ.js": "bc0dbaaab1bc72ffc9cc3e345aa153dcdb16588326802daa6cacc2b0c7c31f75",
+          "assets/target-owner-upgrade-CbBFEsrm.js": "a43722987b4c14da702fadeb6e5892a729b3662bd67e65ede7f2d2d516a77bef",
+          "assets/target-owner-upgrade-DeMEaVkt.css": "03ea42021bf3cc1dbe347500064b4e2f51d710f8f524762bd34d435d9716413f",
+          "assets/target-owner-upgrade-btLox2Nz.css": "e075902bd0e492c0441a1a053f1016e529a9504b7326054427ebcf1687eadd43",
+          "data/gasEvidence.json": "29bb77532666ae0a7c78b1c727700f813c59d84e11ed6fd4864b0de2510014c1",
+          "data/genesisBundle.json": "47667cc5be2a649562e04d3915b471ef0b6b210426794dcfa0e34c1cb2bdb2ba",
+          "data/genesisRecord.json": "3e0d86df860c91adc97ad96a71e5ed171aadc2cd51a0ec74f2b58380b08b6f93",
+          "data/liveReview.json": "54db8e3cf81bdfc3688a81988a21881327b5a04351f73b7049b310e0bd51f7aa",
+          "data/reviewCatalog.json": "b659e1b5896c1449874e7cf8cf4d484e1a7e46ba198d48d1704a69632d2c9b02",
+          "data/trustedGenesisManifest.json": "e0455e6d40c2bc4bd2d471ce4df222e03edfc6be1a0a529c91da6e9433363f97",
+          "data/upgradeBundle.json": "d5dfa455670fa13dc6e7d8fbeec64b97e794aea8a22710ab2b41458d39d12026",
+          "index.html": "c70492f057426d3b3c9d720225f6723172205a534e96a209b4b8607e49a36f84",
+          "static-release-manifest.json": "4bb580ab69e4d2a7a399b5ab580a3994acadab8bdd8bc9539745d036d8d34a64"
+        }
+      },
+      "parent-build-record": {
+        "resolved": "/var/www/bemine-v5/releases/catalog-prices-af164a6ad764",
+        "sha256": "fb41a6c336b1b742b1861f5bd7652b172b96231afe55ed978f1340e154d79c8c"
+      },
+      "mobile-client-chunk": {
+        "sha256": "1b5c730fa7e86967c7d3ac00f954c961814a773b32ba0ce8aab8a16dec475e5d"
+      }
+    },
+    "services": {
+      "pinkuang-index-v5": {
+        "MainPID": "862469",
+        "ExecMainStartTimestampMonotonic": "2363993122109",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "ea3f3741704e438688d82fd32771e93a"
+      },
+      "pinkuang-product-v5": {
+        "MainPID": "812246",
+        "ExecMainStartTimestampMonotonic": "2323865914140",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "100ad338a9974e60a73e18f9518b0508"
+      },
+      "pinkuang-v5-mining": {
+        "MainPID": "825352",
+        "ExecMainStartTimestampMonotonic": "2329488989165",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "7ed23d29eb1b4fefa031f5da42accf7f"
+      },
+      "pinkuang-v5-purchase": {
+        "MainPID": "812235",
+        "ExecMainStartTimestampMonotonic": "2323865873116",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "8f33684f82334c52b6cbd56e684b6224"
+      },
+      "pinkuang-v5-signer": {
+        "MainPID": "872842",
+        "ExecMainStartTimestampMonotonic": "2371600393116",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "8736c0f0bec94bb0920e9d802fcb75f5"
+      },
+      "pinkuang-v5-price": {
+        "MainPID": "812248",
+        "ExecMainStartTimestampMonotonic": "2323865927251",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "572ab0be1ce6443cadb3df3fd05010d3"
+      },
+      "pinkuang-deploy-v5": {
+        "MainPID": "756197",
+        "ExecMainStartTimestampMonotonic": "2246501747148",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "b796c601e8964d298fbb14f574337013"
+      },
+      "pinkuang-deploy-latest": {
+        "MainPID": "804558",
+        "ExecMainStartTimestampMonotonic": "2320917443136",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "cbe7af58e4584cc4a1b20f6eb688e41f"
+      },
+      "bem2075-site": {
+        "MainPID": "138055",
+        "ExecMainStartTimestampMonotonic": "522157711077",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "9050895f39f24c67b8d1d692e9674bc7"
+      },
+      "nginx": {
+        "MainPID": "547237",
+        "ExecMainStartTimestampMonotonic": "2102417886312",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "d7fbbafa423c4c40a6ddfa282c543bd8"
+      }
+    }
+  }
+}

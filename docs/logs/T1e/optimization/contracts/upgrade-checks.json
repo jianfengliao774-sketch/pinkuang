@@ -1,0 +1,176 @@
+[
+  {
+    "kind": "implementation-or-fixture",
+    "contract": "src/PoolFactory.sol:PoolFactory",
+    "negative": false,
+    "standaloneOk": true,
+    "ok": true
+  },
+  {
+    "kind": "implementation-or-fixture",
+    "contract": "src/PoolVault.sol:PoolVault",
+    "negative": false,
+    "standaloneOk": true,
+    "ok": true
+  },
+  {
+    "kind": "implementation-or-fixture",
+    "contract": "src/ShareMarket.sol:ShareMarket",
+    "negative": false,
+    "standaloneOk": true,
+    "ok": true
+  },
+  {
+    "kind": "T1a-baseline",
+    "contract": "src/PoolFactory.sol:PoolFactory",
+    "baselinePath": "docs/storage/T1a-PoolFactory.json",
+    "baselineCommit": "339c034e4bf4b504dcd4a7479d272a7f662497fc",
+    "baselineFileSha256": "4867b4e796fbdfce044a77ebc83d3cd0c064995074f21dd7b8811a6a69dca192",
+    "baselineSourceSha256": "5394efe4750da2b85769ae2d0478d26eed99c61af22a0ac6885788b057e937ed",
+    "currentSourceSha256": "ed1fa42f91d5b8f236d3587546a3ab3be182f73269605dc9d789926ee67e95e8",
+    "previousFieldCount": 7,
+    "currentFieldCount": 8,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "T1a-baseline",
+    "contract": "src/PoolVault.sol:PoolVault",
+    "baselinePath": "docs/storage/T1a-PoolVault.json",
+    "baselineCommit": "339c034e4bf4b504dcd4a7479d272a7f662497fc",
+    "baselineFileSha256": "d836342a653eafdb3bf92c329d3268314797c10c932eedfa0f1ab884a0d2a7ba",
+    "baselineSourceSha256": "ee0b598caf5b5166bd9cfdf57abfed344b65a9cad9d733dfd2f5da492bee6334",
+    "currentSourceSha256": "4171bbaf398ac488c6c0aeaa7544dcb02160271f4e299fd9036cdd560f9ed715",
+    "previousFieldCount": 15,
+    "currentFieldCount": 25,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "T1b-baseline",
+    "contract": "src/PoolFactory.sol:PoolFactory",
+    "baselinePath": "docs/storage/T1b-PoolFactory.json",
+    "baselineCommit": "6d090612c4b5ce0409b08b90a0573912aaee95f9",
+    "baselineFileSha256": "904f600af8ca337c6d1d632bde8dd367a86876e856a33cd9f0bf1fa304ddca82",
+    "baselineSourceSha256": "5394efe4750da2b85769ae2d0478d26eed99c61af22a0ac6885788b057e937ed",
+    "currentSourceSha256": "ed1fa42f91d5b8f236d3587546a3ab3be182f73269605dc9d789926ee67e95e8",
+    "previousFieldCount": 7,
+    "currentFieldCount": 8,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "T1b-baseline",
+    "contract": "src/PoolVault.sol:PoolVault",
+    "baselinePath": "docs/storage/T1b-PoolVault.json",
+    "baselineCommit": "6d090612c4b5ce0409b08b90a0573912aaee95f9",
+    "baselineFileSha256": "c95ae0b94417aefc39791b6ce74a35f5e63892f8a445dc0b5b474ef46073aa98",
+    "baselineSourceSha256": "fe34ea072da31ca8354c07835ef00bebfce3669b399cf8f18566a7bd13640b12",
+    "currentSourceSha256": "4171bbaf398ac488c6c0aeaa7544dcb02160271f4e299fd9036cdd560f9ed715",
+    "previousFieldCount": 24,
+    "currentFieldCount": 25,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "T1c-baseline",
+    "contract": "src/PoolFactory.sol:PoolFactory",
+    "baselinePath": "docs/storage/T1c-PoolFactory.json",
+    "baselineCommit": "0d676cd666fd2e5e8160e1d3c961d8a15f2caea3",
+    "baselineFileSha256": "6086418a48999a689df62b4d68ab8aa66cd13e4bb9a16af5d20f28d795be13e7",
+    "baselineSourceSha256": "11f5b25b7548a4a61532de30f0d94fb1e07e44ac73c00f070eff12d53ad4f385",
+    "currentSourceSha256": "ed1fa42f91d5b8f236d3587546a3ab3be182f73269605dc9d789926ee67e95e8",
+    "previousFieldCount": 7,
+    "currentFieldCount": 8,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "T1c-baseline",
+    "contract": "src/PoolVault.sol:PoolVault",
+    "baselinePath": "docs/storage/T1c-PoolVault.json",
+    "baselineCommit": "0d676cd666fd2e5e8160e1d3c961d8a15f2caea3",
+    "baselineFileSha256": "3e3d458b83926490271a9f5ea324fbcf21cfa5442a6fea015dbd8dec0f655294",
+    "baselineSourceSha256": "d47ec3b061ae8078296fdabeff3628f25df236d92325edffc3e0b86d62ef4a12",
+    "currentSourceSha256": "4171bbaf398ac488c6c0aeaa7544dcb02160271f4e299fd9036cdd560f9ed715",
+    "previousFieldCount": 24,
+    "currentFieldCount": 25,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "T1d-baseline",
+    "contract": "src/PoolFactory.sol:PoolFactory",
+    "baselinePath": "docs/storage/T1d-PoolFactory.json",
+    "baselineCommit": "5551c7710afb0c978e80cc9ab9a8dda8e768ea2a",
+    "baselineFileSha256": "c62d3cf0fda16326d42f0ccac45bb0165755637b1418f3b7effd8c133b53487d",
+    "baselineSourceSha256": "ed1fa42f91d5b8f236d3587546a3ab3be182f73269605dc9d789926ee67e95e8",
+    "currentSourceSha256": "ed1fa42f91d5b8f236d3587546a3ab3be182f73269605dc9d789926ee67e95e8",
+    "previousFieldCount": 8,
+    "currentFieldCount": 8,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "T1d-baseline",
+    "contract": "src/PoolVault.sol:PoolVault",
+    "baselinePath": "docs/storage/T1d-PoolVault.json",
+    "baselineCommit": "5551c7710afb0c978e80cc9ab9a8dda8e768ea2a",
+    "baselineFileSha256": "16a69e2f1e1b8ed67f13529ca8f3da379e502dadd1fa4c2d2ba93251db2ac1de",
+    "baselineSourceSha256": "d95d02136749472c3e9824540d439524a1893085dc3405df1c20a35580328f99",
+    "currentSourceSha256": "4171bbaf398ac488c6c0aeaa7544dcb02160271f4e299fd9036cdd560f9ed715",
+    "previousFieldCount": 25,
+    "currentFieldCount": 25,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "T1d-baseline",
+    "contract": "src/ShareMarket.sol:ShareMarket",
+    "baselinePath": "docs/storage/T1d-ShareMarket.json",
+    "baselineCommit": "5551c7710afb0c978e80cc9ab9a8dda8e768ea2a",
+    "baselineFileSha256": "40f5aba138e0a7f227a5defdc7f6cf925c3f2d9b0070cd1058ffc8403ef08421",
+    "baselineSourceSha256": "34c1be0e8e2d6fb33a138524eb6fda47d202492a98a33ea855423b0de83bc2fe",
+    "currentSourceSha256": "34c1be0e8e2d6fb33a138524eb6fda47d202492a98a33ea855423b0de83bc2fe",
+    "previousFieldCount": 6,
+    "currentFieldCount": 6,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "implementation-or-fixture",
+    "contract": "test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture",
+    "reference": "src/PoolFactory.sol:PoolFactory",
+    "negative": false,
+    "standaloneOk": true,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "implementation-or-fixture",
+    "contract": "test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture",
+    "reference": "src/PoolVault.sol:PoolVault",
+    "negative": false,
+    "standaloneOk": true,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "implementation-or-fixture",
+    "contract": "test/unit/ShareMarket.t.sol:ShareMarketV2Fixture",
+    "reference": "src/ShareMarket.sol:ShareMarket",
+    "negative": false,
+    "standaloneOk": true,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "implementation-or-fixture",
+    "contract": "test/utils/InvalidVaultLayout.sol:InvalidVaultLayout",
+    "reference": "src/PoolVault.sol:PoolVault",
+    "negative": true,
+    "standaloneOk": true,
+    "storageLayoutOk": false,
+    "ok": false
+  }
+]

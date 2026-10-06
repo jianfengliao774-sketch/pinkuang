@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "kind": "frontend-only-static-update",
+  "frontendSourceHead": "11951418ea92dbab6bdb8c453814340346d651f2",
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "frontend": {
+    "schemaVersion": 1,
+    "kind": "fresh-v5-product-static-candidate",
+    "chainId": 56,
+    "basePath": "/bemine-v5",
+    "productFamily": "fresh-v4",
+    "publicOrigin": "https://bemine.cc.cd",
+    "publicUrl": "https://bemine.cc.cd/bemine-v5/",
+    "deployConsoleUrl": "https://tapeout.cc.cd/pinkuang-deploy-v5/",
+    "manifestSha256": "0xc1e46426f96b858013c4485461f265021bf5e4c483be8a1591ad7563dcea112d",
+    "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+    "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+    "portfolioFactory": "0x533199B4E535C03BBAB4EC3fcf9B69aD16936065",
+    "authority": "0xE549DDF776312c1Bf6E1DB0Ce647f92ca998953c",
+    "gasWallet": "0xA285d1933e32b5990625aC1F5BEa205Cf2606619",
+    "deployment": {
+      "txHash": "0x3832f45fefd27e791881664999cff1d76b6561bd604f7bd5e75e88ae94be332a",
+      "blockNumber": 125476240,
+      "blockHash": "0xa65cef31894ec2339a52e9e43452e72b647a46a4c0a0cdab8f08ddce7b08767e"
+    },
+    "sourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
+    "frontendSourceHead": "11951418ea92dbab6bdb8c453814340346d651f2",
+    "contentSha256": "1b1eeca1fdfec69e86392a0c42cf0a969a9450ea6b951690d95713f32a64aac1",
+    "fileCount": 317,
+    "legacyManifestIncluded": false,
+    "activationAllowed": false,
+    "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+    "updateScope": "frontend-only materialized asset refresh and paid-read deduplication",
+    "runtimeCutoverRequired": false
+  },
+  "archive": {
+    "sha256": "6b495fab8755798fa2e4c20bf58aa7969046bcf154cafcfad0eab9246cbba58e",
+    "bytes": 16800425
+  },
+  "frontendReleaseManifestSha256": "780d26fe5e88f708d897d521aa116c6ba8ee6f8e6691b7040a197e397c1c5b9a",
+  "packagedFileCount": 318,
+  "tests": {
+    "frontend": 1022,
+    "pass": 1022,
+    "fail": 0,
+    "catalog": true,
+    "bemPrice": true,
+    "reviewPolicy": true
+  },
+  "canonicalRootRoutingPreserved": true
+}

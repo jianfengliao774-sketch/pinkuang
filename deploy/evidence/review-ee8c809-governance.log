@@ -1,0 +1,16 @@
+Compiling 100 files with Solc 0.8.24
+Solc 0.8.24 finished in 9.82s
+Compiler run successful!
+
+Ran 1 test for test/audit/AuditGovernance.t.sol:AuditGovernance
+[PASS] test_currentBuyersCanBeExcludedByPreTransferSnapshotBeforeVoteFreeze() (gas: 7020059)
+Logs:
+  former holders' current shares: 1
+  former holders' effective proposal votes: 75
+  buyers' payment in wei: 7400000000000000000
+  buyers' sale proceeds in wei: 1
+  miner sale price in wei: 1
+
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 9.93ms (1.84ms CPU time)
+
+Ran 1 test suite in 17.27ms (9.93ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)

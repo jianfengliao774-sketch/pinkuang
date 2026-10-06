@@ -1,0 +1,515 @@
+{
+  "schemaVersion": 1,
+  "contract": "src/BudgetPortfolioVault.sol:BudgetPortfolioVault",
+  "provenance": {
+    "commit": "5f160c579e9d3d382df199cb29dc1573f5ae992e",
+    "sourceSha256": "e7cf2b75abcd34fc5bd333b4f91a9cc84a09555030022efcc41988c1b9530656",
+    "buildInfoFile": "79b4c56a60b205a1.json",
+    "buildInfoSha256": "bfae58e73d08c2698d06112ad6e68841b93bab3dbc79c931c456ba3ba0e49ad6",
+    "compiler": "0.8.24",
+    "verification": "Every compiled src/ dependency metadata hash matched the fixed 5f160c5 source snapshot."
+  },
+  "layout": {
+    "solcVersion": "0.8.24",
+    "storage": [
+      {
+        "label": "legacyFactory",
+        "offset": 0,
+        "slot": "0",
+        "type": "t_address",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:113"
+      },
+      {
+        "label": "treasury",
+        "offset": 0,
+        "slot": "1",
+        "type": "t_address",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:114"
+      },
+      {
+        "label": "budgetWei",
+        "offset": 0,
+        "slot": "2",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:115"
+      },
+      {
+        "label": "absoluteCapWei",
+        "offset": 0,
+        "slot": "3",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:116"
+      },
+      {
+        "label": "unitCapWei",
+        "offset": 0,
+        "slot": "4",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:117"
+      },
+      {
+        "label": "fundingDeadline",
+        "offset": 0,
+        "slot": "5",
+        "type": "t_uint64",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:118"
+      },
+      {
+        "label": "purchaseDeadline",
+        "offset": 8,
+        "slot": "5",
+        "type": "t_uint64",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:119"
+      },
+      {
+        "label": "state",
+        "offset": 16,
+        "slot": "5",
+        "type": "t_enum(State)64196",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:120"
+      },
+      {
+        "label": "spentWei",
+        "offset": 0,
+        "slot": "6",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:121"
+      },
+      {
+        "label": "officialSpentWei",
+        "offset": 0,
+        "slot": "7",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:122"
+      },
+      {
+        "label": "purchaseFeeWei",
+        "offset": 0,
+        "slot": "8",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:123"
+      },
+      {
+        "label": "refundPerShareWei",
+        "offset": 0,
+        "slot": "9",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:124"
+      },
+      {
+        "label": "refundRoundingWei",
+        "offset": 0,
+        "slot": "10",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:125"
+      },
+      {
+        "label": "salePerShareWei",
+        "offset": 0,
+        "slot": "11",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:126"
+      },
+      {
+        "label": "saleRemainderWei",
+        "offset": 0,
+        "slot": "12",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:127"
+      },
+      {
+        "label": "totalBnbOwed",
+        "offset": 0,
+        "slot": "13",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:128"
+      },
+      {
+        "label": "memberCount",
+        "offset": 0,
+        "slot": "14",
+        "type": "t_uint16",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:129"
+      },
+      {
+        "label": "fundingFailed",
+        "offset": 2,
+        "slot": "14",
+        "type": "t_bool",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:130"
+      },
+      {
+        "label": "activeChildCount",
+        "offset": 0,
+        "slot": "15",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:131"
+      },
+      {
+        "label": "nextProposalId",
+        "offset": 0,
+        "slot": "16",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:132"
+      },
+      {
+        "label": "activeProposalId",
+        "offset": 0,
+        "slot": "17",
+        "type": "t_uint256",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:133"
+      },
+      {
+        "label": "children",
+        "offset": 0,
+        "slot": "18",
+        "type": "t_array(t_address)dyn_storage",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:134"
+      },
+      {
+        "label": "childInfo",
+        "offset": 0,
+        "slot": "19",
+        "type": "t_mapping(t_address,t_struct(Child)53046_storage)",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:135"
+      },
+      {
+        "label": "refundSettled",
+        "offset": 0,
+        "slot": "20",
+        "type": "t_mapping(t_address,t_bool)",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:136"
+      },
+      {
+        "label": "bnbOwed",
+        "offset": 0,
+        "slot": "21",
+        "type": "t_mapping(t_address,t_uint256)",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:137"
+      },
+      {
+        "label": "saleDebt",
+        "offset": 0,
+        "slot": "22",
+        "type": "t_mapping(t_address,t_uint256)",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:138"
+      },
+      {
+        "label": "lockedShares",
+        "offset": 0,
+        "slot": "23",
+        "type": "t_mapping(t_address,t_uint256)",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:139"
+      },
+      {
+        "label": "proposals",
+        "offset": 0,
+        "slot": "24",
+        "type": "t_mapping(t_uint256,t_struct(SaleProposal)53065_storage)",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:140"
+      },
+      {
+        "label": "hasVoted",
+        "offset": 0,
+        "slot": "25",
+        "type": "t_mapping(t_uint256,t_mapping(t_address,t_bool))",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:141"
+      },
+      {
+        "label": "rewards",
+        "offset": 0,
+        "slot": "26",
+        "type": "t_struct(Ledger)71778_storage",
+        "contract": "BudgetPortfolioVault",
+        "src": "src\\BudgetPortfolioVault.sol:142"
+      }
+    ],
+    "types": {
+      "t_address": {
+        "label": "address",
+        "numberOfBytes": "20"
+      },
+      "t_array(t_address)dyn_storage": {
+        "label": "address[]",
+        "numberOfBytes": "32"
+      },
+      "t_bool": {
+        "label": "bool",
+        "numberOfBytes": "1"
+      },
+      "t_enum(State)64196": {
+        "label": "enum IPoolVault.State",
+        "members": [
+          "Funding",
+          "Funded",
+          "Active",
+          "Listed",
+          "Closed",
+          "Refunding"
+        ],
+        "numberOfBytes": "1"
+      },
+      "t_mapping(t_address,t_bool)": {
+        "label": "mapping(address => bool)",
+        "numberOfBytes": "32"
+      },
+      "t_mapping(t_address,t_struct(Child)53046_storage)": {
+        "label": "mapping(address => struct BudgetPortfolioVault.Child)",
+        "numberOfBytes": "32"
+      },
+      "t_mapping(t_address,t_uint256)": {
+        "label": "mapping(address => uint256)",
+        "numberOfBytes": "32"
+      },
+      "t_mapping(t_uint256,t_mapping(t_address,t_bool))": {
+        "label": "mapping(uint256 => mapping(address => bool))",
+        "numberOfBytes": "32"
+      },
+      "t_mapping(t_uint256,t_struct(SaleProposal)53065_storage)": {
+        "label": "mapping(uint256 => struct BudgetPortfolioVault.SaleProposal)",
+        "numberOfBytes": "32"
+      },
+      "t_struct(Child)53046_storage": {
+        "label": "struct BudgetPortfolioVault.Child",
+        "members": [
+          {
+            "label": "collection",
+            "type": "t_address",
+            "offset": 0,
+            "slot": "0"
+          },
+          {
+            "label": "tokenId",
+            "type": "t_uint256",
+            "offset": 0,
+            "slot": "1"
+          },
+          {
+            "label": "purchaseCost",
+            "type": "t_uint256",
+            "offset": 0,
+            "slot": "2"
+          },
+          {
+            "label": "official",
+            "type": "t_bool",
+            "offset": 0,
+            "slot": "3"
+          },
+          {
+            "label": "sold",
+            "type": "t_bool",
+            "offset": 1,
+            "slot": "3"
+          }
+        ],
+        "numberOfBytes": "128"
+      },
+      "t_struct(Ledger)71778_storage": {
+        "label": "struct TransferableBemRewards.Ledger",
+        "members": [
+          {
+            "label": "accPerShare",
+            "type": "t_uint256",
+            "offset": 0,
+            "slot": "0"
+          },
+          {
+            "label": "remainder",
+            "type": "t_uint256",
+            "offset": 0,
+            "slot": "1"
+          },
+          {
+            "label": "totalReceived",
+            "type": "t_uint256",
+            "offset": 0,
+            "slot": "2"
+          },
+          {
+            "label": "totalClaimed",
+            "type": "t_uint256",
+            "offset": 0,
+            "slot": "3"
+          },
+          {
+            "label": "pending",
+            "type": "t_mapping(t_address,t_uint256)",
+            "offset": 0,
+            "slot": "4"
+          },
+          {
+            "label": "debt",
+            "type": "t_mapping(t_address,t_uint256)",
+            "offset": 0,
+            "slot": "5"
+          }
+        ],
+        "numberOfBytes": "192"
+      },
+      "t_struct(SaleProposal)53065_storage": {
+        "label": "struct BudgetPortfolioVault.SaleProposal",
+        "members": [
+          {
+            "label": "child",
+            "type": "t_address",
+            "offset": 0,
+            "slot": "0"
+          },
+          {
+            "label": "price",
+            "type": "t_uint256",
+            "offset": 0,
+            "slot": "1"
+          },
+          {
+            "label": "referencePrice",
+            "type": "t_uint256",
+            "offset": 0,
+            "slot": "2"
+          },
+          {
+            "label": "referenceAt",
+            "type": "t_uint64",
+            "offset": 0,
+            "slot": "3"
+          },
+          {
+            "label": "endsAt",
+            "type": "t_uint64",
+            "offset": 8,
+            "slot": "3"
+          },
+          {
+            "label": "memberCount",
+            "type": "t_uint16",
+            "offset": 16,
+            "slot": "3"
+          },
+          {
+            "label": "yesMembers",
+            "type": "t_uint16",
+            "offset": 18,
+            "slot": "3"
+          },
+          {
+            "label": "yesShares",
+            "type": "t_uint16",
+            "offset": 20,
+            "slot": "3"
+          },
+          {
+            "label": "executed",
+            "type": "t_bool",
+            "offset": 22,
+            "slot": "3"
+          }
+        ],
+        "numberOfBytes": "128"
+      },
+      "t_uint16": {
+        "label": "uint16",
+        "numberOfBytes": "2"
+      },
+      "t_uint256": {
+        "label": "uint256",
+        "numberOfBytes": "32"
+      },
+      "t_uint64": {
+        "label": "uint64",
+        "numberOfBytes": "8"
+      },
+      "t_mapping(t_address,t_mapping(t_address,t_uint256))": {
+        "label": "mapping(address => mapping(address => uint256))"
+      },
+      "t_string_storage": {
+        "label": "string"
+      }
+    },
+    "namespaces": {
+      "erc7201:openzeppelin.storage.ReentrancyGuard": [
+        {
+          "contract": "ReentrancyGuardUpgradeable",
+          "label": "_status",
+          "type": "t_uint256",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\utils\\ReentrancyGuardUpgradeable.sol:40"
+        }
+      ],
+      "erc7201:openzeppelin.storage.ERC20": [
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_balances",
+          "type": "t_mapping(t_address,t_uint256)",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:38"
+        },
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_allowances",
+          "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:40"
+        },
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_totalSupply",
+          "type": "t_uint256",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:42"
+        },
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_name",
+          "type": "t_string_storage",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:44"
+        },
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_symbol",
+          "type": "t_string_storage",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:45"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Initializable": [
+        {
+          "contract": "Initializable",
+          "label": "_initialized",
+          "type": "t_uint64",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:69"
+        },
+        {
+          "contract": "Initializable",
+          "label": "_initializing",
+          "type": "t_bool",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:73"
+        }
+      ]
+    }
+  }
+}

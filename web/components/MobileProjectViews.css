@@ -1,0 +1,1020 @@
+.live-platform .live-mobile-projects,
+.live-platform .live-mobile-activity,
+.live-platform .live-mobile-financial-cards,
+.live-platform .live-mobile-copy {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .live-platform .live-project-table-desktop,
+  .live-platform .live-activity-table-desktop,
+  .live-platform .live-order-table-desktop,
+  .live-platform .live-claim-table-desktop,
+  .live-platform .live-desktop-copy {
+    display: none;
+  }
+
+  .live-platform .live-mobile-copy {
+    display: inline;
+  }
+
+  .live-platform .sidebar {
+    width: 36vw;
+    max-width: 168px;
+    padding-right: 8px;
+    padding-left: max(8px, env(safe-area-inset-left));
+  }
+
+  .live-platform .sidebar .brand {
+    gap: 8px;
+    padding: 0 4px 22px;
+  }
+
+  .live-platform .sidebar .brand-mark,
+  .live-platform .sidebar .brand-mark svg {
+    width: 28px;
+    height: 28px;
+  }
+
+  .live-platform .sidebar .brand-mark {
+    flex: 0 0 28px;
+  }
+
+  .live-platform .sidebar .brand > span:last-child {
+    min-width: 0;
+    font-size: 18px;
+    letter-spacing: 1px;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .sidebar .brand small {
+    font-size: 9px;
+    letter-spacing: .8px;
+    line-height: 1.5;
+    margin-top: 4px;
+  }
+
+  .live-platform .sidebar .nav-caption {
+    padding: 0 4px;
+    margin-bottom: 8px;
+    font-size: 10px;
+    letter-spacing: .5px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .sidebar .nav-item {
+    gap: 6px;
+    min-height: 44px;
+    margin: 2px 0;
+    padding: 9px 6px;
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .sidebar .nav-item svg {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+  }
+
+  .live-platform .sidebar .nav-item > span {
+    min-width: 0;
+  }
+
+  .live-platform .sidebar .nav-item.active::before {
+    left: -8px;
+  }
+
+  .live-platform .sidebar .nav-item b,
+  .live-platform .sidebar .nav-item em {
+    flex: 0 0 auto;
+    min-width: 0;
+    max-width: 100%;
+    padding: 1px 3px;
+    font-size: 10px;
+    line-height: 1.4;
+  }
+
+  .live-platform .sidebar .nav-divider {
+    margin: 16px 4px;
+  }
+
+  .live-platform .sidebar .side-bottom {
+    padding-top: 16px;
+  }
+
+  .live-platform .sidebar .rules-link {
+    min-width: 0;
+    min-height: 44px;
+    gap: 4px;
+    padding: 8px 4px;
+    font-size: 13px;
+    line-height: 1.45;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .sidebar .rules-link > span {
+    min-width: 0;
+  }
+
+  .live-platform .sidebar .rules-link > svg {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+  }
+
+  .live-platform .sidebar .rules-link > svg:last-child {
+    width: 14px;
+    height: 14px;
+    flex-basis: 14px;
+    margin-left: auto;
+  }
+
+  .live-platform .sidebar .network-panel {
+    gap: 5px;
+    padding: 9px 4px;
+    margin-top: 8px;
+  }
+
+  .live-platform .sidebar .network-panel > div {
+    min-width: 0;
+  }
+
+  .live-platform .sidebar .network-glyph {
+    font-size: 18px;
+  }
+
+  .live-platform .sidebar .network-panel strong {
+    font-size: 10px;
+    line-height: 1.5;
+  }
+
+  .live-platform .sidebar .network-panel small {
+    margin-top: 3px;
+    font-size: 10px;
+    line-height: 1.5;
+  }
+
+  .live-platform .sidebar .sidebar-foot {
+    padding: 14px 4px 18px;
+    font-size: 10px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .sidebar .sidebar-foot span {
+    font-size: 9px;
+    letter-spacing: 0;
+  }
+
+  .live-platform main .page-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "eyebrow eyebrow" "title actions" "copy copy";
+    gap: 6px 8px;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .live-platform main .page-heading > div:first-child {
+    display: contents;
+  }
+
+  .live-platform main .page-heading .eyebrow {
+    grid-area: eyebrow;
+    margin: 0;
+    font-size: 10px;
+  }
+
+  .live-platform main .page-heading h1 {
+    grid-area: title;
+    font-size: 26px;
+    line-height: 1.45;
+  }
+
+  .live-platform main .page-heading > .live-actions {
+    grid-area: actions;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    margin: 0;
+  }
+
+  .live-platform main .page-heading > .btn {
+    grid-area: actions;
+    margin: 0;
+  }
+
+  .live-platform main .page-heading .live-actions .btn,
+  .live-platform main .page-heading > .btn {
+    min-height: 44px;
+    padding: 8px 10px;
+    font-size: 13px;
+    gap: 6px;
+  }
+
+  .live-platform main .page-heading p {
+    grid-area: copy;
+    min-width: 0;
+    max-width: none;
+    margin: 0;
+    font-size: 13px;
+    letter-spacing: 0;
+    line-height: 1.7;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform main:is([data-ready-route="overview"], [data-ready-route="rewards"]) .page-heading p {
+    white-space: nowrap;
+  }
+
+  html[lang="en"] .live-platform main:is([data-ready-route="overview"], [data-ready-route="rewards"]) .page-heading p {
+    white-space: normal;
+  }
+
+  .live-platform .metrics[data-asset-summary="unified"] {
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .live-platform .metrics[data-asset-summary="unified"] .metric {
+    padding: 13px 12px;
+  }
+
+  .live-platform .metrics[data-asset-summary="unified"] .metric-label {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .live-platform .metrics[data-asset-summary="unified"] .metric-value {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 7px;
+    font-size: clamp(18px, 5.2vw, 24px);
+    letter-spacing: -.5px;
+    line-height: 1.4;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .metrics[data-asset-summary="unified"] .metric-value small {
+    margin-left: 0;
+    font-size: 11px;
+    letter-spacing: 0;
+  }
+
+  .live-platform main:is([data-ready-route="overview"], [data-ready-route="rewards"], [data-ready-route="market"]) .section-head {
+    padding: 14px 14px 12px;
+  }
+
+  .live-platform main:is([data-ready-route="overview"], [data-ready-route="rewards"], [data-ready-route="market"]) .section-head h2 {
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  .live-platform main[data-ready-route="rewards"] > .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .live-platform main[data-ready-route="rewards"] > .metrics .metric {
+    min-width: 0;
+    padding: 13px 12px;
+  }
+
+  .live-platform main[data-ready-route="rewards"] > .metrics .metric-label {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.5;
+    white-space: normal;
+  }
+
+  .live-platform main[data-ready-route="rewards"] > .metrics .metric-value {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 5px;
+    min-width: 0;
+    margin: 7px 0 0;
+    font-size: clamp(18px, 5.2vw, 24px);
+    letter-spacing: -.5px;
+    line-height: 1.4;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform main[data-ready-route="rewards"] > .metrics .metric-value small {
+    margin-left: 0;
+    font-size: 11px;
+    letter-spacing: 0;
+  }
+
+  .live-platform main[data-ready-route="rewards"] > .metrics .metric-note {
+    display: block;
+    min-height: 0;
+    margin-top: 8px;
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform main[data-ready-route="rewards"] > .metrics .metric-note button {
+    min-height: 44px;
+    font-size: 12px;
+    white-space: normal;
+    text-align: left;
+  }
+
+  .live-platform main[data-ready-route="rewards"] > .metrics .metric > p {
+    font-size: 12px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform main[data-ready-route="home"] .bemine-hero > .bemine-scene {
+    display: none;
+  }
+
+  .live-platform main[data-ready-route="home"] .bemine-hero {
+    display: block;
+    min-height: 0;
+  }
+
+  .live-platform main[data-ready-route="overview"] .holdings > p.subtle-note {
+    display: block;
+    margin: 4px 0;
+    padding: 6px 14px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-project-summary {
+    gap: 8px;
+    margin-bottom: 16px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .live-platform .live-project-summary button {
+    min-width: 0;
+    padding: 11px 9px;
+    gap: 4px;
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .live-platform .live-project-summary strong {
+    font-size: 23px;
+    line-height: 1.35;
+  }
+
+  .live-platform main[data-ready-route="pools"] .live-project-summary small {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .live-platform .live-pool-directory .live-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 8px;
+    padding: 12px;
+  }
+
+  .live-platform .live-pool-directory .live-toolbar .tabs {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+    gap: 0;
+    overflow-x: visible;
+  }
+
+  .live-platform .live-pool-directory .tabs button {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 44px;
+    justify-content: center;
+    padding: 7px 2px 10px;
+    font-size: 13px;
+    line-height: 1.4;
+    white-space: normal;
+  }
+
+  .live-platform .live-pool-directory .live-search {
+    min-width: 0;
+    min-height: 44px;
+    gap: 6px;
+    padding: 7px 8px;
+  }
+
+  .live-platform .live-pool-directory .live-search input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .live-platform .live-pool-directory .live-toolbar > div:last-child > .btn {
+    min-height: 44px;
+    gap: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .live-platform .live-pool-directory .live-toolbar [role="menu"] {
+    min-width: min(220px, calc(100vw - 56px));
+    max-width: calc(100vw - 56px);
+  }
+
+  .live-platform .live-pool-directory .live-toolbar [role="menu"] button {
+    min-height: 44px;
+    gap: 10px;
+    padding: 10px;
+    font-size: 13px;
+  }
+
+  .live-platform .live-directory-group > h2 {
+    padding: 13px 12px 4px;
+    font-size: 16px;
+  }
+
+  .live-platform .live-directory-group > h2 small {
+    font-size: 12px;
+    margin-left: 6px;
+  }
+
+  .live-platform .live-mobile-projects {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+    padding: 12px;
+  }
+
+  .live-platform .live-mobile-project-card,
+  .live-platform .live-mobile-project-summary-row {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  .live-platform .live-mobile-project-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .live-platform .live-mobile-project-identity {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-project-identity > div,
+  .live-platform .live-mobile-project-identity > span,
+  .live-platform .live-mobile-project-identity .asset-cell > div {
+    min-width: 0;
+  }
+
+  .live-platform .live-mobile-project-identity .asset-cell {
+    min-width: 0;
+    gap: 8px;
+    white-space: normal;
+  }
+
+  .live-platform .live-mobile-project-identity .chip {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    border-radius: 7px;
+  }
+
+  .live-platform .live-mobile-project-identity .chip svg {
+    width: 23px;
+    height: 23px;
+  }
+
+  .live-platform .live-mobile-project-identity strong {
+    display: block;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.5;
+    font-weight: 600;
+  }
+
+  .live-platform .live-mobile-project-identity small {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0;
+    line-height: 1.5;
+  }
+
+  .live-platform .live-mobile-project-heading > .badge,
+  .live-platform .live-mobile-project-summary-row summary > .badge {
+    flex: 0 0 auto;
+    padding: 4px 6px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .live-platform .live-mobile-project-fields,
+  .live-platform .live-mobile-project-quick-fields,
+  .live-platform .live-mobile-activity-amounts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+    margin: 12px 0 0;
+    padding: 11px 0 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .live-platform :is(.live-mobile-project-fields, .live-mobile-project-quick-fields, .live-mobile-activity-amounts) > div {
+    min-width: 0;
+  }
+
+  .live-platform :is(.live-mobile-project-fields, .live-mobile-project-quick-fields, .live-mobile-activity-amounts) dt {
+    min-width: 0;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .live-platform :is(.live-mobile-project-fields, .live-mobile-project-quick-fields) dt {
+    font-size: 12px;
+  }
+
+  .live-platform :is(.live-mobile-project-fields, .live-mobile-project-quick-fields, .live-mobile-activity-amounts) dd {
+    min-width: 0;
+    margin: 3px 0 0;
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.5;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform :is(.live-mobile-project-fields, .live-mobile-project-quick-fields) dd,
+  .live-platform :is(.live-mobile-project-fields, .live-mobile-project-quick-fields) dd strong {
+    font-family: inherit;
+  }
+
+  .live-platform :is(.live-mobile-project-fields, .live-mobile-project-quick-fields) dd strong {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+
+  .live-platform :is(.live-mobile-project-fields, .live-mobile-project-quick-fields, .live-mobile-activity-amounts) .num {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform :is(.live-mobile-project-fields, .live-mobile-project-quick-fields) dd .text-button {
+    min-height: 44px;
+    font-size: 13px;
+    text-align: left;
+  }
+
+  .live-platform .live-mobile-project-actions {
+    min-width: 0;
+    padding-top: 0;
+    margin-top: 6px;
+    border-top: 0;
+  }
+
+  .live-platform .live-mobile-project-actions .live-pool-row-actions {
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .live-platform .live-mobile-project-actions .live-pool-row-actions > button,
+  .live-platform .live-mobile-project-actions .live-pool-row-actions > a {
+    min-height: 44px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 4px 6px;
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: normal;
+  }
+
+  .live-platform main[data-ready-route="overview"] .live-mobile-project-actions .live-pool-row-actions {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .live-platform main[data-ready-route="overview"] .live-mobile-project-actions .live-pool-row-actions > .btn {
+    grid-column: 1;
+    padding-inline: 7px;
+    white-space: nowrap;
+  }
+
+  .live-platform main[data-ready-route="overview"] .live-mobile-project-actions .live-pool-row-actions > .live-order-state {
+    grid-column: 2;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform main[data-ready-route="overview"] .live-mobile-project-actions .live-pool-row-actions > .text-button {
+    grid-column: 3;
+    justify-self: end;
+    gap: 4px;
+    white-space: nowrap;
+  }
+
+  .live-platform main[data-ready-route="overview"] .live-mobile-project-actions .live-pool-row-actions > .text-button svg {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
+  }
+
+  .live-platform .live-mobile-project-summary-row > details {
+    min-width: 0;
+  }
+
+  .live-platform .live-mobile-project-summary-row summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    min-width: 0;
+    min-height: 44px;
+    list-style: none;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .live-platform .live-mobile-project-summary-row summary > .live-mobile-project-heading {
+    grid-column: 1 / -1;
+  }
+
+  .live-platform .live-mobile-project-summary-row summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .live-platform .live-mobile-project-summary-row summary::marker {
+    content: "";
+  }
+
+  .live-platform .live-mobile-project-summary-row summary:focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 4px;
+    border-radius: 4px;
+  }
+
+  .live-platform .live-mobile-project-summary-row .live-mobile-project-quick-fields {
+    grid-column: 1 / -1;
+    margin-top: 1px;
+    padding-top: 9px;
+    gap: 7px 12px;
+  }
+
+  .live-platform .live-mobile-project-summary-row .live-mobile-project-quick-fields dd {
+    font-size: 14px;
+  }
+
+  .live-platform .live-mobile-project-expand {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    color: var(--blue);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .live-platform .live-mobile-project-summary-row details[open] .live-mobile-project-expand svg {
+    transform: rotate(180deg);
+  }
+
+  .live-platform .live-mobile-project-empty .live-empty {
+    padding: 22px 10px;
+  }
+
+  .live-platform .live-mobile-project-empty .live-empty > svg {
+    width: 25px;
+    height: 25px;
+  }
+
+  .live-platform .live-mobile-project-empty .live-empty h3 {
+    margin: 9px 0 6px;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .live-platform .live-mobile-project-empty .live-empty p {
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  .live-platform .live-mobile-project-empty .live-empty .btn {
+    display: flex;
+    min-height: 44px;
+    width: fit-content;
+    max-width: 100%;
+    margin: 12px auto 0;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  .live-platform .live-mobile-financial-cards {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+    padding: 12px;
+  }
+
+  .live-platform .live-mobile-financial-card {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  .live-platform .live-mobile-financial-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-financial-heading > *,
+  .live-platform .live-mobile-financial-heading .asset-cell > span,
+  .live-platform .live-mobile-financial-heading .asset-cell > div {
+    min-width: 0;
+  }
+
+  .live-platform .live-mobile-financial-heading .asset-cell {
+    gap: 8px;
+    white-space: normal;
+    text-align: left;
+  }
+
+  .live-platform .live-mobile-financial-heading strong,
+  .live-platform .live-mobile-financial-heading .text-button {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+
+  .live-platform .live-mobile-financial-heading .text-button,
+  .live-platform .live-mobile-financial-heading button.asset-cell {
+    min-height: 44px;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .live-platform .live-mobile-financial-heading small {
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0;
+    line-height: 1.5;
+  }
+
+  .live-platform .live-mobile-financial-heading .chip {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    border-radius: 7px;
+  }
+
+  .live-platform .live-mobile-financial-heading .chip svg {
+    width: 23px;
+    height: 23px;
+  }
+
+  .live-platform .live-mobile-financial-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+    margin: 10px 0 0;
+    padding: 10px 0 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .live-platform .live-mobile-financial-fields > div {
+    min-width: 0;
+  }
+
+  .live-platform .live-mobile-financial-fields dt {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-financial-fields dd {
+    min-width: 0;
+    margin: 3px 0 0;
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-financial-fields dd small {
+    display: block;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  .live-platform .live-mobile-financial-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    margin-top: 6px;
+  }
+
+  .live-platform .live-mobile-financial-actions .live-actions {
+    gap: 6px;
+    min-width: 0;
+    margin: 0;
+  }
+
+  .live-platform .live-mobile-financial-actions .btn,
+  .live-platform .live-mobile-financial-actions .text-button {
+    min-width: 0;
+    min-height: 44px;
+    max-width: 100%;
+    padding: 5px 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: normal;
+  }
+
+  .live-platform .live-mobile-financial-cards .live-empty {
+    padding: 22px 10px;
+    font-size: 12px;
+  }
+
+  .live-platform .live-mobile-financial-cards .live-empty h3 {
+    margin: 9px 0 6px;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .live-platform .live-mobile-activity {
+    display: grid;
+    min-width: 0;
+    gap: 0;
+  }
+
+  .live-platform .live-mobile-activity-row {
+    min-width: 0;
+    padding: 13px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  .live-platform .live-mobile-activity-heading {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity-heading strong {
+    font-size: 12px;
+    color: var(--ink);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .live-platform .live-mobile-activity-row .activity-operation {
+    min-width: 0;
+    max-width: 100%;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .live-platform .live-mobile-activity-row .activity-operation p {
+    font-size: 12px;
+  }
+
+  .live-platform .live-mobile-activity-row .activity-operation small,
+  .live-platform .live-mobile-activity-row .activity-operation code {
+    font-size: 11px;
+  }
+
+  .live-platform .live-mobile-activity-amounts {
+    margin-top: 9px;
+    padding-top: 9px;
+    gap: 8px 12px;
+  }
+
+  .live-platform .live-mobile-activity-amounts dd {
+    font-size: 13px;
+  }
+
+  .live-platform .live-mobile-activity-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 14px;
+    min-width: 0;
+    margin-top: 4px;
+  }
+
+  .live-platform .live-mobile-activity-links > a,
+  .live-platform .live-mobile-activity-links > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    min-height: 44px;
+    max-width: 100%;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-empty {
+    padding: 23px 14px;
+  }
+
+  .live-platform .live-mobile-activity .live-empty h3 {
+    font-size: 15px;
+    margin: 9px 0 6px;
+  }
+
+  .live-platform .live-record-pagination {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 10px 8px;
+    padding: 12px;
+    margin: 0;
+  }
+
+  .live-platform .live-record-pagination > span {
+    min-width: 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .live-platform .live-record-pagination .btn {
+    min-height: 44px;
+    padding: 8px 10px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .live-platform .live-record-page-jump {
+    grid-column: 1 / -1;
+    justify-content: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+
+  .live-platform .live-record-page-jump label {
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .live-platform .live-record-page-jump input {
+    width: 64px;
+    height: 44px;
+    padding: 8px;
+  }
+}

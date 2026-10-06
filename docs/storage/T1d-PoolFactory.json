@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "contract": "src/PoolFactory.sol:PoolFactory",
+  "provenance": {
+    "milestone": "T1d",
+    "commit": "5551c7710afb0c978e80cc9ab9a8dda8e768ea2a",
+    "sourcePath": "contracts/src/PoolFactory.sol",
+    "sourceSha256": "ed1fa42f91d5b8f236d3587546a3ab3be182f73269605dc9d789926ee67e95e8",
+    "sourceHashDefinition": "SHA-256 of exact compiler-input UTF-8 source bytes, asserted equal to the committed Git blob.",
+    "testedBuildRoot": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-check-G1s26X",
+    "compilerBuildInfoFile": "be3bf477925654e7.json",
+    "compilerBuildInfoSha256": "1b225dd4009393dc6ae525420115322930d446f704e39f7541c7fed810b08de0",
+    "preparedBuildInfoSha256": "c2f507d08993340533ae843df6b217ceb999023f6e4cfaa4cc800e4875fee53f",
+    "unchangedCompilerOutputSha256": "364d3757d3eaee6225a996410d8bbdeca3845fb00535cc50ac14e5fb25968a9d",
+    "metadataVerifiedInputAliasesAdded": 16,
+    "metadataVerifiedInputAliases": [
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/access/AccessControl.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/access/AccessControl.sol",
+        "metadataKeccak256": "0xa0e92d42942f4f57c5be50568dac11e9d00c93efcb458026e18d2d9b9b2e7308"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/access/IAccessControl.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/access/IAccessControl.sol",
+        "metadataKeccak256": "0xb6b36edd6a2999fd243ff226d6cbf84bd71af2432bbd0dfe19392996a1d9cb41"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/access/Ownable.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/access/Ownable.sol",
+        "metadataKeccak256": "0xff6d0bb2e285473e5311d9d3caacb525ae3538a80758c10649a4d61029b017bb"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/proxy/Proxy.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/proxy/Proxy.sol",
+        "metadataKeccak256": "0xc3f2ec76a3de8ed7a7007c46166f5550c72c7709e3fc7e8bb3111a7191cdedbd"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/proxy/beacon/IBeacon.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/proxy/beacon/IBeacon.sol",
+        "metadataKeccak256": "0xc59a78b07b44b2cf2e8ab4175fca91e8eca1eee2df7357b8d2a8833e5ea1f64c"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol",
+        "metadataKeccak256": "0xb69597a63b202e28401128bed6a6d259e8730191274471af7303eafb247881a3"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol",
+        "metadataKeccak256": "0xc26cd2e2bcf59b87c986fc653545b35010db9c585a3f3312fe61d7b1b3805735"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol",
+        "metadataKeccak256": "0x6008dabfe393240d73d7dd7688033f72740d570aa422254d29a7dce8568f3aff"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol",
+        "metadataKeccak256": "0xaad20f8713b5cd98114278482d5d91b9758f9727048527d582e8e88fd4901fd8"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/Address.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/utils/Address.sol",
+        "metadataKeccak256": "0xaf28a975a78550e45f65e559a3ad6a5ad43b9b8a37366999abd1b7084eb70721"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/Context.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/utils/Context.sol",
+        "metadataKeccak256": "0x493033a8d1b176a037b2cc6a04dad01a5c157722049bbecf632ca876224dd4b2"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/StorageSlot.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/utils/StorageSlot.sol",
+        "metadataKeccak256": "0x32ba59b4b7299237c8ba56319110989d7978a039faf754793064e967e5894418"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/introspection/ERC165.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/utils/introspection/ERC165.sol",
+        "metadataKeccak256": "0x9e8778b14317ba9e256c30a76fd6c32b960af621987f56069e1e819c77c6a133"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/introspection/IERC165.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts/utils/introspection/IERC165.sol",
+        "metadataKeccak256": "0x4296879f55019b23e135000eb36896057e7101fb7fb859c5ef690cf14643757b"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol",
+        "metadataKeccak256": "0x631188737069917d2f909d29ce62c4d48611d326686ba6683e26b72a23bfac0b"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-G1s26X/node_modules/@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol",
+        "metadataKeccak256": "0xdbef5f0c787055227243a7318ef74c8a5a1108ca3a07f2b3a00ef67769e1e397"
+      }
+    ]
+  },
+  "layout": {
+    "solcVersion": "0.8.24",
+    "storage": [],
+    "types": {
+      "t_address": {
+        "label": "address"
+      },
+      "t_bool": {
+        "label": "bool"
+      },
+      "t_mapping(t_address,t_bool)": {
+        "label": "mapping(address => bool)"
+      },
+      "t_array(t_address)dyn_storage": {
+        "label": "address[]"
+      },
+      "t_uint256": {
+        "label": "uint256"
+      },
+      "t_uint64": {
+        "label": "uint64"
+      }
+    },
+    "namespaces": {
+      "erc7201:tapeout.storage.PoolFactory": [
+        {
+          "contract": "PoolFactory",
+          "label": "operator",
+          "type": "t_address",
+          "src": "src\\PoolFactory.sol:26"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "treasury",
+          "type": "t_address",
+          "src": "src\\PoolFactory.sol:27"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "timelock",
+          "type": "t_address",
+          "src": "src\\PoolFactory.sol:28"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "beacon",
+          "type": "t_address",
+          "src": "src\\PoolFactory.sol:29"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "creationPaused",
+          "type": "t_bool",
+          "src": "src\\PoolFactory.sol:30"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "isPool",
+          "type": "t_mapping(t_address,t_bool)",
+          "src": "src\\PoolFactory.sol:31"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "allPools",
+          "type": "t_array(t_address)dyn_storage",
+          "src": "src\\PoolFactory.sol:32"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "shareMarket",
+          "type": "t_address",
+          "src": "src\\PoolFactory.sol:33"
+        }
+      ],
+      "erc7201:openzeppelin.storage.ReentrancyGuard": [
+        {
+          "contract": "ReentrancyGuardUpgradeable",
+          "label": "_status",
+          "type": "t_uint256",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\utils\\ReentrancyGuardUpgradeable.sol:40"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Ownable": [
+        {
+          "contract": "OwnableUpgradeable",
+          "label": "_owner",
+          "type": "t_address",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\access\\OwnableUpgradeable.sol:24"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Initializable": [
+        {
+          "contract": "Initializable",
+          "label": "_initialized",
+          "type": "t_uint64",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:69"
+        },
+        {
+          "contract": "Initializable",
+          "label": "_initializing",
+          "type": "t_bool",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:73"
+        }
+      ]
+    }
+  }
+}

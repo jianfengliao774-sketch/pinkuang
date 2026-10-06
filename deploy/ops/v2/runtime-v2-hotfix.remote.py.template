@@ -1,0 +1,386 @@
+"""Update active v2 services and one public quote route; preserve databases and product release."""
+import datetime,fcntl,hashlib,json,math,os,pathlib,pwd,re,sqlite3,stat,subprocess,time,urllib.error,urllib.request
+if not __debug__:raise RuntimeError('Python optimization must remain disabled')
+CONFIG=json.loads(__CONFIG_JSON__)
+PHASE=__PHASE__
+assert PHASE in ['prepare','activate','rollback'] and os.geteuid()==0
+sha=lambda data:hashlib.sha256(data).hexdigest()
+site=pathlib.Path('/etc/nginx/sites-available/bem2075')
+snippet=pathlib.Path('/etc/nginx/snippets/bemine-v2.conf')
+unit=pathlib.Path('/etc/systemd/system/pinkuang-deploy-v2.service')
+index_unit=pathlib.Path('/etc/systemd/system/pinkuang-index-v2.service')
+record_path=pathlib.Path('/var/lib/pinkuang-deploy-v2/trusted-product-deployment.json')
+journal=pathlib.Path('/var/lib/pinkuang-deploy-v2/journal.sqlite')
+index_db=pathlib.Path('/var/lib/pinkuang-index-v2/index.sqlite')
+public_current=pathlib.Path('/var/www/bemine-v2/current')
+price_path=pathlib.Path('/var/www/bemine-preview/data/bem-price.json')
+old_factory='0xcB24E7F96D81037086A268d6ea63c53f91D412A2'
+legacy_names=['pinkuang-deploy.service','pinkuang-index.service','bem2075-site.service','sparkdraw-keeper.service','sparkdraw-bot.service','bemine-price.service']
+legacy_links=['/srv/pinkuang-deploy/current','/var/www/bemine-preview/current','/srv/crowdfund/current']
+
+def run(args,timeout=40):
+    result=subprocess.run(args,capture_output=True,text=True,timeout=timeout)
+    if result.returncode:raise RuntimeError('Failed '+args[0]+' '+args[1])
+    return result.stdout
+
+def no_links(path):
+    for part in [path,*path.parents]:assert not part.is_symlink(),'Symlink refused: '+str(part)
+
+def regular(path):
+    no_links(path);assert path.is_file() and path.stat().st_uid==0
+    assert not path.stat().st_mode&0o022
+    return path.read_bytes()
+
+def service(name):
+    result=subprocess.run(['systemctl','show',name,'--property=LoadState,ActiveState,SubState,MainPID,InvocationID,User,Group'],capture_output=True,text=True,timeout=20)
+    assert result.returncode in [0,1]
+    return dict(line.split('=',1) for line in result.stdout.splitlines() if '=' in line)
+
+def legacy():
+    return {'services':{name:service(name) for name in legacy_names},'links':{p:str(pathlib.Path(p).resolve()) for p in legacy_links}}
+
+def exclusive(path,data,mode=0o600):
+    no_links(path)
+    if path.exists():assert path.read_bytes()==data and stat.S_IMODE(path.stat().st_mode)==mode;return
+    fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,mode)
+    with os.fdopen(fd,'wb') as file:file.write(data);file.flush();os.fsync(file.fileno())
+    os.chmod(path,mode)
+
+def replace(path,data,mode=0o644):
+    no_links(path);temp=path.with_name(path.name+'.'+operation_id+'.tmp')
+    exclusive(temp,data,mode);os.replace(temp,path)
+    fd=os.open(path.parent,os.O_RDONLY);os.fsync(fd);os.close(fd)
+
+def journal_ready():
+    user=pwd.getpwnam('pinkuang-v2')
+    for p in [journal.parent,pathlib.Path('/var/lib/pinkuang-index-v2')]:
+        no_links(p);s=p.stat();assert s.st_uid==user.pw_uid and s.st_gid==user.pw_gid and stat.S_IMODE(s.st_mode)==0o700
+    no_links(journal);s=journal.stat();assert s.st_uid==user.pw_uid and stat.S_IMODE(s.st_mode)==0o600
+    db=sqlite3.connect('file:'+str(journal)+'?mode=ro',uri=True);db.execute('PRAGMA query_only=ON')
+    try:
+        assert db.execute('SELECT count(*) FROM market WHERE record IS NOT NULL').fetchone()[0]==0,'Reconcile active product intents before release'
+        for (body,) in db.execute('SELECT record FROM deployment WHERE record IS NOT NULL'):
+            saved=json.loads(body);assert saved['status']=='complete' and all(s['status']=='confirmed' for s in saved['steps']),'Unresolved deployment'
+        return (s.st_dev,s.st_ino)
+    finally:db.close()
+
+def verify_files(root,manifest_name,expected_hash,source_head):
+    manifest=regular(root/manifest_name);assert sha(manifest)==expected_hash
+    value=json.loads(manifest);assert value['sourceHead']==source_head and value['artifactDigest']==CONFIG['artifactDigest']
+    if root==runtime:
+        modules=root/'node_modules';no_links(modules);assert modules.is_dir() and modules.stat().st_uid==0 and not modules.stat().st_mode&0o022
+    actual=set()
+    for entry in root.rglob('*'):
+        name=entry.relative_to(root).as_posix()
+        if root==runtime and name.split('/')[0]=='node_modules':continue
+        assert not entry.is_symlink(),'Release symlink refused: '+name
+        if entry.is_file():actual.add(name)
+    allowed_metadata={manifest_name}|({'stage-complete.json'} if root==runtime else set())
+    assert actual-allowed_metadata==set(value['files']),'Unlisted or missing release files'
+    for name,entry in value['files'].items():
+        part=pathlib.PurePosixPath(name);assert not part.is_absolute() and '..' not in part.parts and '\\' not in name and ':' not in name
+        body=regular(root/name);assert sha(body)==entry['sha256'] and len(body)==entry['bytes'],name
+    return value
+
+def http(url,payload=None,timeout_s=8):
+    request=urllib.request.Request(url,data=None if payload is None else json.dumps(payload).encode(),headers={'Content-Type':'application/json'})
+    try:
+        with urllib.request.urlopen(request,timeout=timeout_s) as response:return response.status,response.read()
+    except urllib.error.HTTPError as error:return error.code,error.read()
+
+def public(path):
+    result=subprocess.run(['curl','--silent','--show-error','--max-time','8','--noproxy','*','--resolve','tapeout.cc.cd:443:127.0.0.1','--write-out','\n%{http_code}','https://tapeout.cc.cd'+path],capture_output=True,timeout=10)
+    assert result.returncode==0;body,status=result.stdout.rsplit(b'\n',1);return int(status),body
+
+def verified_index(body,deadline=None):
+    source=json.loads(body).get('source',{});m=CONFIG['manifest']
+    if source.get('complete') is not True:return False
+    assert source.get('chainId')==56 and source.get('unknownReason') is None
+    for key,expected in [('factory',m['factory']),('market',m['shareMarket']),('portfolioFactory',m['portfolioFactory']),('portfolioMarket',m['portfolioMarket'])]:
+        assert str(source.get(key,'')).lower()==expected.lower(),'Wrong index graph: '+key
+    assert source['startBlock']==m['deployment']['blockNumber'] and source['confirmations']==12
+    assert source['indexedThrough']==source['observedSafeHead'] and source['indexedThrough']>=m['verifiedBlockNumber']
+    checked=datetime.datetime.fromisoformat(source['checkedAt'].replace('Z','+00:00')).timestamp()
+    assert -30<=time.time()-checked<=120,'Index check is stale'
+    def rpc(method,params):
+        timeout=6 if deadline is None else max(0.1,min(6,deadline-time.monotonic()))
+        request=urllib.request.Request('https://bsc-dataseed.bnbchain.org',data=json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode(),headers={'Content-Type':'application/json'})
+        with urllib.request.urlopen(request,timeout=timeout) as response:value=json.load(response)
+        assert 'error' not in value;return value['result']
+    assert int(rpc('eth_chainId',[]),16)==56
+    pinned=rpc('eth_getBlockByNumber',[hex(source['indexedThrough']),False]);latest=rpc('eth_getBlockByNumber',['latest',False])
+    assert pinned['hash'].lower()==source['indexedBlockHash'].lower() and int(pinned['timestamp'],16)==source['indexedTimestamp']
+    assert 12<=int(latest['number'],16)-source['indexedThrough']<=132,'Index has not reached the recent safe head'
+    return True
+
+def wait_for_index():
+    started=time.monotonic();deadline=started+catchup_seconds;next_progress=0
+    while time.monotonic()<deadline:
+        try:
+            code,body=http('http://127.0.0.1:4181/health',timeout_s=max(0.1,min(6,deadline-time.monotonic())));status=json.loads(body)
+            if time.monotonic()>=next_progress:
+                source=status.get('source',{});print(json.dumps({'indexCatchup':{k:source.get(k) for k in ['complete','indexedThrough','observedSafeHead','unknownReason']},'elapsedSeconds':round(time.monotonic()-started),'limitSeconds':catchup_seconds}),flush=True);next_progress=time.monotonic()+10
+            if code==200 and verified_index(body,deadline):return
+        except (OSError,ValueError):pass
+        time.sleep(max(0,min(2,deadline-time.monotonic())))
+    raise RuntimeError('New index is not complete within '+str(catchup_seconds)+' seconds; rollback and diagnose RPC/logs')
+
+def link_target():
+    if public_current.is_symlink():return os.readlink(public_current)
+    assert not public_current.exists(),'Product current must be absent or a reviewed symlink';return None
+
+def hotfix_options(config):
+    for key in ['runtimeReleaseId','previousRuntimeReleaseId','productReleaseId','operationId']:
+        assert isinstance(config.get(key),str) and re.fullmatch(r'v2-[a-z0-9][a-z0-9-]{1,95}',config[key]),'Fill reviewed '+key
+    assert config['runtimeReleaseId']!=config['previousRuntimeReleaseId'],'Use a separate immutable hotfix release'
+    for key in ['runtimeSourceHead','productSourceHead']:
+        assert re.fullmatch(r'[0-9a-f]{40}',config.get(key,'')),'Fill reviewed '+key
+    for key in ['runtimeManifestSha256','productManifestSha256','nginxSha256','deployUnitSha256','indexUnitSha256','productSnippetSha256','trustedRecordSha256']:
+        assert re.fullmatch(r'[0-9a-f]{64}',config.get(key,'')),'Fill checked '+key
+    timeout=config.get('logsTimeoutMs',12000);seconds=config.get('catchupSeconds',120)
+    assert type(timeout) is int and 12000<=timeout<=30000,'logsTimeoutMs outside reviewed bounds'
+    assert type(seconds) is int and 120<=seconds<=1200,'catchupSeconds outside reviewed bounds'
+    primary_logs=config.get('logsRpcUrl')
+    fallback_logs=config.get('fallbackLogsRpcUrl')
+    for url in [primary_logs,fallback_logs]:
+        if url is not None:assert url in ['https://bsc.publicnode.com','https://bsc-rpc.blockreq.com/v1/rpc/public'],'Use reviewed public logs RPC endpoints'
+    if fallback_logs:assert primary_logs and fallback_logs!=primary_logs,'Fallback logs RPC must differ from primary'
+    assert set(config['legacy']['services'])==set(legacy_names),'Include all six legacy services, including bemine-price'
+    return timeout,seconds,config['operationId']
+
+def candidate_service(old,is_index):
+    text=old.decode();assert 'EnvironmentFile=' not in text
+    assert 'User=pinkuang-v2\n' in text and 'Group=pinkuang-v2\n' in text and 'UMask=0077\n' in text
+    script='server/chain-index/server.mjs' if is_index else 'server/index.mjs'
+    expected={'WorkingDirectory':str(previous_runtime),'ExecStart':'/usr/bin/node '+str(previous_runtime)+'/'+script}
+    for key,value in expected.items():
+        assert re.findall(r'(?m)^'+key+r'=(.*)$',text)==[value],'Unexpected previous runtime path'
+        replacement=str(runtime) if key=='WorkingDirectory' else '/usr/bin/node '+str(runtime)+'/'+script
+        text,count=re.subn(r'(?m)^'+key+r'=.*$',key+'='+replacement,text);assert count==1
+    if is_index:
+        m=CONFIG['manifest'];env={'CHAIN_INDEX_DB':str(index_db),'CHAIN_INDEX_HOST':'127.0.0.1','CHAIN_INDEX_PORT':'4181',
+          'CHAIN_INDEX_FACTORY':m['factory'],'CHAIN_INDEX_MARKET':m['shareMarket'],'CHAIN_INDEX_PORTFOLIO_FACTORY':m['portfolioFactory'],
+          'CHAIN_INDEX_PORTFOLIO_MARKET':m['portfolioMarket'],'CHAIN_INDEX_START_BLOCK':str(m['deployment']['blockNumber']),'CHAIN_INDEX_CONFIRMATIONS':'12'}
+        assert re.findall(r'(?m)^TimeoutStopSec=(.*)$',text)==['45'],'Review changed shutdown timeout'
+        key='CHAIN_INDEX_LOGS_TIMEOUT_MS';text,count=re.subn(r'(?m)^Environment='+key+r'=.*$','Environment='+key+'='+str(logs_timeout_ms),text);assert count<=1
+        if not count:text=text.replace('\nUMask=0077','\nEnvironment='+key+'='+str(logs_timeout_ms)+'\nUMask=0077',1)
+        for config_key,env_key in [('logsRpcUrl','CHAIN_INDEX_LOGS_RPC_URL'),('fallbackLogsRpcUrl','CHAIN_INDEX_LOGS_FALLBACK_RPC_URL')]:
+            value=CONFIG.get(config_key)
+            if value:
+                text,count=re.subn(r'(?m)^Environment='+env_key+r'=.*$','Environment='+env_key+'='+value,text);assert count<=1
+                if not count:text=text.replace('\nUMask=0077','\nEnvironment='+env_key+'='+value+'\nUMask=0077',1)
+    else:
+        env={'DEPLOYMENT_JOURNAL_DB':str(journal),'PORT':'4174','BEMINE_INDEX_URL':'http://127.0.0.1:4181',
+          'BEMINE_JOURNAL_FACTORIES':CONFIG['manifest']['factory']+','+CONFIG['manifest']['portfolioFactory'],
+          'BEMINE_DEPLOYMENT_RECORD_PATH':str(record_path),'BEMINE_LEGACY_FACTORY':old_factory,'BEMINE_NOTIFICATIONS_ENABLED':'0'}
+    for key,value in env.items():assert re.findall(r'(?m)^Environment='+key+r'=(.*)$',text)==[value],'Preserve '+key
+    return text.encode()
+
+def quote_location():
+    return b'''location = /bemine-v2/data/bem-price.json {
+    alias /var/www/bemine-preview/data/bem-price.json;
+    default_type application/json;
+    add_header Cache-Control "no-store" always;
+    add_header X-Content-Type-Options nosniff always;
+}
+'''
+
+def retired_deployment_api():
+    return b'''# The active product uses the shared v2 backend, not its deployment journal.
+location = /bemine-v2/api/journal/deployment { return 410; }
+location ^~ /bemine-v2/api/journal/deployment/ { return 410; }
+location = /bemine-v2/api/journal/fresh-activation { return 410; }
+location ^~ /bemine-v2/api/journal/fresh-activation/ { return 410; }
+'''
+
+def candidate_snippet(old):
+    addition=quote_location()
+    if addition in old:
+        assert old.count(addition)==1 and old.count(b'bem-price.json')==2
+    else:
+        assert b'bem-price' not in old,'Review an existing unexpected price mapping'
+        assert old.count(b'location ^~ /bemine-v2/ {')==1 and b'location ^~ /bemine/' not in old
+        old=addition+old
+    retired=retired_deployment_api()
+    if retired in old:
+        assert old.count(retired)==1
+    else:
+        assert b'/bemine-v2/api/journal/deployment' not in old and b'/bemine-v2/api/journal/fresh-activation' not in old,'Review an existing deployment API mapping'
+        assert old.count(b'location ^~ /bemine-v2/api/ {')==1
+        old=retired+old
+    return old
+
+def quote_valid(body):
+    value=json.loads(body)
+    assert value.get('status')=='ok' and value.get('chainId')==56 and value.get('quoteCurrency')=='USDT'
+    assert value.get('tokenAddress')=='0x5ce033b2bfca3af30b3e8c8457deaf776a8b695a'
+    assert value.get('poolAddress')=='0x28b12792f9d81bd529bc5572434e861c9edbbbc2'
+    assert value.get('conversionPoolAddress')=='0x172fcd41e0913e95784454622d1c3724f546f849'
+    price=value.get('priceUsdt');assert type(price) in [int,float] and math.isfinite(price) and price>0
+    for key in ['updatedAt','blockTimestamp']:
+        stamp=datetime.datetime.fromisoformat(value[key].replace('Z','+00:00')).timestamp()
+        assert -30<=time.time()-stamp<=120,'Price snapshot is stale'
+    assert type(value.get('blockNumber')) is int and value['blockNumber']>0
+    return {k:value[k] for k in ['status','chainId','priceUsdt','updatedAt','blockNumber','blockTimestamp']}
+
+def verified_genesis_graph(body,manifest):
+    graph=json.loads(body)
+    assert graph.get('status')=='verified' and graph.get('chainId')==56 and graph.get('stage')=='genesis'
+    assert graph.get('readMode')=='current' and graph.get('stale') is False and graph.get('operationalReady') is False
+    assert graph.get('upgradeArtifactDigest') is None and graph.get('operationId') is None
+    digest=manifest['artifactDigest']
+    for key in ['artifactDigest','genesisArtifactDigest']:
+        assert str(graph.get(key,'')).lower()==digest.lower(),'Wrong original artifact digest'
+    for key in ['factory','portfolioFactory']:
+        assert str(graph.get(key,'')).lower()==manifest[key].lower(),'Wrong original factory'
+    deployment=manifest['deployment']
+    assert graph.get('stageActivationBlock')==deployment['blockNumber']
+    assert str(graph.get('stageActivationHash','')).lower()==deployment['blockHash'].lower()
+    assert type(graph.get('verifiedBlockNumber')) is int and graph['verifiedBlockNumber']>=manifest['verifiedBlockNumber']
+    assert re.fullmatch(r'0x[0-9a-fA-F]{64}',str(graph.get('verifiedBlockHash','')))
+    published=graph.get('manifest',{})
+    assert published.get('schemaVersion')==1 and published.get('chainId')==56 and published.get('kind')=='integrated-v2'
+    assert published.get('deployment')==deployment and published.get('verifiedBlockNumber')==deployment['blockNumber']
+    assert published.get('sourceCommit')==manifest['sourceCommit']
+    assert str(published.get('artifactDigest','')).lower()==digest.lower()
+    for key in ['factory','shareMarket','lens','beacon','timelock','portfolioFactory','portfolioMarket','portfolioBeacon','portfolioImplementation','portfolioFactoryImplementation']:
+        assert str(published.get(key,'')).lower()==manifest[key].lower(),'Wrong original address: '+key
+        assert str(published.get('codehash',{}).get(key,'')).lower()==manifest['codehash'][key].lower(),'Wrong original code: '+key
+    return {'stage':'genesis','verifiedBlockNumber':graph['verifiedBlockNumber']}
+
+def current_database_ids(require_idle=False):
+    u=pwd.getpwnam('pinkuang-v2')
+    for path in [journal,index_db]:
+        no_links(path);st=path.stat();parent=path.parent.stat()
+        assert st.st_uid==u.pw_uid and st.st_gid==u.pw_gid and stat.S_IMODE(st.st_mode)==0o600
+        assert parent.st_uid==u.pw_uid and parent.st_gid==u.pw_gid and stat.S_IMODE(parent.st_mode)==0o700
+    s=journal.stat();journal_identity=(s.st_dev,s.st_ino)
+    if require_idle:assert journal_ready()==journal_identity
+    s=index_db.stat()
+    assert s.st_uid==u.pw_uid and s.st_gid==u.pw_gid and stat.S_IMODE(s.st_mode)==0o600
+    db=sqlite3.connect('file:'+str(index_db)+'?mode=ro',uri=True);db.execute('PRAGMA query_only=ON')
+    try:
+        identity=json.loads(db.execute("SELECT value FROM metadata WHERE key='identity'").fetchone()[0]);m=CONFIG['manifest']
+        expected={'version':2,'chainId':56,'factory':m['factory'].lower(),'market':m['shareMarket'].lower(),
+          'portfolioFactory':m['portfolioFactory'].lower(),'portfolioMarket':m['portfolioMarket'].lower(),'startBlock':m['deployment']['blockNumber']}
+        assert identity==expected,'Index DB belongs to a different graph'
+    finally:db.close()
+    return {'journal':list(journal_identity),'index':[s.st_dev,s.st_ino]}
+
+def preserved_surface(require_legacy_identity=True):
+    observed=legacy()
+    if require_legacy_identity:assert observed==CONFIG['legacy'],'Legacy services or links changed'
+    else:
+        # A restart of an unrelated legacy service changes MainPID and
+        # InvocationID, but cannot justify leaving the v2 hotfix half-applied.
+        assert observed['links']==CONFIG['legacy']['links'],'Legacy links changed'
+        for name,expected in CONFIG['legacy']['services'].items():
+            actual=observed['services'][name]
+            for key in ['LoadState','ActiveState','SubState','User','Group']:
+                assert actual.get(key)==expected.get(key),'Legacy service state changed: '+name+'.'+key
+    assert sha(regular(site))==CONFIG['nginxSha256'] and sha(regular(record_path))==CONFIG['trustedRecordSha256']
+    assert link_target()==str(product),'Product current must remain on the approved release'
+
+def restore_hotfix(state):
+    # Preflight every file and DB identity before stopping either service.
+    preserved_surface(False);assert current_database_ids()==state['databaseIds']
+    for name,path in targets.items():
+        assert sha(regular(path)) in [state['beforeHashes'][name],state['candidateHashes'][name]],'Concurrent edit blocks rollback'
+    for name in ['pinkuang-deploy-v2.service','pinkuang-index-v2.service']:run(['systemctl','stop',name],timeout=60)
+    assert current_database_ids()==state['databaseIds']
+    for name,path in targets.items():replace(path,regular(backup/(name+'.before')),state['beforeModes'][name])
+    run(['systemctl','daemon-reload'])
+    for name in ['pinkuang-deploy-v2.service','pinkuang-index-v2.service']:run(['systemctl','start',name],timeout=60)
+    # Even a failed reload command may have applied the candidate. Always reload restored bytes.
+    run(['nginx','-t']);run(['systemctl','reload','nginx'])
+    preserved_surface(False);assert current_database_ids()==state['databaseIds']
+
+def observe_index_cycles():
+    # Record successful complete cycles; an in-progress scan is not a verified snapshot.
+    deadline=time.monotonic()+90;successes=0;samples=0;unavailable=0;http503=0;blocks=set()
+    while time.monotonic()<deadline:
+        samples+=1
+        try:
+            code,body=public('/bemine-v2/api/chain-index/health')
+            if code==503:http503+=1
+            if code==200 and verified_index(body,deadline):
+                successes+=1;blocks.add(json.loads(body)['source']['indexedThrough'])
+            else:unavailable+=1
+        except (OSError,ValueError):unavailable+=1
+        print(json.dumps({'indexCycleObservation':{'samples':samples,'verifiedSamples':successes,'distinctIndexedBlocks':len(blocks),'incompleteOrUnavailable':unavailable,'http503':http503}}),flush=True)
+        if successes>=3 and len(blocks)>=2:return
+        time.sleep(max(0,min(10,deadline-time.monotonic())))
+    raise RuntimeError('Index did not supply three verified snapshots spanning two completed cycles')
+
+def public_acceptance(runtime_manifest,product_manifest):
+    for path,name in [('/','dist/index.html'),('/deployment-artifacts.json','dist/deployment-artifacts.json')]:
+        code,body=http('http://127.0.0.1:4174'+path);assert code==200 and sha(body)==runtime_manifest['files'][name]['sha256']
+        # The deployment console's public route was retired. Its runtime must
+        # still serve the reviewed bytes locally, while both public URLs stay gone.
+        code,_=public('/pinkuang-deploy-v2'+path);assert code==410
+    for path,name in [('/bemine-v2/','public/bemine-v2/index.html'),('/bemine-v2/data/frontend-manifest.json','public/bemine-v2/data/frontend-manifest.json')]:
+        code,body=public(path);assert code==200 and sha(body)==product_manifest['files'][name]['sha256']
+    code,body=http('http://127.0.0.1:4174/api/journal/product-graph');assert code==200
+    print(json.dumps({'localGenesisGraph':verified_genesis_graph(body,CONFIG['manifest'])}),flush=True)
+    code,body=public('/bemine-v2/api/journal/product-graph');assert code==200
+    print(json.dumps({'publicGenesisGraph':verified_genesis_graph(body,CONFIG['manifest'])}),flush=True)
+    assert public('/bemine-v2/api/journal/build')[0]==401
+    code,body=http('http://127.0.0.1:4174/api/rpc',{'jsonrpc':'2.0','id':1,'method':'eth_chainId','params':[]});assert code==200 and json.loads(body).get('result')=='0x38'
+    code,body=public('/bemine-v2/data/bem-price.json');assert code==200
+    quote=quote_valid(body);print(json.dumps({'publicQuote':quote}),flush=True)
+    observe_index_cycles()
+
+def main():
+    digest=sha(json.dumps(CONFIG,sort_keys=True).encode())
+    if PHASE=='rollback':
+        state=json.loads(regular(backup/'prepared.json'));assert state['configDigest']==digest
+        restore_hotfix(state);print(json.dumps({'rolledBack':True,'databasesRestored':False,'databasesPreserved':True,'productCurrentPreserved':True}));return
+    preserved_surface()
+    for name in ['pinkuang-deploy-v2.service','pinkuang-index-v2.service']:
+        current=service(name);assert current['ActiveState']=='active' and current['User']=='pinkuang-v2'
+    for name,path in targets.items():assert sha(regular(path))==CONFIG[{'unit':'deployUnitSha256','index-unit':'indexUnitSha256','snippet':'productSnippetSha256'}[name]]
+    ids=current_database_ids(require_idle=True);no_links(price_path);quote_valid(price_path.read_bytes())
+    runtime_manifest=verify_files(runtime,'release-manifest.json',CONFIG['runtimeManifestSha256'],CONFIG['runtimeSourceHead'])
+    product_manifest=verify_files(product,'product-release-manifest.json',CONFIG['productManifestSha256'],CONFIG['productSourceHead'])
+    assert runtime_manifest['kind']=='integrated-v2' and runtime_manifest['transactionCount']==16 and product_manifest['basePath']=='/bemine-v2'
+    assert json.loads(regular(product/'public/bemine-v2/data/frontend-manifest.json'))==CONFIG['manifest']
+    candidates={'unit':candidate_service(regular(unit),False),'index-unit':candidate_service(regular(index_unit),True),'snippet':candidate_snippet(regular(snippet))}
+    if PHASE=='prepare':
+        for path in [backup.parent,backup]:
+            no_links(path)
+            if not path.exists():path.mkdir(mode=0o700)
+            assert path.stat().st_uid==0 and stat.S_IMODE(path.stat().st_mode)==0o700
+        state={'configDigest':digest,'databaseIds':ids,'beforeHashes':{},'candidateHashes':{},'beforeModes':{}}
+        for name,path in targets.items():
+            raw=regular(path);state['beforeHashes'][name]=sha(raw);state['candidateHashes'][name]=sha(candidates[name]);state['beforeModes'][name]=stat.S_IMODE(path.stat().st_mode)
+            exclusive(backup/(name+'.before'),raw);exclusive(backup/(name+'.candidate'),candidates[name])
+        exclusive(backup/'prepared.json',json.dumps(state,sort_keys=True,indent=2).encode())
+        preserved_surface();print(json.dumps({'prepared':True,'activated':False,'backup':str(backup),'databasesPreserved':True}));return
+    state=json.loads(regular(backup/'prepared.json'));assert state['configDigest']==digest and state['databaseIds']==ids
+    assert state['candidateHashes']=={name:sha(body) for name,body in candidates.items()},'Prepared candidate bytes changed'
+    attempted=False
+    try:
+        attempted=True
+        for name in ['pinkuang-deploy-v2.service','pinkuang-index-v2.service']:run(['systemctl','stop',name],timeout=60)
+        assert current_database_ids(require_idle=True)==ids;preserved_surface()
+        for name,path in targets.items():replace(path,candidates[name],state['beforeModes'][name])
+        run(['systemd-analyze','verify',str(unit),str(index_unit)]);run(['systemctl','daemon-reload']);run(['nginx','-t'])
+        for name in ['pinkuang-deploy-v2.service','pinkuang-index-v2.service']:run(['systemctl','start',name],timeout=60)
+        wait_for_index();run(['systemctl','reload','nginx']);public_acceptance(runtime_manifest,product_manifest)
+        preserved_surface();assert current_database_ids()==ids
+        exclusive(backup/'activated.json',json.dumps({'activated':True,'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'databasesPreserved':True,'productCurrentPreserved':True},indent=2).encode())
+        print(json.dumps({'activated':True,'runtimeReleaseId':CONFIG['runtimeReleaseId'],'productCurrentPreserved':True,'databasesPreserved':True,'legacyUnchanged':True,'priceRoute':'/bemine-v2/data/bem-price.json'}))
+    except BaseException:
+        if attempted:restore_hotfix(state)
+        raise
+
+logs_timeout_ms,catchup_seconds,operation_id=hotfix_options(CONFIG)
+runtime=pathlib.Path('/srv/pinkuang-deploy-v2/releases')/CONFIG['runtimeReleaseId']
+previous_runtime=pathlib.Path('/srv/pinkuang-deploy-v2/releases')/CONFIG['previousRuntimeReleaseId']
+product=pathlib.Path('/var/www/bemine-v2/releases')/CONFIG['productReleaseId']
+backup=pathlib.Path('/var/backups/pinkuang-v2')/operation_id
+targets={'unit':unit,'index-unit':index_unit,'snippet':snippet}
+lock=pathlib.Path('/run/lock/pinkuang-v2-product-update.lock');no_links(lock)
+fd=os.open(lock,os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
+try:fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB);main()
+finally:os.close(fd)

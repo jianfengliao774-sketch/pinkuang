@@ -1,0 +1,267 @@
+import { Interface, ZeroAddress, getAddress, toQuantity } from 'ethers';
+import { OFFICIAL_COLLECTIONS, MAX_QUOTE_AGE_MS, fetchQuotePage, fetchMineQuote, fetchCapacityReference, minerReferenceIssue, quoteIssue, createQuotePlan } from '../../deploy/src/pricing.ts';
+import { createReadOnlyHttpProvider } from './live-config.mjs';
+import { settleReadRound } from './read-retry.mjs';
+import { QUOTE_BASE } from './quote-base.mjs';
+import { uint, referenceQuote } from './chain-client.mjs';
+import { parseFirstoSignedAsk, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
+import { readMachineReservation } from '../../deploy/shared/machine-reservation.mjs';
+
+const MARKET = '0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f';
+const MINING = '0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46';
+const marketAbi = new Interface(['function listingFor(address,uint256) view returns(uint256 id,address seller,uint96 price,bool valid)']);
+const nftAbi = new Interface(['function ownerOf(uint256) view returns(address)']);
+export const machineRegistryAbi = new Interface([
+  'function machineRegistryStatus() view returns(bool initialized,bool ready,uint256 cursor,uint256 cutoff)',
+  'function machinePool(address,uint256) view returns(address)',
+]);
+const miningAbi = new Interface([
+  'function minerKey(address,uint256) view returns(bytes32)',
+  'function getMiner(bytes32) view returns(tuple(address circuits,uint64 circuitId,uint32 taskId,uint32 gateCount,uint32 stateCount,uint32 depth,uint64 area,uint32 mult,uint64 since,uint8 status,address registrant,uint32 nandBurn,uint32 latchBurn,uint64 bstar,uint64 bonus,bool optimal,uint64 commitBlock,uint64 firstUnusedId,uint64 stopBlock,uint128 verifWeight,uint128 unverWeight,uint256 debt))',
+]);
+const requireValue = (value, text) => { if (!value) throw new Error(text); };
+const same = (a, b) => getAddress(a) === getAddress(b);
+function minerEligibilityIssue(miner) {
+  if (miner.status !== 1n) return `链上矿机不在挖矿中（状态 ${miner.status}），暂不能放入募集池。`;
+  if (miner.optimal) return '链上标记为最优矿机，当前矿池暂不支持采购。';
+  if (miner.verifWeight === 0n) return '链上验证权重为零，暂不能放入募集池。';
+  if (miner.unverWeight !== 0n) return '矿机含未验证权重，当前只支持纯验证权重矿机。';
+  return null;
+}
+export { QUOTE_BASE };
+export const QUOTE_SOURCE = 'https://tapeout.firsto.ai/circuits';
+/** Exact BNB per estimated daily BEM for the displayed market ask; never use the fundraising reserve. */
+export function listingDailyCapacityPrice(priceWei, estimated24hAtomic, decimals = 5) {
+  if (priceWei == null || estimated24hAtomic == null) return null;
+  const price = uint(priceWei), yieldAtomic = uint(estimated24hAtomic);
+  if (price === 0n || yieldAtomic === 0n) return null;
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 12) throw new Error('日产能价精度无效。');
+  const scale = 10n ** BigInt(decimals);
+  // BEM has 8 decimals and BNB has 18: priceWei / (yieldAtomic * 10^10).
+  const denominator = yieldAtomic * 10_000_000_000n;
+  const rounded = (price * scale + denominator / 2n) / denominator;
+  if (decimals === 0) return rounded.toString();
+  if (rounded === 0n) return `<0.${'0'.repeat(decimals - 1)}1`;
+  return `${rounded / scale}.${(rounded % scale).toString().padStart(decimals, '0')}`;
+}
+export function operatorQuoteError(error) {
+  if (error instanceof SyntaxError) return '报价内容不完整，请重新获取；手动导入时请使用完整的报价 JSON。';
+  if (error?.name === 'AbortError' || error?.name === 'TimeoutError') return '报价读取超时，请重新获取。';
+  return error?.shortMessage || error?.message || '报价暂时无法读取，请重试。';
+}
+export function listOperatorQuotes(input = {}, options = {}) {
+  return fetchQuotePage({ sort: 'daily_capacity_price_low', ...input }, { baseUrl: QUOTE_BASE, ...options });
+}
+
+/** A missing selector is an old deployment; transport failures must not downgrade capability. */
+export async function readMachineRegistry(provider, { factory, collection, tokenId, blockTag = 'latest' } = {}) {
+  const unsupported = Object.freeze({ supported: false, ready: false, pool: null });
+  if (!factory) return unsupported;
+  const call = (name, args = []) => provider.request({ method: 'eth_call', params: [{ to: getAddress(factory),
+    data: machineRegistryAbi.encodeFunctionData(name, args) }, blockTag] });
+  let encoded;
+  try { encoded = await call('machineRegistryStatus'); }
+  catch (error) {
+    if ((error?.code === 3 || error?.code === 'CALL_EXCEPTION') && (error.data === '0x' || error.data == null)) return unsupported;
+    throw error;
+  }
+  if (encoded === '0x') return unsupported;
+  const [initialized, ready, cursor, cutoff] = machineRegistryAbi.decodeFunctionResult('machineRegistryStatus', encoded);
+  requireValue(cursor <= cutoff && (!ready || initialized && cursor === cutoff), '矿机登记状态不一致，请暂停操作。');
+  const pool = collection === undefined ? null : getAddress(machineRegistryAbi.decodeFunctionResult('machinePool',
+    await call('machinePool', [getAddress(collection), uint(tokenId)]))[0]);
+  return Object.freeze({ supported: true, initialized, ready, cursor: cursor.toString(), cutoff: cutoff.toString(), pool });
+}
+
+/** The exact NFT can be checked on the official market without an indexer or Firsto API. */
+export async function readOfficialMinerOnchain(provider, collectionValue, tokenValue,
+  { config, blockTag = 'latest', allowIneligible = false, checkReservation = false } = {}) {
+  const collection = getAddress(collectionValue), tokenId = uint(tokenValue);
+  requireValue(Object.values(OFFICIAL_COLLECTIONS).some(value => same(value, collection)), '仅接受已核验的官方矿机合约。');
+  const request = (method, params = []) => provider.request({ method, params });
+  if (config?.displayOnly === true) {
+    const call = async (to, contract, name, args) => contract.decodeFunctionResult(name,
+      await request('eth_call', [{ to, data: contract.encodeFunctionData(name, args) }, blockTag]));
+    const factory = checkReservation ? getAddress(config.factory ?? config.manifest?.factory) : null;
+    const [owner, listing, key, reservedPool] = await Promise.all([
+      call(collection, nftAbi, 'ownerOf', [tokenId]), call(MARKET, marketAbi, 'listingFor', [collection, tokenId]),
+      call(MINING, miningAbi, 'minerKey', [collection, tokenId]),
+      checkReservation ? readMachineReservation(provider, { factory, collection, tokenId, blockTag }) : null,
+    ]);
+    const miner = (await call(MINING, miningAbi, 'getMiner', [key[0]]))[0];
+    requireValue(same(miner.circuits, collection) && miner.circuitId === tokenId, '矿机链上身份不一致。');
+    const eligibilityIssue = minerEligibilityIssue(miner), eligible = eligibilityIssue === null;
+    requireValue(allowIneligible || eligible, eligibilityIssue);
+    const official = eligible && listing.valid && listing.id > 0n && listing.price > 0n && same(listing.seller, owner[0])
+      ? Object.freeze({ id: listing.id.toString(), seller: getAddress(listing.seller), priceWei: listing.price.toString() }) : null;
+    const checkedAt = Date.now();
+    return Object.freeze({ collection, tokenId: tokenId.toString(), owner: getAddress(owner[0]), taskId: miner.taskId.toString(),
+      verifiedWeight: miner.verifWeight.toString(), eligible, official, firsto: null, firstoError: null,
+      registry: checkReservation ? Object.freeze({ factory, collection, tokenId: tokenId.toString(), pool: reservedPool,
+        supported: true, ready: null, checkedAt, blockTag }) : null,
+      blockNumber: null, blockHash: null, checkedAt, displayOnly: true });
+  }
+  const { chain, block } = await settleReadRound({ chain: () => request('eth_chainId'), block: () => request('eth_getBlockByNumber', [blockTag, false]) });
+  requireValue(BigInt(chain) === 56n && /^0x[\da-f]{64}$/i.test(block?.hash ?? '')
+    && /^0x[\da-f]+$/i.test(block?.number ?? '') && /^0x[\da-f]+$/i.test(block?.timestamp ?? ''), '无法核对 BSC 矿机区块。');
+  const tag = toQuantity(BigInt(block.number));
+  requireValue(blockTag === 'latest' || BigInt(blockTag) === BigInt(tag), '矿机返回区块与请求不一致。');
+  const call = async (to, abi, name, args) => abi.decodeFunctionResult(name, await request('eth_call', [{ to, data: abi.encodeFunctionData(name, args) }, tag]));
+  const { owner, listing, key } = await settleReadRound({
+    owner: () => call(collection, nftAbi, 'ownerOf', [tokenId]),
+    listing: () => call(MARKET, marketAbi, 'listingFor', [collection, tokenId]),
+    key: () => call(MINING, miningAbi, 'minerKey', [collection, tokenId]),
+  });
+  const miner = (await call(MINING, miningAbi, 'getMiner', [key[0]]))[0];
+  requireValue(same(miner.circuits, collection) && miner.circuitId === tokenId, '矿机链上身份不一致。');
+  const eligibilityIssue = minerEligibilityIssue(miner);
+  const eligible = eligibilityIssue === null;
+  requireValue(allowIneligible || eligible, eligibilityIssue);
+  const official = eligible && listing.valid && listing.id > 0n && listing.price > 0n && same(listing.seller, owner[0])
+    ? Object.freeze({ id: listing.id.toString(), seller: getAddress(listing.seller), priceWei: listing.price.toString() }) : null;
+  const registry = await readMachineRegistry(provider, { factory: config?.factory ?? config?.manifest?.factory, collection, tokenId, blockTag: tag });
+  const { after, finalChain } = await settleReadRound({ after: () => request('eth_getBlockByNumber', [tag, false]), finalChain: () => request('eth_chainId') });
+  requireValue(after?.hash === block.hash && after?.number === block.number && after?.timestamp === block.timestamp
+    && BigInt(finalChain) === 56n, '矿机核对期间区块或网络变化，请重试。');
+  return Object.freeze({ collection, tokenId: tokenId.toString(), owner: getAddress(owner[0]), taskId: miner.taskId.toString(),
+    verifiedWeight: miner.verifWeight.toString(), eligible, official, firsto: null, firstoError: null, registry,
+    blockNumber: BigInt(block.number).toString(), blockHash: block.hash, checkedAt: Date.now() });
+}
+
+function matchQuoteToMiner(quote, chain) {
+  requireValue(same(quote.owner, chain.owner), '矿机持有人已变化，请刷新报价。');
+  requireValue(quote.status === 'verified' && quote.taskId === chain.taskId && quote.verifiedWeight === chain.verifiedWeight
+    && quote.unverifiedWeight === '0', '矿机任务或权重已变化，请重新获取。');
+}
+
+/** Optional display estimate for an already verified official listing; never gates the purchase route. */
+export async function loadVerifiedCapacityHint(chain, options = {}) {
+  const quote = await fetchMineQuote(chain.collection, chain.tokenId, { baseUrl: QUOTE_BASE, ...options });
+  matchQuoteToMiner(quote, chain);
+  requireValue(!quote.issues.length && quote.source.observedAt > 0
+    && quote.source.observedAt <= Date.now() + 30_000
+    && Date.now() - quote.source.observedAt <= MAX_QUOTE_AGE_MS, 'Firsto 产能来源已过期或不完整。');
+  requireValue(quote.estimated24hAtomic && BigInt(quote.estimated24hAtomic) > 0n, 'Firsto 未提供这台矿机的有效预计日产出。');
+  return Object.freeze({ estimated24hAtomic: quote.estimated24hAtomic, observedAt: quote.source.observedAt });
+}
+
+/** Public quotes are discovery only; an official listing always takes purchase priority. */
+export async function checkMinerOnchain(provider, quote, { config, blockTag = 'latest', officialPriceCapWei } = {}) {
+  const chain = await readOfficialMinerOnchain(provider, quote?.collection, quote?.tokenId, { config, blockTag });
+  matchQuoteToMiner(quote, chain);
+  let firsto = null, firstoError = null;
+  const officialWithinCap = chain.official && (officialPriceCapWei === undefined
+    || BigInt(chain.official.priceWei) <= uint(officialPriceCapWei));
+  if (!officialWithinCap && quote.ask?.venue === 'firsto') {
+    if (config?.displayOnly === true) {
+      try { firsto = parseFirstoSignedAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner }); }
+      catch (error) { firstoError = operatorQuoteError(error); }
+    }
+    else if (!chain.registry.supported) firstoError = '当前工厂版本尚未开放 Firsto 合约采购。';
+    else if (!chain.registry.ready) firstoError = '矿机唯一性登记尚未完成，Firsto 采购暂不可用。';
+    else {
+      try {
+        const order = parseFirstoSignedAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner });
+        firsto = await verifyFirstoSignedAsk(provider, order, { blockTag: toQuantity(BigInt(chain.blockNumber)) });
+        requireValue(firsto.checkedBlock.hash === chain.blockHash, 'Firsto 订单与矿机核对区块不一致。');
+      } catch (error) { firsto = null; firstoError = operatorQuoteError(error); }
+    }
+  }
+  return Object.freeze({ ...chain, firsto, firstoError });
+}
+
+export async function loadOperatorQuote({ collection, tokenId, config, provider, blockTag,
+  mode = 'createPool', officialPriceCapWei, forCreation = false, ...options }) {
+  const reader = provider ?? createReadOnlyHttpProvider(config);
+  const officialChain = await readOfficialMinerOnchain(reader, collection, tokenId, { config, blockTag, checkReservation: forCreation });
+  // Existing projects reserve their NFT before purchasing it. Only creation
+  // discovery rejects an occupied NFT, before requesting paid public quotes.
+  if (forCreation && officialChain.registry?.pool && !same(officialChain.registry.pool, ZeroAddress))
+    throw Object.assign(new Error(`此矿机已有拼矿项目：${officialChain.registry.pool}，不能重复创建。`),
+      { code: 'MachineAlreadyReserved', pool: officialChain.registry.pool });
+  // A fixed official purchase needs no Firsto availability, estimate or buyer-fee quote.
+  const officialWithinCap = officialChain.official && (officialPriceCapWei === undefined
+    || BigInt(officialChain.official.priceWei) <= uint(officialPriceCapWei));
+  if (officialWithinCap && mode === 'createPool') return Object.freeze({ quote: null, chain: officialChain, reference: null, referenceError: null });
+  const opts = { baseUrl: QUOTE_BASE, ...options };
+  const results = await Promise.allSettled([fetchMineQuote(collection, tokenId, opts), fetchCapacityReference(opts)]);
+  if (results[0].status === 'rejected') throw results[0].reason;
+  const quote = results[0].value;
+  // An unlisted verified NFT can identify a model for flexible procurement.
+  // Its absent ask never becomes a fixed purchase route or executable price.
+  const issue = quote.ask ? quoteIssue(quote) : minerReferenceIssue(quote);
+  requireValue(!issue, issue);
+  matchQuoteToMiner(quote, officialChain);
+  let chain = officialChain;
+  if (!officialWithinCap && config?.displayOnly === true) {
+    let firsto = null, firstoError = null;
+    if (quote.ask?.venue === 'firsto') {
+      try { firsto = parseFirstoSignedAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner }); }
+      catch (error) { firstoError = operatorQuoteError(error); }
+    }
+    chain = Object.freeze({ ...officialChain, firsto, firstoError });
+  } else if (!officialWithinCap && quote.ask) chain = await checkMinerOnchain(reader, quote, { config, blockTag, officialPriceCapWei });
+  return Object.freeze({ quote, chain, reference: results[1].status === 'fulfilled' ? results[1].value : null,
+    referenceError: results[1].status === 'rejected' ? operatorQuoteError(results[1].reason) : null });
+}
+
+/** The public quote export uses numbers for these two bounded metadata fields.
+ * Normalize only safe, exact integers at the adapter boundary. Wei, yields and
+ * other chain integers still use the strict bigint/decimal-string encoder. */
+function exactFlexibleMetadata(config) {
+  requireValue(config && typeof config === 'object' && !Array.isArray(config), '灵活报价配置不完整，请重新生成。');
+  const exact = (value, bits, label) => {
+    if (typeof value === 'number') {
+      requireValue(Number.isSafeInteger(value) && value >= 0, `${label}必须是精确的非负整数，请重新生成报价。`);
+      value = String(value);
+    }
+    return uint(value, bits).toString();
+  };
+  return Object.freeze({ ...config,
+    extraBps: exact(config.extraBps, 16, '额外预算比例'),
+    referenceObservedAt: exact(config.referenceObservedAt, 64, '参考报价时间'),
+  });
+}
+
+/** Only drafts; no signing or broadcasts. Relative deadlines remain operator choices. */
+export function operatorQuoteDraft(checked, { mode = 'createPool', extraBps = 1000, fundingHours = '24', purchaseHours = '48' } = {}, now = Date.now()) {
+  const { quote, chain, reference } = checked;
+  if (quote) {
+    const issue = quote.ask ? quoteIssue(quote, now) : minerReferenceIssue(quote, now);
+    requireValue(!issue, issue);
+  }
+  else requireValue(mode === 'createPool' && chain?.official, 'Firsto 报价不可用，请重新获取。');
+  requireValue(chain && Number.isFinite(chain.checkedAt) && chain.checkedAt <= now + 30000 && now - chain.checkedAt <= 300000, '链上矿机核对已过期，请重新获取。');
+  requireValue(Number.isInteger(extraBps) && extraBps >= 0 && extraBps <= 10000, '额外预算需在 0%–100% 之间。');
+  requireValue(uint(fundingHours, 32) > 0n && uint(purchaseHours, 32) > 0n, '请填写有效的募集和购机时长。');
+  if (chain.displayOnly === true) {
+    requireValue(chain.registry?.pool && same(chain.registry.collection, chain.collection)
+      && uint(chain.registry.tokenId) === uint(chain.tokenId), '矿机登记尚未核对，请重新选择矿机。');
+    requireValue(same(chain.registry.pool, ZeroAddress), `此矿机已有拼矿项目：${chain.registry.pool}，不能重复创建。`);
+  } else {
+    requireValue(chain.registry?.supported, '当前工厂尚未支持矿机唯一性登记，请等待合约升级后创建。');
+    requireValue(chain.registry.ready, '矿机唯一性登记尚未完成，请稍后创建。');
+    requireValue(chain.registry.pool && same(chain.registry.pool, ZeroAddress), `此矿机已有拼矿项目：${chain.registry.pool}，不能重复创建。`);
+  }
+  const params = { circuits: getAddress(chain.collection ?? quote.collection), circuitId: chain.tokenId ?? quote.tokenId, fundingHours, purchaseHours };
+  if (mode === 'createPool') {
+    requireValue(chain.firsto || chain.official, `这台矿机当前没有本项目可购买的官网挂单或已核验 Firsto 订单。${chain.firstoError || ''}`);
+    const priceCapWei = chain.official?.priceWei ?? chain.firsto.grossWei;
+    const amounts = referenceQuote(priceCapWei, BigInt(extraBps));
+    return Object.freeze({ kind: mode, params: { ...params, targetRaiseWei: amounts.targetRaise.toString(), priceCapWei } });
+  }
+  requireValue(mode === 'createFlexiblePoolChecked' && reference, checked.referenceError || '日产能参考价不可用，请刷新报价。');
+  const plan = createQuotePlan(quote, reference, extraBps, quote.verifiedWeight, now,
+    { allowUnlistedReference: true });
+  return Object.freeze({ kind: mode, params: { ...params, targetRaiseWei: plan.funding.targetRaiseWei, priceCapWei: plan.funding.priceCapWei,
+    directSeller: ZeroAddress, directPrice: '0' }, flexible: exactFlexibleMetadata(plan.flexiblePurchase),
+    expectedTaskId: plan.eligibility.expectedTaskId, expectedReferenceWeight: plan.eligibility.expectedReferenceVerifiedWeight });
+}
+
+export function parseOperatorImport(text) {
+  requireValue(typeof text === 'string' && text.trim(), '请先选择矿机自动生成方案，或在高级导入中粘贴完整报价。');
+  let raw;
+  try { raw = JSON.parse(text); } catch { throw new Error('报价 JSON 不完整或格式错误，请重新导入完整文件。'); }
+  requireValue(raw && raw.params && raw.flexible && raw.expectedTaskId !== undefined && raw.expectedReferenceWeight !== undefined, '报价缺少建池参数，请重新生成完整方案。');
+  return { ...raw, flexible: exactFlexibleMetadata(raw.flexible) };
+}

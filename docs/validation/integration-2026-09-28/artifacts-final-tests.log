@@ -1,0 +1,16 @@
+✔ browser artifacts compile the complete source graph with the reviewed compiler settings (0.7786ms)
+✔ all deployment templates fit chain code limits and every link maps to the correct Solidity placeholder (6.2671ms)
+✔ nested purchase dependencies and all reviewed libraries precede PoolVault in the compiler link graph (0.9063ms)
+✔ deployment ABI retains prediction, role validation, binding and post-deployment inspection methods (8.3611ms)
+✔ --check rejects source or artifact drift while permitting a later Git commit with identical source bytes (43.9421ms)
+✔ malformed link locations and oversized runtime code cannot enter a deployment bundle (8.7331ms)
+✔ source-pinned digest binds ABI, creation/runtime code and compiler sources, excluding only commit provenance (512.6778ms)
+✔ long-running dev journal guard rejects changed Solidity files and stale artifact bytes (302.2647ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 15260.228

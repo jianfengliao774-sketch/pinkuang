@@ -1,0 +1,26 @@
+✔ task-1 official vectors rebuild the fork-proven Merkle root; a corrupt vector fails closed (178.329832ms)
+✔ sample proofs open to the official root at indices derived from anchor and NFT identity (81.594077ms)
+✔ restart only a stopped pure-verified miner after the block cooldown (0.593355ms)
+✔ send requires explicit journal and an HTTPS RPC (1.626789ms)
+✔ mining journal cannot be mistaken for purchase or a different mining stage (4.412122ms)
+✔ journal binds to the exact artifact JSON served by dev and production pages (319.406079ms)
+✔ strict initialization proof recognizes exact direct single and multisig calls without claiming envelope authorization (55.036867ms)
+✔ integrated recovery requires both exact graphs and all five coordinator events (50.009249ms)
+✔ strict wrapped proof binds exact roles, implementations, code hashes and predicted graph to one receipt (16.807919ms)
+✔ receipt-owned ethers logs may omit removed while keeping transaction and block identity mandatory (11.049063ms)
+✔ wrapped proof cannot use calldata containment alone or spoof coordinator event emitters (56.855492ms)
+✔ wrapped proof rejects every mismatching role, graph, implementation and runtime hash event field (58.297004ms)
+✔ receipt identity and unique canonical-order log evidence cannot be forged (56.586567ms)
+✔ wrapped recovery requires matching saved plan and confirmed nonduplicate prerequisites (69.61892ms)
+✔ direct initialization also rejects changed calldata and saved plan mismatches (8.664508ms)
+✔ trusted complete record is bound to the served artifact digest and all code evidence (676.407787ms)
+✔ fresh pinned graph accepts all compiled runtime, roles and slots then detects each changed binding (3042.138169ms)
+✔ runtime drift, implementation upgrade, reorg, missing evidence and unconfigured factory fail closed (1997.529213ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 18
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8431.624526

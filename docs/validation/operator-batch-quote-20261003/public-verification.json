@@ -1,0 +1,96 @@
+{
+  "checkedAt": "2026-10-03T15:08:51.880586+00:00",
+  "observationPoint": "Deployment server 144.126.242.139 through external https://bemine.cc.cd DNS/TLS; not loopback",
+  "checks": [
+    {
+      "path": "/",
+      "status": 200,
+      "location": null,
+      "bytes": 36144,
+      "sha256": "a15061b3d703af72a6859bfd6e16ccd9966901f872b2fc806a0b75afefec45b2",
+      "cacheControl": "no-store",
+      "passed": true
+    },
+    {
+      "path": "/bemine-v5/?verify=operator-quote-fix",
+      "status": 308,
+      "location": "https://bemine.cc.cd/?verify=operator-quote-fix",
+      "bytes": 180,
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc",
+      "cacheControl": "no-store",
+      "passed": true
+    },
+    {
+      "path": "/preview.html",
+      "status": 200,
+      "location": null,
+      "bytes": 35578,
+      "sha256": "57b5e43149953cf11852a0e4bd4a4155d1f2097da38da3cd3dc51acdda9dbb8d",
+      "cacheControl": "no-store",
+      "sourceSha256": "57b5e43149953cf11852a0e4bd4a4155d1f2097da38da3cd3dc51acdda9dbb8d",
+      "passed": true
+    },
+    {
+      "path": "/bemine-v5/preview.html?verify=operator-quote-fix",
+      "status": 308,
+      "location": "https://bemine.cc.cd/preview.html?verify=operator-quote-fix",
+      "bytes": 180,
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc",
+      "cacheControl": "no-store",
+      "passed": true
+    },
+    {
+      "path": "/bemine-v5/fresh-product-release.json",
+      "status": 200,
+      "location": null,
+      "bytes": 1863,
+      "sha256": "9e96bdbb7a5854c260e7ad9dd1c0d83a5be99dda7ec32a62bb6fcac3ffbc715e",
+      "cacheControl": "no-cache",
+      "release": {
+        "frontendSourceHead": "3d3ac1e33114a117b13242eee6906d917f5c6b06",
+        "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+        "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+        "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+        "contentSha256": "dce9301822a11aaefc1c21737938ccdaa577915d8791492bb2f56b599bd0aa76"
+      },
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "schemaVersion": 1,
+  "scope": "Independent external domain HTTPS reads from server; no Firsto quote, paid RPC, wallet, or service modification",
+  "macObservation": {
+    "checkedAt": "2026-10-03T15:05:23.836878+00:00",
+    "passed": false,
+    "limitation": "All five Python GETs failed before HTTP response with TLS EOF; system curl HEAD also SSL_ERROR_SYSCALL. No HTTP error/status claim can be inferred.",
+    "checks": [
+      {
+        "path": "/",
+        "error": "<urlopen error EOF occurred in violation of protocol (_ssl.c:1129)>",
+        "passed": false
+      },
+      {
+        "path": "/bemine-v5/?verify=operator-quote-fix",
+        "error": "<urlopen error EOF occurred in violation of protocol (_ssl.c:1129)>",
+        "passed": false
+      },
+      {
+        "path": "/preview.html",
+        "error": "<urlopen error EOF occurred in violation of protocol (_ssl.c:1129)>",
+        "passed": false
+      },
+      {
+        "path": "/bemine-v5/preview.html?verify=operator-quote-fix",
+        "error": "<urlopen error EOF occurred in violation of protocol (_ssl.c:1129)>",
+        "passed": false
+      },
+      {
+        "path": "/bemine-v5/fresh-product-release.json",
+        "error": "<urlopen error EOF occurred in violation of protocol (_ssl.c:1129)>",
+        "passed": false
+      }
+    ]
+  },
+  "graphProbe": "Not repeated to avoid unnecessary graph/RPC refresh",
+  "failures": []
+}

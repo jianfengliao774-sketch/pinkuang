@@ -1,0 +1,17 @@
+✔ product graph treats transport and JSON-RPC server failures as transient, not identity drift (1.571728ms)
+✔ expired verified graph returns immediately as display-only while one new proof runs (333.819588ms)
+✔ recent product visitor gets a warm graph; an idle visitor gets historical data while refresh resumes (494.971377ms)
+✔ a bounded public budget proof cannot consume the site graph refresh slot (351.036579ms)
+✔ a transient RPC outage retains the original display timestamp within a one-hour bound (575.045865ms)
+✔ a temporarily missing reviewed anchor keeps only the bounded display snapshot (397.217808ms)
+✔ wrong RPC chain ID invalidates a prior display snapshot rather than treating it as an outage (312.118437ms)
+✔ a changed canonical hash invalidates the previous display snapshot before reproving (351.563192ms)
+✔ verified fresh graph is published as read-only without checking old Factory pause state (279.96326ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3520.56697

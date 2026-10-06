@@ -1,0 +1,41 @@
+[Unit]
+Description=BEMine v5 formal product API
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=pinkuang-v5-product
+Group=pinkuang-v5-product
+SupplementaryGroups=pinkuang-v4-relay
+WorkingDirectory=@RUNTIME@
+EnvironmentFile=/etc/pinkuang-v5/rpc.env
+EnvironmentFile=/etc/pinkuang-v5/product.env
+Environment=HOST=127.0.0.1
+Environment=PORT=4227
+Environment=DEPLOYMENT_JOURNAL_DB=/var/lib/pinkuang-product-v5/journal.sqlite
+Environment=BEMINE_FRESH_PRODUCT_ENABLED=1
+Environment=BEMINE_FRESH_CONSOLE_PRE_GENESIS=0
+Environment=BEMINE_FRESH_STAGE2_HOLD=1
+Environment=BEMINE_FRESH_PRODUCT_MANIFEST_PATH=@RUNTIME@/public/fresh-product-manifest.json
+Environment=BEMINE_FRESH_PRODUCT_MANIFEST_SHA256=@INDEX_SHA@
+Environment=AUTHORITY_RELAY_ENABLED=0
+Environment=AUTHORITY_RELAY_PUBLIC_ENABLED=1
+Environment=BEMINE_NATIVE_FIRSTO_ASKS_ENABLE=1
+Environment=BEMINE_NATIVE_FIRSTO_ASKS_JOURNAL=/var/lib/pinkuang-product-v5/firsto-asks.json
+LoadCredential=authority-ipc-hmac:/etc/pinkuang-v4/authority-ipc-hmac
+ExecStart=/usr/bin/node server/index.mjs
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pinkuang-product-v5 /var/lib/pinkuang-v5-public/api
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

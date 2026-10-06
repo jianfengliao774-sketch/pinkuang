@@ -1,0 +1,78 @@
+import { getAddress, ZeroAddress } from 'ethers';
+import { artifactDigest, type ArtifactBundle, type DeploymentSnapshot } from './deployment';
+
+const REQUIRED_ADDRESSES = ['factory', 'shareMarket', 'lens', 'beacon', 'timelock'] as const;
+const REQUIRED_CHECKS = ['Factory.lens', 'Lens.factory', 'Market.factory', 'Market.timelock', 'Beacon.owner'];
+const PORTFOLIO_ADDRESSES = { portfolioFactory: 'portfolioFactory', portfolioMarket: 'portfolioShareMarket',
+  portfolioBeacon: 'portfolioBeacon', portfolioImplementation: 'portfolioVaultImplementation',
+  portfolioFactoryImplementation: 'portfolioFactoryImplementation' } as const;
+const PORTFOLIO_CHECKS = ['PortfolioFactory.legacyFactory', 'PortfolioFactory.timelock', 'PortfolioFactory.beacon',
+  'PortfolioFactory.shareMarket', 'PortfolioBeacon.owner', 'PortfolioBeacon.implementation', 'PortfolioBeacon.OFFICIAL_FACTORY',
+  'PortfolioVault.OFFICIAL_FACTORY', 'PortfolioMarket.factory', 'PortfolioMarket.timelock',
+  'PortfolioMarket.feeBps', 'PortfolioMarket.buyerFeeBps', 'PortfolioFactory UUPS 实现槽', 'PortfolioMarket UUPS 实现槽'];
+const HASH = /^0x[0-9a-fA-F]{64}$/;
+
+export interface DeploymentManifest {
+  schemaVersion: 1;
+  kind?: 'integrated-v2';
+  portfolioFactory?: string;
+  portfolioMarket?: string;
+  portfolioBeacon?: string;
+  portfolioImplementation?: string;
+  portfolioFactoryImplementation?: string;
+  chainId: 56;
+  factory: string;
+  shareMarket: string;
+  lens: string;
+  beacon: string;
+  timelock: string;
+  deployment: { txHash: string; blockNumber: number; blockHash: string };
+  artifactDigest: string;
+  sourceCommit: string;
+  verifiedAt: string;
+  verifiedBlockNumber: number;
+  codehash: Record<string, string>;
+}
+
+/** A compact, public handoff for a frontend/indexer. The consumer must still verify it on chain. */
+export function deploymentManifest(snapshot: DeploymentSnapshot, bundle: ArtifactBundle): DeploymentManifest {
+  if (snapshot.chainId !== 56 || snapshot.status !== 'complete' || !snapshot.verification) throw new Error('只有完成链上核验的 BSC 部署可以导出合约清单。');
+  // The digest binds compiler settings, source hashes, ABI and bytecode. A
+  // documentation-only commit may change the bundle's provenance without
+  // changing any deployment content. Keep the original deployment commit in
+  // the exported record rather than relabeling it as the current checkout.
+  if (snapshot.artifactDigest !== artifactDigest(bundle)) throw new Error('部署记录与当前源码构建不一致。');
+  if (typeof snapshot.sourceCommit !== 'string' || !/^[\da-f]{40,64}$/i.test(snapshot.sourceCommit)) throw new Error('部署记录缺少有效的原始源码提交号。');
+  if (!snapshot.steps.length || snapshot.steps.some(step => step.status !== 'confirmed')) throw new Error('部署仍有未确认的交易。');
+  const initialize = snapshot.steps.find(step => step.id === 'initialize');
+  if (!initialize?.txHash || !HASH.test(initialize.txHash) || !initialize.receipt || initialize.receipt.status !== 1 || !HASH.test(initialize.receipt.blockHash)) throw new Error('缺少已成功上链的原子初始化回执。');
+  if (!Number.isSafeInteger(initialize.receipt.blockNumber) || initialize.receipt.blockNumber < 0 || !Number.isSafeInteger(snapshot.verification.blockNumber) || snapshot.verification.blockNumber < initialize.receipt.blockNumber) throw new Error('部署和核验区块不一致。');
+  if (!snapshot.verification.checks.length || snapshot.verification.checks.some(check => !check.passed) || REQUIRED_CHECKS.some(label => !snapshot.verification!.checks.some(check => check.label === label && check.passed))) throw new Error('部署图尚未通过完整核验。');
+  if (snapshot.kind !== undefined && snapshot.kind !== 'integrated-v2') throw new Error('部署版本不支持。');
+  if (snapshot.kind === 'integrated-v2' && PORTFOLIO_CHECKS.some(label => !snapshot.verification!.checks.some(check => check.label === label && check.passed))) throw new Error('多机项目部署图尚未通过完整核验。');
+  const addresses = {} as Record<(typeof REQUIRED_ADDRESSES)[number], string>;
+  const codehash = {} as Record<(typeof REQUIRED_ADDRESSES)[number], string>;
+  for (const name of REQUIRED_ADDRESSES) {
+    const address = getAddress(snapshot.addresses[name]);
+    const code = snapshot.verification.code[name];
+    if (address === ZeroAddress || !code || getAddress(code.address) !== address || !HASH.test(code.codehash) || code.codeBytes <= 0 || !snapshot.verification.checks.some(check => check.label === `${name} 运行代码匹配` && check.passed)) throw new Error(`${name} 地址或运行代码未核验。`);
+    addresses[name] = address;
+    codehash[name] = code.codehash;
+  }
+  const portfolio: Record<string, string> = {};
+  const portfolioCodehash: Record<string, string> = {};
+  if (snapshot.kind === 'integrated-v2') for (const [publicName, name] of Object.entries(PORTFOLIO_ADDRESSES)) {
+    const address = getAddress(snapshot.addresses[name]);
+    const code = snapshot.verification.code[name];
+    if (address === ZeroAddress || !code || getAddress(code.address) !== address || !HASH.test(code.codehash) || code.codeBytes <= 0 || !snapshot.verification.checks.some(check => check.label === `${name} 运行代码匹配` && check.passed)) throw new Error(`${name} 地址或运行代码未核验。`);
+    portfolio[publicName] = address;
+    portfolioCodehash[publicName] = code.codehash;
+  }
+  return {
+    schemaVersion: 1, chainId: 56, ...addresses,
+    ...(snapshot.kind === 'integrated-v2' ? { kind: snapshot.kind, ...portfolio } : {}),
+    deployment: { txHash: initialize.txHash, blockNumber: initialize.receipt.blockNumber, blockHash: initialize.receipt.blockHash },
+    artifactDigest: snapshot.artifactDigest, sourceCommit: snapshot.sourceCommit,
+    verifiedAt: snapshot.verification.checkedAt, verifiedBlockNumber: snapshot.verification.blockNumber, codehash: { ...codehash, ...portfolioCodehash },
+  };
+}

@@ -1,0 +1,20 @@
+Compiling 1 files with Solc 0.8.24
+Solc 0.8.24 finished in 9.07s
+Compiler run successful!
+
+Ran 12 tests for test/unit/AuditMiningSettlement.t.sol:AuditMiningSettlementTest
+[PASS] test_activeClaimCannotLeavePendingDebt() (gas: 219056)
+[PASS] test_activeClaimFailureStillRejectsEvenWithZeroPending() (gas: 707709)
+[PASS] test_activeClaimStillRequiresPendingPaidToCurrentVault() (gas: 239652)
+[PASS] test_mockClaimRejectsEveryNonMiningStatusWithRealSelector() (gas: 28881)
+[PASS] test_nonMiningOutstandingPendingFailsClosedForTransferAndSale() (gas: 714450)
+[PASS] test_ordinaryInactiveHarvestEmitsFailureAndOldRewardsRemainClaimable() (gas: 457130)
+[PASS] test_status0ZeroSettlementAllowsTransfersMarketFillAndCompleteSale() (gas: 1888885)
+[PASS] test_status2ZeroSettlementAllowsTransfersMarketFillAndCompleteSale() (gas: 1893642)
+[PASS] test_status3ZeroSettlementAllowsTransfersMarketFillAndCompleteSale() (gas: 1893708)
+[PASS] test_unknownPostClaimStatusAlsoFailsClosed() (gas: 167347)
+[PASS] test_unknownStatusesWithZeroPendingFailClosed() (gas: 755001)
+[PASS] test_zeroSettlementStillChecksIdentityAndActualNftOwner() (gas: 197760)
+Suite result: ok. 12 passed; 0 failed; 0 skipped; finished in 10.15ms (14.46ms CPU time)
+
+Ran 1 test suite in 16.02ms (10.15ms CPU time): 12 tests passed, 0 failed, 0 skipped (12 total tests)

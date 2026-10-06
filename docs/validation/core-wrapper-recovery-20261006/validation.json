@@ -1,0 +1,45 @@
+{
+  "kind": "core-wrapper-original-recovery-validation-v1",
+  "codeCommits": [
+    "6fc2d01b584d18c67b80ae048cb821e1c78e0561",
+    "6975fe6441dbf609641894d861be7cffc0647d38"
+  ],
+  "sharedAndPackage": {
+    "passed": 60,
+    "failed": 0
+  },
+  "uiSequenceIntentReadyRecovery": {
+    "passed": 57,
+    "failed": 0
+  },
+  "additionalBoundedImportTests": {
+    "passed": 4,
+    "failed": 0
+  },
+  "importAndRelatedRerun": {
+    "passed": 40,
+    "failed": 0,
+    "overlapsPriorTests": true
+  },
+  "typescript": true,
+  "gitDiffCheck": true,
+  "privateFullExportAcceptedBytes": 207712,
+  "nativeBrowserRecovery": {
+    "ready": true,
+    "readyAtCst": "2026-10-06 18:00:33",
+    "operationId": "0x4f29ead20ca5a72a93712bd2c589f261ad81a33afe09befa1c43626c5a0630f4",
+    "proofBlock": 126057826,
+    "otherBatchArchiveCount": 1,
+    "chainActionsPerformed": false
+  },
+  "finalPublishedBrowserVerification": {
+    "sourceCommit": "6975fe6441dbf609641894d861be7cffc0647d38",
+    "proofBlock": 126058283,
+    "proofBlockHash": "0x8eb74eb9cd54e739467f842def0e8e7c4e2eddfd344ac86f7434bc1cf9ce05af",
+    "originalOperationId": "0x4f29ead20ca5a72a93712bd2c589f261ad81a33afe09befa1c43626c5a0630f4",
+    "ready": true,
+    "buttonEnabled": true,
+    "otherBatchArchiveCount": 1,
+    "chainActionsPerformed": false
+  }
+}

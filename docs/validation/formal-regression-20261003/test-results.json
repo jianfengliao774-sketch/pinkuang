@@ -1,0 +1,64 @@
+{
+  "recordedAt": "2026-10-03T13:04:30.742796+00:00",
+  "frontendSourceHead": "25d2503c9d3c9f0bbf0a09b4a4d271ed213ac72f",
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "contractSourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
+  "contractAndBackendTestBaseline": "18fa7b99268491235e39a6fcd562e557e83fde2f",
+  "contractAndBackendSourcesUnchangedSinceBaseline": true,
+  "contractArtifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+  "tests": {
+    "web": {
+      "pass": 976,
+      "fail": 0
+    },
+    "backend": {
+      "localPass": 1067,
+      "localSkipped": 1,
+      "linuxSupplementPass": 1,
+      "combinedPassCoverage": 1068,
+      "fail": 0
+    },
+    "activationOps": {
+      "pass": 6,
+      "fail": 0
+    },
+    "contracts": {
+      "suites": 55,
+      "pass": 572,
+      "fail": 0,
+      "skip": 0,
+      "invariantTests": 18,
+      "invariantCalls": 2304000
+    },
+    "formalAnvil": {
+      "exitCode": 0,
+      "bootstrapTransactions": 16,
+      "activationTransactions": 7,
+      "runtimeChecks": 24,
+      "productionTransactions": 0,
+      "assertions": [
+        "16 bootstrap and 7 activation receipts",
+        "runtime/code/library links and immutable getter bindings",
+        "all final owner/operator/treasury roles",
+        "timelock authorization and 48h minimum delay retained",
+        "proposal fails before 3 days and succeeds at exact 3-day boundary; 24h vote and 7d listing expiry retained",
+        "signed low-price review required",
+        "Firsto route atomic settlement and NFT delivery",
+        "member BNB withdrawal and signed Authority fee withdrawal",
+        "all 23 transactions submitted within the artifact-bound conservative gas plan"
+      ]
+    }
+  },
+  "mainnetFinancialTransactionsSent": 0,
+  "mainnetForkSuiteRun": false,
+  "rawLogSha256": {
+    "contracts/forge-test.log": "53ef35ec98aaff4f1d7a68a7ef758decf8d8ef533bd4870ce2e542d477b6da65",
+    "contracts/formal-local-e2e.log": "fd509ebba3c8783bf883c8093db9feb8b9667580f08ca9850b4615ac62bd5fc0",
+    "backend/deploy-tests.log": "fa9fa8d7d23147454ce198c95a2fe174ebd0dcc8fd3985ee56637f980d57051d",
+    "backend/activation-ops-tests.log": "d8788fb668ab485288228ba408880db88f6bc1e91fecb5466716ec0bebc051a5",
+    "backend/linux-flock-test.log": "305a57c38102a0311afc744e51055aa4ca228cbf1d769698be18cc30eeea1fbe",
+    "web/check-after-mobile-merge.log": "8249c22f0293f61017e895477779c754cbef862e805fdae29035209530c0a179",
+    "web/abi-after-mobile-merge.log": "34b043fecbe9fe0295222b578ff530eced87506486ac6e2c843c3fbd68317740",
+    "web/frontend-mobile-merged/build.log": "be63c8e8e5ddc0756b0347c469ab7b2062b7676d81d772e0644c5d58caf7b7a0"
+  }
+}

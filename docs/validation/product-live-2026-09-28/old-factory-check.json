@@ -1,0 +1,18 @@
+{
+  "readOnly": true,
+  "notSigned": true,
+  "notBroadcast": true,
+  "checkedAt": "2026-09-28T04:50:21.793Z",
+  "chainId": 56,
+  "address": "0xcB24E7F96D81037086A268d6ea63c53f91D412A2",
+  "block": {
+    "number": 124463715,
+    "hash": "0xa4d09d8d1799b271df6175f3216e9555f4b7dd03e271f95dd0bf49df1b53e2bd",
+    "timestamp": 1790571020
+  },
+  "owner": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+  "creationPaused": false,
+  "poolCount": "0",
+  "canonical": true,
+  "creationMigrationGateSatisfied": false
+}

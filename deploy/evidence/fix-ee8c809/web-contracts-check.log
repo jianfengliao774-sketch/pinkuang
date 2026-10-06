@@ -1,0 +1,2 @@
+$ node scripts/sync-contracts.mjs --check
+Web ABI matches verified contract sources (0x06e8d37cdccef0f7993c9f29649bb713f126b1572eb4fe16a528848ff77603bc).

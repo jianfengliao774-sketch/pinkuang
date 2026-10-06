@@ -1,0 +1,32 @@
+{
+  "sourceHead": "25d2503c9d3c9f0bbf0a09b4a4d271ed213ac72f",
+  "webTests": {
+    "tests": 976,
+    "pass": 976,
+    "fail": 0
+  },
+  "abiCheckPassed": true,
+  "productionBuildPassed": true,
+  "mobileSourceHead": "8a3f68987b6c2c057ce38c8fa241521efbaf753e",
+  "mobileFilesPreserved": true,
+  "componentFailuresCovered": [
+    "HTTP refresh failure",
+    "network refresh failure",
+    "invalid response",
+    "original quote expires at 60 seconds",
+    "valid quote restores display"
+  ],
+  "governanceReads": {
+    "ordinaryNineViewsGovernanceReads": 0,
+    "ordinaryEachViewActivityReads": 1,
+    "listedGovernanceReads": 1,
+    "activeToListedGovernanceReads": 1,
+    "voteChildGovernanceReads": 1,
+    "voteParentDuplicateReads": 0,
+    "voteCallbackReusedOnListedAssetTab": true
+  },
+  "fixCommits": [
+    "d2af120c9e494626d9549097cc859b560861bc8a",
+    "7bdbee4c2f060a05bacab6a8a25d98822c271b11"
+  ]
+}

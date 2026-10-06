@@ -1,0 +1,601 @@
+Compiling 25 files with Solc 0.8.24
+Solc 0.8.24 finished in 6.33s
+Compiler run successful!
+
+Ran 4 tests for test/fork/MarketProbe.t.sol:MarketProbeTest
+[PASS] test_Q4_MarketBuyerPaysListedPriceAndSellerBearsOnePercent() (gas: 272137)
+Logs:
+  seller BNB delta: 990000000000000000
+  seller owed delta: 0
+  protocol BNB delta: 0
+  protocol owed delta: 10000000000000000
+  market BNB delta: 10000000000000000
+
+Traces:
+  [345437] MarketProbeTest::test_Q4_MarketBuyerPaysListedPriceAndSellerBearsOnePercent()
+    ├─ [0] VM::startPrank(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8)
+    │   └─ ← [Return]
+    ├─ [34768] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::approve(0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f, 400)
+    │   ├─ [2294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   ├─ [26850] 0x8E1D125Def6d3826C278299273a0760D47626068::approve(0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f, 400) [delegatecall]
+    │   │   ├─ emit Approval(owner: 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, approved: 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f, tokenId: 400)
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [170354] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::list(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400, 1000000000000000000 [1e18])
+    │   ├─ [165535] 0x725771c38361abEF7b844729B978c775F7A83dFb::list(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400, 1000000000000000000 [1e18]) [delegatecall]
+    │   │   ├─ [7397] 0x68224F668083c29e9800Be2a646d42d18cedF7e2::isCPU(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C) [staticcall]
+    │   │   │   ├─ [2587] 0xa68cCF4931d98ad0A4BE15eE40542eDc0DEc6422::isCPU(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C) [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000001
+    │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000001
+    │   │   ├─ [3462] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::transistors() [staticcall]
+    │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   ├─ [2547] 0x8E1D125Def6d3826C278299273a0760D47626068::transistors() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x000000000000000000000000cc42ba5de07f01b472a5b14cf45abcca79eb8087
+    │   │   │   └─ ← [Return] 0x000000000000000000000000cc42ba5de07f01b472a5b14cf45abcca79eb8087
+    │   │   ├─ [10507] 0xCC42ba5De07f01B472a5b14cF45aBcCA79Eb8087::circuits() [staticcall]
+    │   │   │   ├─ [2294] 0xa528e147d7e065249fc52864502c9b245C6c9f66::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x00000000000000000000000032e1fa125b6abe0ff12eec43e2dab482019a1e97
+    │   │   │   ├─ [2592] 0x32e1fa125B6Abe0FF12eeC43E2daB482019a1E97::circuits() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   │   └─ ← [Return] 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   ├─ [1582] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::ownerOf(400) [staticcall]
+    │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   ├─ [664] 0x8E1D125Def6d3826C278299273a0760D47626068::ownerOf(400) [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8
+    │   │   │   └─ ← [Return] 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8
+    │   │   ├─ [4094] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::isApprovedForAll(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f) [staticcall]
+    │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   ├─ [3173] 0x8E1D125Def6d3826C278299273a0760D47626068::isApprovedForAll(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1579] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::getApproved(400) [staticcall]
+    │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   ├─ [661] 0x8E1D125Def6d3826C278299273a0760D47626068::getApproved(400) [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f
+    │   │   │   └─ ← [Return] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f
+    │   │   ├─  emit topic 0: 0x723f73331eaee88eec7fc68ef60ab6ed15e4b90d0472b55eb92fa43910bab6dd
+    │   │   │        topic 1: 0x0000000000000000000000000000000000000000000000000000000000003e31
+    │   │   │        topic 2: 0x0000000000000000000000004e5dcf356443174f5f03e4ac134238201c1f2bd8
+    │   │   │        topic 3: 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   │           data: 0x00000000000000000000000000000000000000000000000000000000000001900000000000000000000000000000000000000000000000000de0b6b3a7640000
+    │   │   └─ ← [Return] 15921 [1.592e4]
+    │   └─ ← [Return] 15921 [1.592e4]
+    ├─ [0] VM::stopPrank()
+    │   └─ ← [Return]
+    ├─ [8440] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::listingView(15921 [1.592e4]) [staticcall]
+    │   ├─ [8106] 0x725771c38361abEF7b844729B978c775F7A83dFb::listingView(15921 [1.592e4]) [delegatecall]
+    │   │   ├─ [1582] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::ownerOf(400) [staticcall]
+    │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   ├─ [664] 0x8E1D125Def6d3826C278299273a0760D47626068::ownerOf(400) [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8
+    │   │   │   └─ ← [Return] 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8
+    │   │   ├─ [2094] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::isApprovedForAll(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f) [staticcall]
+    │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   ├─ [1173] 0x8E1D125Def6d3826C278299273a0760D47626068::isApprovedForAll(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1579] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::getApproved(400) [staticcall]
+    │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   ├─ [661] 0x8E1D125Def6d3826C278299273a0760D47626068::getApproved(400) [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f
+    │   │   │   └─ ← [Return] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f
+    │   │   └─ ← [Return] 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400, 1000000000000000000 [1e18], 100, true
+    │   └─ ← [Return] 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400, 1000000000000000000 [1e18], 100, true
+    ├─ [0] VM::assertEq(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(400, 400) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(1000000000000000000 [1e18], 1000000000000000000 [1e18]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(100, 100) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertTrue(true) [staticcall]
+    │   └─ ← [Return]
+    ├─ [3264] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::owed(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8) [staticcall]
+    │   ├─ [2954] 0x725771c38361abEF7b844729B978c775F7A83dFb::owed(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8) [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    ├─ [3264] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::owed(0x571d447f4f24688eC35Ccf07f1D6993655F6aF15) [staticcall]
+    │   ├─ [2954] 0x725771c38361abEF7b844729B978c775F7A83dFb::owed(0x571d447f4f24688eC35Ccf07f1D6993655F6aF15) [delegatecall]
+    │   │   └─ ← [Return] 2864438109999999999 [2.864e18]
+    │   └─ ← [Return] 2864438109999999999 [2.864e18]
+    ├─ [0] VM::recordLogs()
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2])
+    │   └─ ← [Return]
+    ├─ [54001] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::buy{value: 1000000000000000000}(15921 [1.592e4], 1000000000000000000 [1e18])
+    │   ├─ [53691] 0x725771c38361abEF7b844729B978c775F7A83dFb::buy{value: 1000000000000000000}(15921 [1.592e4], 1000000000000000000 [1e18]) [delegatecall]
+    │   │   ├─ [35475] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::safeTransferFrom(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2], 400)
+    │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   ├─ [34554] 0x8E1D125Def6d3826C278299273a0760D47626068::safeTransferFrom(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2], 400) [delegatecall]
+    │   │   │   │   ├─ emit Transfer(from: 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, to: market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2], tokenId: 400)
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [0] 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8::fallback{value: 990000000000000000}()
+    │   │   │   └─ ← [Stop]
+    │   │   ├─  emit topic 0: 0x2938a0a3a4a7c19c3a1fe6ef25340b7acd26dfac11de87836084d42fccc18656
+    │   │   │        topic 1: 0x0000000000000000000000000000000000000000000000000000000000003e31
+    │   │   │        topic 2: 0x000000000000000000000000d8f0b5207e91fbc3943edfe244de44f1103e10a2
+    │   │   │        topic 3: 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   │           data: 0x00000000000000000000000000000000000000000000000000000000000001900000000000000000000000000000000000000000000000000dbd2fc137a30000000000000000000000000000000000000000000000000000002386f26fc10000
+    │   │   └─ ← [Return]
+    │   └─ ← [Return]
+    ├─ [0] VM::getRecordedLogs()
+    │   └─ ← [Return] [([0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef, 0x0000000000000000000000004e5dcf356443174f5f03e4ac134238201c1f2bd8, 0x000000000000000000000000d8f0b5207e91fbc3943edfe244de44f1103e10a2, 0x0000000000000000000000000000000000000000000000000000000000000190], 0x, 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C), ([0x2938a0a3a4a7c19c3a1fe6ef25340b7acd26dfac11de87836084d42fccc18656, 0x0000000000000000000000000000000000000000000000000000000000003e31, 0x000000000000000000000000d8f0b5207e91fbc3943edfe244de44f1103e10a2, 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c], 0x00000000000000000000000000000000000000000000000000000000000001900000000000000000000000000000000000000000000000000dbd2fc137a30000000000000000000000000000000000000000000000000000002386f26fc10000, 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f)]
+    ├─ [0] VM::assertEq(1000000000000000000 [1e18], 1000000000000000000 [1e18], "buyer pays no additional fee") [staticcall]
+    │   └─ ← [Return]
+    ├─ emit log_named_uint(key: "seller BNB delta", val: 990000000000000000 [9.9e17])
+    ├─ [1264] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::owed(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8) [staticcall]
+    │   ├─ [954] 0x725771c38361abEF7b844729B978c775F7A83dFb::owed(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8) [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    ├─ emit log_named_uint(key: "seller owed delta", val: 0)
+    ├─ emit log_named_uint(key: "protocol BNB delta", val: 0)
+    ├─ [1264] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::owed(0x571d447f4f24688eC35Ccf07f1D6993655F6aF15) [staticcall]
+    │   ├─ [954] 0x725771c38361abEF7b844729B978c775F7A83dFb::owed(0x571d447f4f24688eC35Ccf07f1D6993655F6aF15) [delegatecall]
+    │   │   └─ ← [Return] 2874438109999999999 [2.874e18]
+    │   └─ ← [Return] 2874438109999999999 [2.874e18]
+    ├─ emit log_named_uint(key: "protocol owed delta", val: 10000000000000000 [1e16])
+    ├─ emit log_named_uint(key: "market BNB delta", val: 10000000000000000 [1e16])
+    ├─ [1264] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::owed(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8) [staticcall]
+    │   ├─ [954] 0x725771c38361abEF7b844729B978c775F7A83dFb::owed(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8) [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    ├─ [0] VM::assertEq(990000000000000000 [9.9e17], 990000000000000000 [9.9e17], "seller bears 1% of listed price") [staticcall]
+    │   └─ ← [Return]
+    ├─ [1264] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::owed(0x571d447f4f24688eC35Ccf07f1D6993655F6aF15) [staticcall]
+    │   ├─ [954] 0x725771c38361abEF7b844729B978c775F7A83dFb::owed(0x571d447f4f24688eC35Ccf07f1D6993655F6aF15) [delegatecall]
+    │   │   └─ ← [Return] 2874438109999999999 [2.874e18]
+    │   └─ ← [Return] 2874438109999999999 [2.874e18]
+    ├─ [0] VM::assertEq(10000000000000000 [1e16], 10000000000000000 [1e16], "protocol receives fee exactly once") [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(15921 [1.592e4], 15921 [1.592e4]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(400, 400) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(990000000000000000 [9.9e17], 990000000000000000 [9.9e17]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(10000000000000000 [1e16], 10000000000000000 [1e16]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertTrue(true, "Sold event missing") [staticcall]
+    │   └─ ← [Return]
+    ├─ [1582] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::ownerOf(400) [staticcall]
+    │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   ├─ [664] 0x8E1D125Def6d3826C278299273a0760D47626068::ownerOf(400) [delegatecall]
+    │   │   └─ ← [Return] market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2]
+    │   └─ ← [Return] market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2]
+    ├─ [0] VM::assertEq(market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2], market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [1580] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::listingView(15921 [1.592e4]) [staticcall]
+    │   ├─ [1246] 0x725771c38361abEF7b844729B978c775F7A83dFb::listingView(15921 [1.592e4]) [delegatecall]
+    │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000, 0x0000000000000000000000000000000000000000, 0, 0, 0, false
+    │   └─ ← [Return] 0x0000000000000000000000000000000000000000, 0x0000000000000000000000000000000000000000, 0, 0, 0, false
+    ├─ [0] VM::assertFalse(false) [staticcall]
+    │   └─ ← [Return]
+    ├─ [1291] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::listingFor(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400) [staticcall]
+    │   ├─ [966] 0x725771c38361abEF7b844729B978c775F7A83dFb::listingFor(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400) [delegatecall]
+    │   │   └─ ← [Return] 0, 0x0000000000000000000000000000000000000000, 0, false
+    │   └─ ← [Return] 0, 0x0000000000000000000000000000000000000000, 0, false
+    ├─ [0] VM::assertEq(0, 0) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertFalse(false) [staticcall]
+    │   └─ ← [Return]
+    └─ ← [Stop]
+
+[PASS] test_Q4_MarketRejectsUnderpaymentAndFeeAddedOnTop() (gas: 616564)
+Traces:
+  [624164] MarketProbeTest::test_Q4_MarketRejectsUnderpaymentAndFeeAddedOnTop()
+    ├─ [296590] → new MarketSellerProbe@0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+    │   └─ ← [Return] 1481 bytes of code
+    ├─ [0] VM::prank(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8)
+    │   └─ ← [Return]
+    ├─ [47493] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::safeTransferFrom(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 400)
+    │   ├─ [2294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   ├─ [39572] 0x8E1D125Def6d3826C278299273a0760D47626068::safeTransferFrom(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 400) [delegatecall]
+    │   │   ├─ emit Transfer(from: 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, to: MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], tokenId: 400)
+    │   │   ├─ [671] MarketSellerProbe::onERC721Received(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, 400, 0x)
+    │   │   │   └─ ← [Return] 0x150b7a02
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [197809] MarketSellerProbe::list(400, 1000000000000000000 [1e18])
+    │   ├─ [23768] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::approve(0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f, 400)
+    │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   ├─ [22850] 0x8E1D125Def6d3826C278299273a0760D47626068::approve(0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f, 400) [delegatecall]
+    │   │   │   ├─ emit Approval(owner: MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], approved: 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f, tokenId: 400)
+    │   │   │   └─ ← [Stop]
+    │   │   └─ ← [Return]
+    │   ├─ [170354] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::list(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400, 1000000000000000000 [1e18])
+    │   │   ├─ [165535] 0x725771c38361abEF7b844729B978c775F7A83dFb::list(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400, 1000000000000000000 [1e18]) [delegatecall]
+    │   │   │   ├─ [7397] 0x68224F668083c29e9800Be2a646d42d18cedF7e2::isCPU(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C) [staticcall]
+    │   │   │   │   ├─ [2587] 0xa68cCF4931d98ad0A4BE15eE40542eDc0DEc6422::isCPU(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C) [delegatecall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000001
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000001
+    │   │   │   ├─ [3462] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::transistors() [staticcall]
+    │   │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   │   ├─ [2547] 0x8E1D125Def6d3826C278299273a0760D47626068::transistors() [delegatecall]
+    │   │   │   │   │   └─ ← [Return] 0x000000000000000000000000cc42ba5de07f01b472a5b14cf45abcca79eb8087
+    │   │   │   │   └─ ← [Return] 0x000000000000000000000000cc42ba5de07f01b472a5b14cf45abcca79eb8087
+    │   │   │   ├─ [10507] 0xCC42ba5De07f01B472a5b14cF45aBcCA79Eb8087::circuits() [staticcall]
+    │   │   │   │   ├─ [2294] 0xa528e147d7e065249fc52864502c9b245C6c9f66::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x00000000000000000000000032e1fa125b6abe0ff12eec43e2dab482019a1e97
+    │   │   │   │   ├─ [2592] 0x32e1fa125B6Abe0FF12eeC43E2daB482019a1E97::circuits() [delegatecall]
+    │   │   │   │   │   └─ ← [Return] 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   │   │   └─ ← [Return] 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   │   ├─ [1582] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::ownerOf(400) [staticcall]
+    │   │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   │   ├─ [664] 0x8E1D125Def6d3826C278299273a0760D47626068::ownerOf(400) [delegatecall]
+    │   │   │   │   │   └─ ← [Return] MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]
+    │   │   │   │   └─ ← [Return] MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]
+    │   │   │   ├─ [4094] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::isApprovedForAll(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f) [staticcall]
+    │   │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   │   ├─ [3173] 0x8E1D125Def6d3826C278299273a0760D47626068::isApprovedForAll(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f) [delegatecall]
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   ├─ [1579] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::getApproved(400) [staticcall]
+    │   │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   │   ├─ [661] 0x8E1D125Def6d3826C278299273a0760D47626068::getApproved(400) [delegatecall]
+    │   │   │   │   │   └─ ← [Return] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f
+    │   │   │   │   └─ ← [Return] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f
+    │   │   │   ├─  emit topic 0: 0x723f73331eaee88eec7fc68ef60ab6ed15e4b90d0472b55eb92fa43910bab6dd
+    │   │   │   │        topic 1: 0x0000000000000000000000000000000000000000000000000000000000003e31
+    │   │   │   │        topic 2: 0x0000000000000000000000005615deb798bb3e4dfa0139dfa1b3d433cc23b72f
+    │   │   │   │        topic 3: 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   │   │           data: 0x00000000000000000000000000000000000000000000000000000000000001900000000000000000000000000000000000000000000000000de0b6b3a7640000
+    │   │   │   └─ ← [Return] 15921 [1.592e4]
+    │   │   └─ ← [Return] 15921 [1.592e4]
+    │   └─ ← [Return] 15921 [1.592e4]
+    ├─ [0] VM::startPrank(market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2])
+    │   └─ ← [Return]
+    ├─ [0] VM::expectRevert(custom error 0xf4844814)
+    │   └─ ← [Return]
+    ├─ [4234] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::buy{value: 999999999999999999}(15921 [1.592e4], 1000000000000000000 [1e18])
+    │   ├─ [3908] 0x725771c38361abEF7b844729B978c775F7A83dFb::buy{value: 999999999999999999}(15921 [1.592e4], 1000000000000000000 [1e18]) [delegatecall]
+    │   │   └─ ← [Revert] wrong value
+    │   └─ ← [Revert] wrong value
+    ├─ [0] VM::expectRevert(custom error 0xf4844814)
+    │   └─ ← [Return]
+    ├─ [4234] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::buy{value: 1010000000000000000}(15921 [1.592e4], 1000000000000000000 [1e18])
+    │   ├─ [3908] 0x725771c38361abEF7b844729B978c775F7A83dFb::buy{value: 1010000000000000000}(15921 [1.592e4], 1000000000000000000 [1e18]) [delegatecall]
+    │   │   └─ ← [Revert] wrong value
+    │   └─ ← [Revert] wrong value
+    ├─ [0] VM::stopPrank()
+    │   └─ ← [Return]
+    ├─ [1582] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::ownerOf(400) [staticcall]
+    │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   ├─ [664] 0x8E1D125Def6d3826C278299273a0760D47626068::ownerOf(400) [delegatecall]
+    │   │   └─ ← [Return] MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]
+    │   └─ ← [Return] MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]
+    ├─ [0] VM::assertEq(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [8440] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::listingView(15921 [1.592e4]) [staticcall]
+    │   ├─ [8106] 0x725771c38361abEF7b844729B978c775F7A83dFb::listingView(15921 [1.592e4]) [delegatecall]
+    │   │   ├─ [1582] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::ownerOf(400) [staticcall]
+    │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   ├─ [664] 0x8E1D125Def6d3826C278299273a0760D47626068::ownerOf(400) [delegatecall]
+    │   │   │   │   └─ ← [Return] MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]
+    │   │   │   └─ ← [Return] MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]
+    │   │   ├─ [2094] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::isApprovedForAll(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f) [staticcall]
+    │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   ├─ [1173] 0x8E1D125Def6d3826C278299273a0760D47626068::isApprovedForAll(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1579] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::getApproved(400) [staticcall]
+    │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   ├─ [661] 0x8E1D125Def6d3826C278299273a0760D47626068::getApproved(400) [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f
+    │   │   │   └─ ← [Return] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f
+    │   │   └─ ← [Return] MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400, 1000000000000000000 [1e18], 100, true
+    │   └─ ← [Return] MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400, 1000000000000000000 [1e18], 100, true
+    ├─ [0] VM::assertEq(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(400, 400) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(1000000000000000000 [1e18], 1000000000000000000 [1e18]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(100, 100) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertTrue(true) [staticcall]
+    │   └─ ← [Return]
+    └─ ← [Stop]
+
+[PASS] test_Q5_ContractSellerPaymentAndWithdraw() (gas: 548279)
+Logs:
+  contract seller BNB after buy: 990000000000000000
+  contract seller owed after buy: 0
+  contract seller receive callbacks: 1
+  market BNB delta after buy: 10000000000000000
+
+Traces:
+  [690614] MarketProbeTest::test_Q5_ContractSellerPaymentAndWithdraw()
+    ├─ [296590] → new MarketSellerProbe@0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+    │   └─ ← [Return] 1481 bytes of code
+    ├─ [0] VM::prank(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8)
+    │   └─ ← [Return]
+    ├─ [47493] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::safeTransferFrom(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 400)
+    │   ├─ [2294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   ├─ [39572] 0x8E1D125Def6d3826C278299273a0760D47626068::safeTransferFrom(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 400) [delegatecall]
+    │   │   ├─ emit Transfer(from: 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, to: MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], tokenId: 400)
+    │   │   ├─ [671] MarketSellerProbe::onERC721Received(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, 400, 0x)
+    │   │   │   └─ ← [Return] 0x150b7a02
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [197809] MarketSellerProbe::list(400, 1000000000000000000 [1e18])
+    │   ├─ [23768] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::approve(0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f, 400)
+    │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   ├─ [22850] 0x8E1D125Def6d3826C278299273a0760D47626068::approve(0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f, 400) [delegatecall]
+    │   │   │   ├─ emit Approval(owner: MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], approved: 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f, tokenId: 400)
+    │   │   │   └─ ← [Stop]
+    │   │   └─ ← [Return]
+    │   ├─ [170354] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::list(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400, 1000000000000000000 [1e18])
+    │   │   ├─ [165535] 0x725771c38361abEF7b844729B978c775F7A83dFb::list(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400, 1000000000000000000 [1e18]) [delegatecall]
+    │   │   │   ├─ [7397] 0x68224F668083c29e9800Be2a646d42d18cedF7e2::isCPU(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C) [staticcall]
+    │   │   │   │   ├─ [2587] 0xa68cCF4931d98ad0A4BE15eE40542eDc0DEc6422::isCPU(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C) [delegatecall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000001
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000001
+    │   │   │   ├─ [3462] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::transistors() [staticcall]
+    │   │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   │   ├─ [2547] 0x8E1D125Def6d3826C278299273a0760D47626068::transistors() [delegatecall]
+    │   │   │   │   │   └─ ← [Return] 0x000000000000000000000000cc42ba5de07f01b472a5b14cf45abcca79eb8087
+    │   │   │   │   └─ ← [Return] 0x000000000000000000000000cc42ba5de07f01b472a5b14cf45abcca79eb8087
+    │   │   │   ├─ [10507] 0xCC42ba5De07f01B472a5b14cF45aBcCA79Eb8087::circuits() [staticcall]
+    │   │   │   │   ├─ [2294] 0xa528e147d7e065249fc52864502c9b245C6c9f66::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x00000000000000000000000032e1fa125b6abe0ff12eec43e2dab482019a1e97
+    │   │   │   │   ├─ [2592] 0x32e1fa125B6Abe0FF12eeC43E2daB482019a1E97::circuits() [delegatecall]
+    │   │   │   │   │   └─ ← [Return] 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   │   │   └─ ← [Return] 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   │   ├─ [1582] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::ownerOf(400) [staticcall]
+    │   │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   │   ├─ [664] 0x8E1D125Def6d3826C278299273a0760D47626068::ownerOf(400) [delegatecall]
+    │   │   │   │   │   └─ ← [Return] MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]
+    │   │   │   │   └─ ← [Return] MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]
+    │   │   │   ├─ [4094] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::isApprovedForAll(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f) [staticcall]
+    │   │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   │   ├─ [3173] 0x8E1D125Def6d3826C278299273a0760D47626068::isApprovedForAll(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f) [delegatecall]
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   ├─ [1579] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::getApproved(400) [staticcall]
+    │   │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   │   ├─ [661] 0x8E1D125Def6d3826C278299273a0760D47626068::getApproved(400) [delegatecall]
+    │   │   │   │   │   └─ ← [Return] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f
+    │   │   │   │   └─ ← [Return] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f
+    │   │   │   ├─  emit topic 0: 0x723f73331eaee88eec7fc68ef60ab6ed15e4b90d0472b55eb92fa43910bab6dd
+    │   │   │   │        topic 1: 0x0000000000000000000000000000000000000000000000000000000000003e31
+    │   │   │   │        topic 2: 0x0000000000000000000000005615deb798bb3e4dfa0139dfa1b3d433cc23b72f
+    │   │   │   │        topic 3: 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   │   │           data: 0x00000000000000000000000000000000000000000000000000000000000001900000000000000000000000000000000000000000000000000de0b6b3a7640000
+    │   │   │   └─ ← [Return] 15921 [1.592e4]
+    │   │   └─ ← [Return] 15921 [1.592e4]
+    │   └─ ← [Return] 15921 [1.592e4]
+    ├─ [0] VM::prank(market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2])
+    │   └─ ← [Return]
+    ├─ [72761] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::buy{value: 1000000000000000000}(15921 [1.592e4], 1000000000000000000 [1e18])
+    │   ├─ [72451] 0x725771c38361abEF7b844729B978c775F7A83dFb::buy{value: 1000000000000000000}(15921 [1.592e4], 1000000000000000000 [1e18]) [delegatecall]
+    │   │   ├─ [27875] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::safeTransferFrom(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2], 400)
+    │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   ├─ [26954] 0x8E1D125Def6d3826C278299273a0760D47626068::safeTransferFrom(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2], 400) [delegatecall]
+    │   │   │   │   ├─ emit Transfer(from: MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], to: market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2], tokenId: 400)
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [24360] MarketSellerProbe::receive{value: 990000000000000000}()
+    │   │   │   └─ ← [Stop]
+    │   │   ├─  emit topic 0: 0x2938a0a3a4a7c19c3a1fe6ef25340b7acd26dfac11de87836084d42fccc18656
+    │   │   │        topic 1: 0x0000000000000000000000000000000000000000000000000000000000003e31
+    │   │   │        topic 2: 0x000000000000000000000000d8f0b5207e91fbc3943edfe244de44f1103e10a2
+    │   │   │        topic 3: 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   │           data: 0x00000000000000000000000000000000000000000000000000000000000001900000000000000000000000000000000000000000000000000dbd2fc137a30000000000000000000000000000000000000000000000000000002386f26fc10000
+    │   │   └─ ← [Return]
+    │   └─ ← [Return]
+    ├─ emit log_named_uint(key: "contract seller BNB after buy", val: 990000000000000000 [9.9e17])
+    ├─ [3264] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::owed(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [staticcall]
+    │   ├─ [2954] 0x725771c38361abEF7b844729B978c775F7A83dFb::owed(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    ├─ emit log_named_uint(key: "contract seller owed after buy", val: 0)
+    ├─ [360] MarketSellerProbe::receiveCount() [staticcall]
+    │   └─ ← [Return] 1
+    ├─ emit log_named_uint(key: "contract seller receive callbacks", val: 1)
+    ├─ emit log_named_uint(key: "market BNB delta after buy", val: 10000000000000000 [1e16])
+    ├─ [1264] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::owed(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [staticcall]
+    │   ├─ [954] 0x725771c38361abEF7b844729B978c775F7A83dFb::owed(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    ├─ [0] VM::assertEq(990000000000000000 [9.9e17], 990000000000000000 [9.9e17]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [1582] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::ownerOf(400) [staticcall]
+    │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   ├─ [664] 0x8E1D125Def6d3826C278299273a0760D47626068::ownerOf(400) [delegatecall]
+    │   │   └─ ← [Return] market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2]
+    │   └─ ← [Return] market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2]
+    ├─ [0] VM::assertEq(market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2], market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [1580] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::listingView(15921 [1.592e4]) [staticcall]
+    │   ├─ [1246] 0x725771c38361abEF7b844729B978c775F7A83dFb::listingView(15921 [1.592e4]) [delegatecall]
+    │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000, 0x0000000000000000000000000000000000000000, 0, 0, 0, false
+    │   └─ ← [Return] 0x0000000000000000000000000000000000000000, 0x0000000000000000000000000000000000000000, 0, 0, 0, false
+    ├─ [0] VM::assertFalse(false) [staticcall]
+    │   └─ ← [Return]
+    ├─ [1291] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::listingFor(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400) [staticcall]
+    │   ├─ [966] 0x725771c38361abEF7b844729B978c775F7A83dFb::listingFor(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400) [delegatecall]
+    │   │   └─ ← [Return] 0, 0x0000000000000000000000000000000000000000, 0, false
+    │   └─ ← [Return] 0, 0x0000000000000000000000000000000000000000, 0, false
+    ├─ [0] VM::assertEq(0, 0) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertFalse(false) [staticcall]
+    │   └─ ← [Return]
+    ├─ [1264] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::owed(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [staticcall]
+    │   ├─ [954] 0x725771c38361abEF7b844729B978c775F7A83dFb::owed(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    └─ ← [Stop]
+
+[FAIL: pay seller failed] test_Q5_RejectingReceiverRetainsWithdrawableProceeds() (gas: 661642)
+Traces:
+  [82427] MarketProbeTest::setUp()
+    ├─ [0] VM::envUint("FORK_BLOCK") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envString("BSC_RPC_URL") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::createSelectFork("<rpc url>", 123728000 [1.237e8])
+    │   └─ ← [Return] 0
+    ├─ [0] VM::assertEq(56, 56) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(123728000 [1.237e8], 123728000 [1.237e8]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::addr(<pk>) [staticcall]
+    │   └─ ← [Return] market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2]
+    ├─ [0] VM::label(market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2], "market-probe-buyer")
+    │   └─ ← [Return]
+    ├─ [10582] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::ownerOf(400) [staticcall]
+    │   ├─ [2294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   ├─ [2664] 0x8E1D125Def6d3826C278299273a0760D47626068::ownerOf(400) [delegatecall]
+    │   │   └─ ← [Return] 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8
+    │   └─ ← [Return] 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8
+    ├─ [7118] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::protocolWallet() [staticcall]
+    │   ├─ [2311] 0x725771c38361abEF7b844729B978c775F7A83dFb::protocolWallet() [delegatecall]
+    │   │   └─ ← [Return] 0x571d447f4f24688eC35Ccf07f1D6993655F6aF15
+    │   └─ ← [Return] 0x571d447f4f24688eC35Ccf07f1D6993655F6aF15
+    ├─ [653] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::feeBps() [staticcall]
+    │   ├─ [346] 0x725771c38361abEF7b844729B978c775F7A83dFb::feeBps() [delegatecall]
+    │   │   └─ ← [Return] 100
+    │   └─ ← [Return] 100
+    ├─ [0] VM::assertEq(100, 100) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::deal(market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2], 10000000000000000000 [1e19])
+    │   └─ ← [Return]
+    └─ ← [Stop]
+
+  [661642] MarketProbeTest::test_Q5_RejectingReceiverRetainsWithdrawableProceeds()
+    ├─ [296590] → new MarketSellerProbe@0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+    │   └─ ← [Return] 1481 bytes of code
+    ├─ [0] VM::prank(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8)
+    │   └─ ← [Return]
+    ├─ [47493] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::safeTransferFrom(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 400)
+    │   ├─ [2294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   ├─ [39572] 0x8E1D125Def6d3826C278299273a0760D47626068::safeTransferFrom(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 400) [delegatecall]
+    │   │   ├─ emit Transfer(from: 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, to: MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], tokenId: 400)
+    │   │   ├─ [671] MarketSellerProbe::onERC721Received(0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, 0x4e5DCf356443174f5F03E4ac134238201C1f2BD8, 400, 0x)
+    │   │   │   └─ ← [Return] 0x150b7a02
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [197809] MarketSellerProbe::list(400, 1000000000000000000 [1e18])
+    │   ├─ [23768] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::approve(0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f, 400)
+    │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   ├─ [22850] 0x8E1D125Def6d3826C278299273a0760D47626068::approve(0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f, 400) [delegatecall]
+    │   │   │   ├─ emit Approval(owner: MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], approved: 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f, tokenId: 400)
+    │   │   │   └─ ← [Stop]
+    │   │   └─ ← [Return]
+    │   ├─ [170354] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::list(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400, 1000000000000000000 [1e18])
+    │   │   ├─ [165535] 0x725771c38361abEF7b844729B978c775F7A83dFb::list(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C, 400, 1000000000000000000 [1e18]) [delegatecall]
+    │   │   │   ├─ [7397] 0x68224F668083c29e9800Be2a646d42d18cedF7e2::isCPU(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C) [staticcall]
+    │   │   │   │   ├─ [2587] 0xa68cCF4931d98ad0A4BE15eE40542eDc0DEc6422::isCPU(0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C) [delegatecall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000001
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000001
+    │   │   │   ├─ [3462] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::transistors() [staticcall]
+    │   │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   │   ├─ [2547] 0x8E1D125Def6d3826C278299273a0760D47626068::transistors() [delegatecall]
+    │   │   │   │   │   └─ ← [Return] 0x000000000000000000000000cc42ba5de07f01b472a5b14cf45abcca79eb8087
+    │   │   │   │   └─ ← [Return] 0x000000000000000000000000cc42ba5de07f01b472a5b14cf45abcca79eb8087
+    │   │   │   ├─ [10507] 0xCC42ba5De07f01B472a5b14cF45aBcCA79Eb8087::circuits() [staticcall]
+    │   │   │   │   ├─ [2294] 0xa528e147d7e065249fc52864502c9b245C6c9f66::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x00000000000000000000000032e1fa125b6abe0ff12eec43e2dab482019a1e97
+    │   │   │   │   ├─ [2592] 0x32e1fa125B6Abe0FF12eeC43E2daB482019a1E97::circuits() [delegatecall]
+    │   │   │   │   │   └─ ← [Return] 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   │   │   └─ ← [Return] 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   │   ├─ [1582] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::ownerOf(400) [staticcall]
+    │   │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   │   ├─ [664] 0x8E1D125Def6d3826C278299273a0760D47626068::ownerOf(400) [delegatecall]
+    │   │   │   │   │   └─ ← [Return] MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]
+    │   │   │   │   └─ ← [Return] MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]
+    │   │   │   ├─ [4094] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::isApprovedForAll(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f) [staticcall]
+    │   │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   │   ├─ [3173] 0x8E1D125Def6d3826C278299273a0760D47626068::isApprovedForAll(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f) [delegatecall]
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   ├─ [1579] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::getApproved(400) [staticcall]
+    │   │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   │   ├─ [661] 0x8E1D125Def6d3826C278299273a0760D47626068::getApproved(400) [delegatecall]
+    │   │   │   │   │   └─ ← [Return] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f
+    │   │   │   │   └─ ← [Return] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f
+    │   │   │   ├─  emit topic 0: 0x723f73331eaee88eec7fc68ef60ab6ed15e4b90d0472b55eb92fa43910bab6dd
+    │   │   │   │        topic 1: 0x0000000000000000000000000000000000000000000000000000000000003e31
+    │   │   │   │        topic 2: 0x0000000000000000000000005615deb798bb3e4dfa0139dfa1b3d433cc23b72f
+    │   │   │   │        topic 3: 0x000000000000000000000000b1024b89886b9a34aa4ff5f31c411d708b20a14c
+    │   │   │   │           data: 0x00000000000000000000000000000000000000000000000000000000000001900000000000000000000000000000000000000000000000000de0b6b3a7640000
+    │   │   │   └─ ← [Return] 15921 [1.592e4]
+    │   │   └─ ← [Return] 15921 [1.592e4]
+    │   └─ ← [Return] 15921 [1.592e4]
+    ├─ [22431] MarketSellerProbe::setRejectBnb(true)
+    │   └─ ← [Stop]
+    ├─ [0] VM::prank(market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2])
+    │   └─ ← [Return]
+    ├─ [46206] 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f::buy{value: 1000000000000000000}(15921 [1.592e4], 1000000000000000000 [1e18])
+    │   ├─ [45880] 0x725771c38361abEF7b844729B978c775F7A83dFb::buy{value: 1000000000000000000}(15921 [1.592e4], 1000000000000000000 [1e18]) [delegatecall]
+    │   │   ├─ [27875] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::safeTransferFrom(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2], 400)
+    │   │   │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000008e1d125def6d3826c278299273a0760d47626068
+    │   │   │   ├─ [26954] 0x8E1D125Def6d3826C278299273a0760D47626068::safeTransferFrom(MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2], 400) [delegatecall]
+    │   │   │   │   ├─ emit Transfer(from: MarketSellerProbe: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], to: market-probe-buyer: [0xd8F0B5207E91fBc3943eDfe244de44f1103e10a2], tokenId: 400)
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [285] MarketSellerProbe::receive{value: 990000000000000000}()
+    │   │   │   └─ ← [Revert] test receiver rejects BNB
+    │   │   └─ ← [Revert] pay seller failed
+    │   └─ ← [Revert] pay seller failed
+    └─ ← [Revert] pay seller failed
+
+Backtrace:
+  at MarketSellerProbe.receive
+  at 0x725771c38361abEF7b844729B978c775F7A83dFb.buy
+  at 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f.buy
+  at MarketProbeTest.test_Q5_RejectingReceiverRetainsWithdrawableProceeds
+
+Suite result: FAILED. 3 passed; 1 failed; 0 skipped; finished in 10.26s (24.84s CPU time)
+
+Ran 1 test suite in 11.82s (10.26s CPU time): 3 tests passed, 1 failed, 0 skipped (4 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/fork/MarketProbe.t.sol:MarketProbeTest
+[FAIL: pay seller failed] test_Q5_RejectingReceiverRetainsWithdrawableProceeds() (gas: 661642)
+
+Encountered a total of 1 failing tests, 3 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test

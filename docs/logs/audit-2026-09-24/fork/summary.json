@@ -1,0 +1,68 @@
+{
+  "task": "T1e",
+  "stage": "fork",
+  "startedAt": "2026-09-24T16:41:42.666Z",
+  "status": "passed",
+  "sourceCommit": "66e6f81f44e041cad02e9cac083c7f5d7a099a24",
+  "ci": null,
+  "forkBlock": 123728000,
+  "chainId": 56,
+  "rpcPolicy": {
+    "threads": 1,
+    "computeUnitsPerSecond": 50,
+    "retries": 10,
+    "initialBackoffMs": 2000
+  },
+  "buildRoot": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-fork-kRjPqE",
+  "node": "v24.19.0",
+  "profile": "ci",
+  "results": [
+    {
+      "name": "toolchain",
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-fmt",
+      "args": [
+        "fmt",
+        "--check"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-build-sizes",
+      "args": [
+        "build",
+        "--sizes",
+        "--force"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-test",
+      "args": [
+        "test",
+        "--match-path",
+        "test/fork/**",
+        "--fork-url",
+        "bsc",
+        "--fork-block-number",
+        "123728000",
+        "--threads",
+        "1",
+        "--compute-units-per-second",
+        "50",
+        "--fork-retries",
+        "10",
+        "--fork-retry-backoff",
+        "2000",
+        "-vv"
+      ],
+      "exitCode": 0
+    }
+  ],
+  "finishedAt": "2026-09-24T16:42:37.560Z"
+}

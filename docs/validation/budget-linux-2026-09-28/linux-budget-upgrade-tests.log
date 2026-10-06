@@ -1,0 +1,24 @@
+✔ schema2 retains the independently trusted genesis and rejects swapped bundles, extra replacements or altered base (2359.00464ms)
+✔ mixed graph validates four exact new CREATE initcodes and old code for every unchanged runtime (3070.028904ms)
+✔ identical artifacts retain source metadata compatibility while exposing only the configured bundle source (1303.480728ms)
+✔ changing constructor, link target, deployer, CREATE address, value or initcode fails independently of claimed hashes (4142.502104ms)
+✔ noncanonical, failed, pending, wrong-chain or unfinalized receipts never create upgrade authority (4116.11634ms)
+✔ schedule and execution require exact ordered atomic batch, full delay, zero value and matching events (5424.297994ms)
+✔ each deployment, schedule and execution must occupy its matching canonical transaction index (37005.588882ms)
+✔ a changing finalized anchor aborts the otherwise valid upgrade proof (686.629254ms)
+✔ failed upgrade RPC drains outstanding evidence reads before rejecting the whole verification (693.641914ms)
+✔ automatic evidence refuses every nonzero historical pool cutoff and incomplete migration (2148.273576ms)
+✔ mixed graph still verifies implementation slots, immutable factory and unchanged authority roles (3877.593255ms)
+✔ read-only exporter preserves genesis history start while binding frontend ABI digest to the upgrade build (1084.523553ms)
+✔ five-node fee upgrade is a distinct fixed kind; old four-node records stay valid (3009.412484ms)
+✔ five-node proof rejects changed Market creation, missing atomic call or wrong upgrade event (4212.450667ms)
+✔ five-node graph pins Market runtime, UUPS slot and both 1% sides (3007.398849ms)
+✔ five-node exporter records the fee kind and preserves the original proxy identity (999.931601ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 77448.916059

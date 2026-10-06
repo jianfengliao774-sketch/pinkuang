@@ -1,0 +1,221 @@
+{
+  "checkedAt": "2026-10-02T23:43:15.250646+00:00",
+  "publicUrl": "https://bemine.cc.cd/bemine-v5/",
+  "checks": [
+    {
+      "path": "/bemine-v5/fresh-product-release.json",
+      "httpStatus": 200,
+      "seconds": 0.925208
+    },
+    {
+      "path": "/bemine-v5/api/chain-index/v1/display/stats",
+      "httpStatus": 200,
+      "seconds": 0.905006,
+      "data": {
+        "scope": "confirmed_indexed_history",
+        "registeredPoolCount": "0",
+        "standalonePoolCount": "0",
+        "portfolioCount": "0",
+        "childPoolCount": "0",
+        "reservedChildPoolCount": "0",
+        "reservedChildPoolAddresses": [],
+        "reservedChildPoolAddressesComplete": true,
+        "topLevelProjectCount": "0",
+        "everParticipantAddressCount": "0",
+        "purchasedCostWei": "0",
+        "shareMarketFilledGrossWei": "0",
+        "harvestedToMembersBemAtomic": "0",
+        "estimatedDailyBemAtomic": "0",
+        "currentlyActivePoolCount": "0",
+        "miningOverview": {
+          "basis": "gross_estimated_output",
+          "minerCountComplete": true,
+          "dailyOutputComplete": true,
+          "minerIdentityDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "quotedMinerCount": "0",
+          "missingMinerCount": "0",
+          "staleQuoteMinerCount": "0",
+          "observedAt": null
+        }
+      }
+    },
+    {
+      "path": "/bemine-v5/api/chain-index/v1/display/pools",
+      "httpStatus": 200,
+      "seconds": 0.909238,
+      "data": {
+        "items": [],
+        "nextCursor": null
+      }
+    },
+    {
+      "path": "/bemine-v5/api/chain-index/v1/display/orders",
+      "httpStatus": 200,
+      "seconds": 1.509415,
+      "data": {
+        "items": [],
+        "nextCursor": null
+      }
+    },
+    {
+      "path": "/bemine-v5/data/bem-price.json",
+      "httpStatus": 200,
+      "seconds": 1.16762,
+      "priceData": {
+        "status": "ok",
+        "chainId": 56,
+        "tokenAddress": "0x5ce033b2bfca3af30b3e8c8457deaf776a8b695a",
+        "poolAddress": "0x28b12792f9d81bd529bc5572434e861c9edbbbc2",
+        "conversionPoolAddress": "0x172fcd41e0913e95784454622d1c3724f546f849",
+        "quoteCurrency": "USDT",
+        "source": "PancakeSwap V3",
+        "priceUsdt": 36.077017853675926,
+        "updatedAt": "2026-10-02T23:42:47.952Z",
+        "blockNumber": 125382319,
+        "blockTimestamp": "2026-10-02T23:42:47.000Z",
+        "bnbUsdt": 768.132084225463,
+        "bnbQuoteAt": "2026-10-02T23:42:47.000Z",
+        "sources": [
+          {
+            "name": "PancakeSwap V3",
+            "url": "https://bscscan.com/address/0x28b12792f9d81bd529bc5572434e861c9edbbbc2"
+          }
+        ],
+        "refreshSeconds": 15
+      }
+    },
+    {
+      "path": "/bemine-v5/api/journal/product-graph",
+      "httpStatus": 200,
+      "seconds": 14.265507,
+      "operationalReady": true,
+      "factory": "0x4A866e14816d8339A530c6c82300DBBb6544b37c"
+    }
+  ],
+  "assetChecks": [
+    {
+      "path": "/bemine-v5/_next/static/chunks/3633-a48a7711461c348c.js",
+      "httpStatus": 200,
+      "seconds": 1.426358
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/4899-18a681bf1ee7b26a.js",
+      "httpStatus": 200,
+      "seconds": 1.372122
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/514-100f62cb6ace56c3.js",
+      "httpStatus": 200,
+      "seconds": 1.782543
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/551-5c113deabb1293ea.js",
+      "httpStatus": 200,
+      "seconds": 1.065638
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/6803-58674500b74ce8d9.js",
+      "httpStatus": 200,
+      "seconds": 0.954619
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/7453-ac372b65687bcd37.js",
+      "httpStatus": 200,
+      "seconds": 1.345775
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/7c5cb8d2-529198ad384c20ae.js",
+      "httpStatus": 200,
+      "seconds": 1.67646
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/8169-c2128f825ff6d8be.js",
+      "httpStatus": 200,
+      "seconds": 1.879813
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/8472-f64c82ecc9e97a92.js",
+      "httpStatus": 200,
+      "seconds": 1.086956
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/app/page-63dc194cdc034c10.js",
+      "httpStatus": 200,
+      "seconds": 1.825375
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/main-app-4b0ed82f4810f22d.js",
+      "httpStatus": 200,
+      "seconds": 0.885906
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/polyfills-42372ed130431b0a.js",
+      "httpStatus": 200,
+      "seconds": 1.393742
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/webpack-26a2fa08096b0c8e.js",
+      "httpStatus": 200,
+      "seconds": 1.598875
+    },
+    {
+      "path": "/bemine-v5/_next/static/css/10b77abc226cb020.css",
+      "httpStatus": 200,
+      "seconds": 1.239159
+    },
+    {
+      "path": "/bemine-v5/_next/static/css/448be49f2303e5d6.css",
+      "httpStatus": 200,
+      "seconds": 1.578977
+    },
+    {
+      "path": "/bemine-v5/_next/static/css/b654776f1406b7e7.css",
+      "httpStatus": 200,
+      "seconds": 1.350335
+    },
+    {
+      "path": "/bemine-v5/_next/static/css/c078313445644629.css",
+      "httpStatus": 200,
+      "seconds": 0.893148
+    },
+    {
+      "path": "/bemine-v5/_next/static/css/ebb23d2b78b0de1a.css",
+      "httpStatus": 200,
+      "seconds": 0.850349
+    },
+    {
+      "path": "/bemine-v5/icon.svg?b94cb085986c558e",
+      "httpStatus": 200,
+      "seconds": 0.893337
+    },
+    {
+      "path": "/bemine-v5/images/bemine-background-desktop.19bb0410dbdf.webp",
+      "httpStatus": 200,
+      "seconds": 1.654044
+    },
+    {
+      "path": "/bemine-v5/images/bemine-chip-desktop.3ab0743c9821.webp",
+      "httpStatus": 200,
+      "seconds": 1.659569
+    },
+    {
+      "path": "/bemine-v5/images/bemine-coin-desktop.d33763351d18.webp",
+      "httpStatus": 200,
+      "seconds": 1.442834
+    },
+    {
+      "path": "/bemine-v5/images/bemine-purpose.cc58a3b1926c.webp",
+      "httpStatus": 200,
+      "seconds": 1.614455
+    }
+  ],
+  "assetCount": 23,
+  "browser": {
+    "pageTitle": "拼矿 BEMine · 矿机资产服务",
+    "homeDataLoaded": true,
+    "projectCount": 0,
+    "appOriginErrorsObserved": 0,
+    "note": "Browser wallet extensions emitted injection warnings; no wallet transaction was attempted."
+  },
+  "networkNote": "HTTPS domain and certificate verified against deployed origin; browser also accessed the ordinary public URL."
+}

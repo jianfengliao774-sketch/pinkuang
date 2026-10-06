@@ -1,0 +1,176 @@
+{
+  "evidence": "Exported from the live v5 console journal; these are mainnet records, not local fixtures. Website/index activation remains pending.",
+  "chainId": 56,
+  "artifactDigest": "0x9523dd920e91dcab4358eceddff660d65357bfe1fe3bf6f3e7823cbc94af2502",
+  "sourceCommit": "0166f545b4e45910fabc6e36dd9a53aeff3674cc",
+  "deployer": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+  "addresses": {
+    "AtomicDeployment": "0x2eDD7d3AD55C653C03D034A8cc5CA324509F42fc",
+    "BudgetPortfolioFactory": "0x791796eb678EfD06451001ace81c4A8497Cf6E63",
+    "BudgetPortfolioVault": "0xD7a440194F658e7CFb77579Ce42B88fac09d5516",
+    "FirstoSale": "0x7E4eDea3eA310d1eE8FC33765B116c3b934E7268",
+    "FlexiblePurchase": "0xc1eD7017A2A09d5959AFd1286120dc39b6936389",
+    "FreshPoolFactory": "0xe59847612586E2cae283b1E8E355BAD40f1DC03e",
+    "MiningOperations": "0xF0ba6c0C1C9F8304110DA65330031c93B7a095E8",
+    "PoolFunds": "0x3e47502a080950F38E388f1e3b97F469234fC330",
+    "PoolVault": "0xE460d3a1d80995b8eE09C4C0c87a53D2BAc3a70F",
+    "PurchaseValidation": "0x5534f899284745Feb79AAfb3089eebB381395e1B",
+    "RewardAccounting": "0x56daC2116D123593d77Af99867B3Fbd6B941c7f9",
+    "SaleGovernance": "0x946102dC8a0D11d6bf8519b8B7BBc4e807857772",
+    "SaleSettlement": "0x907D3cCbb53164C425b8f4999784d2012Efbe324",
+    "ShareCheckpoints": "0xbfB58258Fddd454418DE0deB2CF968BFB6D4ed6E",
+    "ShareMarket": "0xa8f9be0B6DDee1f9EdC80645d54951F8c56cfaBE",
+    "beacon": "0x6CD94b733b6D214566ED09Ca5149364Cc196904e",
+    "factory": "0x4A866e14816d8339A530c6c82300DBBb6544b37c",
+    "lens": "0x647535F12035DD4026157a832b0AED3D73F758B5",
+    "portfolioBeacon": "0xfC685281C7F70bCfc46073B28859b6015AF1929c",
+    "portfolioFactory": "0x2A02bA72B1c65beFaC1d4Aa912E21D0fa89dFD9A",
+    "portfolioFactoryImplementation": "0x791796eb678EfD06451001ace81c4A8497Cf6E63",
+    "portfolioShareMarket": "0xc06A1B28354C64c3E43adb272B984E21D32167EF",
+    "portfolioVaultImplementation": "0xD7a440194F658e7CFb77579Ce42B88fac09d5516",
+    "shareMarket": "0xaB42D8624920974c2a9348b0181AAC0BA3Aa567e",
+    "timelock": "0xA04584204C1F39F2f98Ac3413ceDcDcF0EB40108"
+  },
+  "authority": "0x434b837ADeE65D81923E8dcB329a36b40Aa68fB3",
+  "administratorOne": "0x7674fa446D42b1f7f150DC5e678cc525d275Ea53",
+  "administratorTwo": "0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb",
+  "gasWallet": "0xA285d1933e32b5990625aC1F5BEa205Cf2606619",
+  "deploymentStatus": "complete",
+  "activationStatus": "complete",
+  "deploymentSteps": [
+    {
+      "id": "PoolFunds",
+      "status": "confirmed",
+      "txHash": "0x75acddb05e248f5f79a64e13e06c019f228d390151a98b52e135da28964bf2bf",
+      "address": "0x3e47502a080950F38E388f1e3b97F469234fC330"
+    },
+    {
+      "id": "PurchaseValidation",
+      "status": "confirmed",
+      "txHash": "0x78a89f9a6a2666efb76b40ca8fcc2b7e38d95b6094ae4727c5110f0d3463f9b8",
+      "address": "0x5534f899284745Feb79AAfb3089eebB381395e1B"
+    },
+    {
+      "id": "FlexiblePurchase",
+      "status": "confirmed",
+      "txHash": "0xb3ea450901c79b0a9f4d207fc2fcdfca569b7d4a57f3549f8c025adc14829394",
+      "address": "0xc1eD7017A2A09d5959AFd1286120dc39b6936389"
+    },
+    {
+      "id": "MiningOperations",
+      "status": "confirmed",
+      "txHash": "0x08544f556524f9cdc41f2ede4190d36366234dc9027e0b49289c01098c63b1e7",
+      "address": "0xF0ba6c0C1C9F8304110DA65330031c93B7a095E8"
+    },
+    {
+      "id": "RewardAccounting",
+      "status": "confirmed",
+      "txHash": "0x300a00dc949334ed531e996aef6bea4a8eaa9f4c43e77683b347d16331014e80",
+      "address": "0x56daC2116D123593d77Af99867B3Fbd6B941c7f9"
+    },
+    {
+      "id": "SaleGovernance",
+      "status": "confirmed",
+      "txHash": "0x3065745cba8c36ca656d8e769f26ab472314892119be2f748c621672c103d177",
+      "address": "0x946102dC8a0D11d6bf8519b8B7BBc4e807857772"
+    },
+    {
+      "id": "SaleSettlement",
+      "status": "confirmed",
+      "txHash": "0x66c464f7e9b6439a3e3506c0542bce70e23bddaa4442e30495713607ac636b72",
+      "address": "0x907D3cCbb53164C425b8f4999784d2012Efbe324"
+    },
+    {
+      "id": "ShareCheckpoints",
+      "status": "confirmed",
+      "txHash": "0x03f4fcb2971a0a756912a41f9c4f73a6ba6e857be9c43f101daa6dfb79130efb",
+      "address": "0xbfB58258Fddd454418DE0deB2CF968BFB6D4ed6E"
+    },
+    {
+      "id": "FirstoSale",
+      "status": "confirmed",
+      "txHash": "0x70f2238edb5454b010005532891348fa2e5f00b1d23c51fa3f76e899de665db8",
+      "address": "0x7E4eDea3eA310d1eE8FC33765B116c3b934E7268"
+    },
+    {
+      "id": "AtomicDeployment",
+      "status": "confirmed",
+      "txHash": "0x170d382c3192032bd9c31a9961a8fbead0a853cc0e146a7583e754f8a8616836",
+      "address": "0x2eDD7d3AD55C653C03D034A8cc5CA324509F42fc"
+    },
+    {
+      "id": "PoolVault",
+      "status": "confirmed",
+      "txHash": "0x4406962a34576c8ccc694c49ccb502eb62cba8f539328282c6c267a4b54dfaf1",
+      "address": "0xE460d3a1d80995b8eE09C4C0c87a53D2BAc3a70F"
+    },
+    {
+      "id": "FreshPoolFactory",
+      "status": "confirmed",
+      "txHash": "0xbabe694b35fc007812bdf5c6b9475101c3322c61a3e202304d7a4c133b61276c",
+      "address": "0xe59847612586E2cae283b1E8E355BAD40f1DC03e"
+    },
+    {
+      "id": "ShareMarket",
+      "status": "confirmed",
+      "txHash": "0x7be5fdea8fccef8d3451d073f3fbc6714ac2e169790833240ef2cdbc50fc7f5b",
+      "address": "0xa8f9be0B6DDee1f9EdC80645d54951F8c56cfaBE"
+    },
+    {
+      "id": "BudgetPortfolioFactory",
+      "status": "confirmed",
+      "txHash": "0xab8d72378bdad4e44f9308d2472232fa97b5cc615a42261e73f9a19cd5207b80",
+      "address": "0x791796eb678EfD06451001ace81c4A8497Cf6E63"
+    },
+    {
+      "id": "BudgetPortfolioVault",
+      "status": "confirmed",
+      "txHash": "0x32ab2c108febcda93f9857c4dd0c39d4769f81a55336fa014663f8c969e898ef",
+      "address": "0xD7a440194F658e7CFb77579Ce42B88fac09d5516"
+    },
+    {
+      "id": "initialize",
+      "status": "confirmed",
+      "txHash": "0xcd34bdc34c32c64dc7741b3108bc1e592e913ab5460b0f68b64183e6d5e174b0"
+    }
+  ],
+  "activationSteps": [
+    {
+      "id": "deployAuthority",
+      "status": "confirmed",
+      "txHash": "0x7e3f0ce57671ad0f065b24a019bdd31bf35477c961cba23880940495a93ab782",
+      "address": "0x434b837ADeE65D81923E8dcB329a36b40Aa68fB3"
+    },
+    {
+      "id": "coreOperator",
+      "status": "confirmed",
+      "txHash": "0xf819e9f06c61135635b854e4c7a77cda4bae2b122c49b331b2f432612a28e823"
+    },
+    {
+      "id": "coreTreasury",
+      "status": "confirmed",
+      "txHash": "0x518fda186f33e0560e239da9190ea82f06beb769e9a65c28ac0eb9a7458d93e2"
+    },
+    {
+      "id": "budgetOperator",
+      "status": "confirmed",
+      "txHash": "0x509f44d731192eeea815125303de73a697c70c3a45517f24afba93d783cadd69"
+    },
+    {
+      "id": "budgetTreasury",
+      "status": "confirmed",
+      "txHash": "0x413928349b1de178d764c23960933a6bb818edfec94a1182b68bd39e2cbc499a"
+    },
+    {
+      "id": "coreOwner",
+      "status": "confirmed",
+      "txHash": "0x70a954abd1a1ad56850a58d3e7d38af6c12d9eff3dd54656f7786246e312ec5c"
+    },
+    {
+      "id": "budgetOwner",
+      "status": "confirmed",
+      "txHash": "0x4ceaacb2f5b86d60252d1a7460952c4eb74b6f2f4bbb65a538b03db8d3a172ce"
+    }
+  ],
+  "exportedAt": "2026-10-02T15:25:05.443622+00:00"
+}

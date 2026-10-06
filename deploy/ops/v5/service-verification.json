@@ -1,0 +1,59 @@
+{
+  "checkedAt": "2026-10-02T23:41:52.625844+00:00",
+  "units": {
+    "pinkuang-index-v5": {
+      "NRestarts": "0",
+      "ActiveState": "active",
+      "SubState": "running",
+      "UnitFileState": "enabled"
+    },
+    "pinkuang-product-v5": {
+      "NRestarts": "0",
+      "ActiveState": "active",
+      "SubState": "running",
+      "UnitFileState": "enabled"
+    },
+    "pinkuang-v5-purchase": {
+      "NRestarts": "0",
+      "ActiveState": "active",
+      "SubState": "running",
+      "UnitFileState": "enabled"
+    },
+    "pinkuang-v5-mining": {
+      "NRestarts": "0",
+      "ActiveState": "active",
+      "SubState": "running",
+      "UnitFileState": "enabled"
+    },
+    "pinkuang-v5-signer": {
+      "NRestarts": "0",
+      "ActiveState": "active",
+      "SubState": "running",
+      "UnitFileState": "enabled"
+    },
+    "pinkuang-v5-price": {
+      "NRestarts": "0",
+      "ActiveState": "active",
+      "SubState": "running",
+      "UnitFileState": "enabled"
+    },
+    "pinkuang-deploy-v5": {
+      "NRestarts": "0",
+      "ActiveState": "active",
+      "SubState": "running",
+      "UnitFileState": "enabled"
+    }
+  },
+  "workerReadiness": {
+    "purchase": {
+      "fileAgeSeconds": 21.96,
+      "ready": true
+    },
+    "mining": {
+      "fileAgeSeconds": 26.73,
+      "ready": true
+    }
+  },
+  "headerConcurrency": 32,
+  "oldSignerEnabled": "disabled"
+}

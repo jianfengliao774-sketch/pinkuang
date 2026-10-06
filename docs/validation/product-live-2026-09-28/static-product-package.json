@@ -1,0 +1,8 @@
+{
+  "releaseId": "v2-product-20260928-2c2fe82",
+  "archive": "/tmp/pinkuang-product-v2-2c2fe82.tar.gz",
+  "archiveSha256": "8b80b7a74068fbd8a396597c9024a3e57aaa0695c3a4f3d65ca0941ea600c63f",
+  "manifestSha256": "3b3d6e206ed646d08341532c173aba18ce2282c938e03d02c4bd335788a48621",
+  "sourceHead": "2c2fe8272cae4b66dae5c976fcc19a72787b1d02",
+  "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7"
+}

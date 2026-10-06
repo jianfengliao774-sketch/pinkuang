@@ -1,0 +1,1411 @@
+{
+  "checkedAt": "2026-09-28T04:00:20.946Z",
+  "readOnly": true,
+  "record": {
+    "schemaVersion": 1,
+    "kind": "integrated-v2",
+    "id": "1790566078210-0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+    "chainId": 56,
+    "account": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+    "createdAt": "2026-09-28T03:27:58.210Z",
+    "updatedAt": "2026-09-28T03:35:55.803Z",
+    "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+    "sourceCommit": "8c5598cf44fe8fb6174969eba12b3baa13f7942b",
+    "input": {
+      "gasPriceCapGwei": "1",
+      "governanceMode": "single",
+      "governanceReviewed": true,
+      "maxGasBudgetBnb": "0.05",
+      "operator": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+      "ownerMultisig": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+      "protocolReviewed": true,
+      "treasury": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E"
+    },
+    "status": "complete",
+    "steps": [
+      {
+        "address": "0x4a61d7ab5a6b99845301fAfe393c2FA17C6E39E2",
+        "codehash": "0xd5e1b016f0aa456905fb6efb0a5511630f41020160381f239e85a90dcb245561",
+        "dataHash": "0xe55eb0061bc504a36d040e612464343e04031cc4552831239454961f2e6c0f27",
+        "gasEstimate": "885752",
+        "gasLimit": "1062903",
+        "gasPriceWei": "50000000",
+        "id": "PoolFunds",
+        "label": "PoolFunds",
+        "maxFeeWei": "53145150000000",
+        "nonce": 1155,
+        "receipt": {
+          "blockHash": "0x22c9d978d928f73fee1da7e20feb1747369649ca5b1027060f1ddf287708f87f",
+          "blockNumber": 124452757,
+          "feeWei": "43881000000000",
+          "gasPrice": "50000000",
+          "gasUsed": "877620",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0x45e697051deea6fd6842af960ec5b97bccaee0db3587ad482ecfb7da7424dad6"
+      },
+      {
+        "address": "0x8908740a25c6c2D5A16FaA79b3318be238Ab277b",
+        "codehash": "0xa637f2995425173f0464d78f4e7a8fe3b528eed87780a474c19dc336f3bf9f85",
+        "dataHash": "0x9ae8a34134aa3f9a4743fc4406d711ce7a20650fad679b24870b0b3fa21c7136",
+        "gasEstimate": "909015",
+        "gasLimit": "1090818",
+        "gasPriceWei": "50000000",
+        "id": "PurchaseValidation",
+        "label": "PurchaseValidation",
+        "maxFeeWei": "54540900000000",
+        "nonce": 1156,
+        "receipt": {
+          "blockHash": "0xaa20dd0fcc238a058f0ad840578deaaea71d23c8fe2cae5d6f4f257a1387c600",
+          "blockNumber": 124452830,
+          "feeWei": "45034950000000",
+          "gasPrice": "50000000",
+          "gasUsed": "900699",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0x793d031563b135dfbd5a5259ee9da7a8ac6572cd94590347448dd42273f5c57e"
+      },
+      {
+        "address": "0x9cF9DdFff4563Ea0C3801815aabEC4C95a9f91C4",
+        "codehash": "0x7f0fca50151012bdd8a13229aa979f008fe17391b97348e268d2214e7a9e1329",
+        "dataHash": "0x3ae2c6170754566b1bbf12dcee8a5ca17724a6f7cbf156580d21f4d6b4a68772",
+        "gasEstimate": "2939859",
+        "gasLimit": "3527831",
+        "gasPriceWei": "50000000",
+        "id": "FlexiblePurchase",
+        "label": "FlexiblePurchase",
+        "maxFeeWei": "176391550000000",
+        "nonce": 1157,
+        "receipt": {
+          "blockHash": "0x959e3edd3fd8d6a70ec433ab9584f7068cd1a065e95f5e218b8df994085a8a1d",
+          "blockNumber": 124452892,
+          "feeWei": "145777600000000",
+          "gasPrice": "50000000",
+          "gasUsed": "2915552",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0x04da5a6d662660ecd914df67be1f5b897d69544c1f3d4e1a793bcfe3d8f2516a"
+      },
+      {
+        "address": "0xD99DE9369D633AE5B2397984a8747e42b366C3D8",
+        "codehash": "0x3d2529da9fe90b43246f6308a2a76ebfeae0575a68b7bd831065745503f60f48",
+        "dataHash": "0x98c5a953161fa04afdd8fe550e003d6cab36121aade662856779bfe237cbd87f",
+        "gasEstimate": "1371533",
+        "gasLimit": "1645840",
+        "gasPriceWei": "50000000",
+        "id": "MiningOperations",
+        "label": "MiningOperations",
+        "maxFeeWei": "82292000000000",
+        "nonce": 1158,
+        "receipt": {
+          "blockHash": "0x6e20476f5dd715273ac9af0c5d4ca9132c762c69ef3bdb2db9b475f3262ed47c",
+          "blockNumber": 124452958,
+          "feeWei": "67978750000000",
+          "gasPrice": "50000000",
+          "gasUsed": "1359575",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0xfe9a3f3c61a646959ca5542480045d9191d0d8cb47f24cd1ef91c1b56f9121ee"
+      },
+      {
+        "address": "0x41894Fb5B2DF10c285d4f03C6DbFA39055331A03",
+        "codehash": "0x5287123b47a453340eb09421f1620e7591894bb6bb18d769f61c1d79a4652178",
+        "dataHash": "0x31d29f08f125272f2508d2776ae92897aa06bfe9cbcc9ce16d2bd2a5c0b5c26c",
+        "gasEstimate": "1108991",
+        "gasLimit": "1330790",
+        "gasPriceWei": "50000000",
+        "id": "RewardAccounting",
+        "label": "RewardAccounting",
+        "maxFeeWei": "66539500000000",
+        "nonce": 1159,
+        "receipt": {
+          "blockHash": "0x9e7349152170060893e106e23b8fd13bfcf03677fa500e2ef070b5aa78724922",
+          "blockNumber": 124453024,
+          "feeWei": "54955050000000",
+          "gasPrice": "50000000",
+          "gasUsed": "1099101",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0x4a0a580f129e927b08101c3da800915ae9675104bf44304ef64cd73a816b85f8"
+      },
+      {
+        "address": "0xDc78320581307FE2b657922104A317ec5bF113BF",
+        "codehash": "0xc14efc30a65a2cceff159aa1396ab50cba45380a268088674f4686c59c308683",
+        "dataHash": "0xdc1f7d554c8d174089b2d38c9bd838b0acc26195d6d9734848ee06ef21a4fb76",
+        "gasEstimate": "1009009",
+        "gasLimit": "1210811",
+        "gasPriceWei": "50000000",
+        "id": "SaleGovernance",
+        "label": "SaleGovernance",
+        "maxFeeWei": "60540550000000",
+        "nonce": 1160,
+        "receipt": {
+          "blockHash": "0x37f2c9a49e11829b38625168dcbf2465b1eb56aec9c63cadcb329466bacb001e",
+          "blockNumber": 124453089,
+          "feeWei": "49995300000000",
+          "gasPrice": "50000000",
+          "gasUsed": "999906",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0x2bccb4af1414a2aa6ff48594b4078e977f6590ab3e12fa528de907ff62cfa472"
+      },
+      {
+        "address": "0xa1017cAdEc0231d0818BE777124a06eECF2e3522",
+        "codehash": "0xf69342ee0b6deb63a270e52ec063b5ce0fb7e7dc2ccfb1991de9771f8a1d994d",
+        "dataHash": "0x76242e7a01e176ab3a47b7fa56eca30f75b6c071c80d601cc1b48fd69ed7abb1",
+        "gasEstimate": "736534",
+        "gasLimit": "883841",
+        "gasPriceWei": "50000000",
+        "id": "SaleSettlement",
+        "label": "SaleSettlement",
+        "maxFeeWei": "44192050000000",
+        "nonce": 1161,
+        "receipt": {
+          "blockHash": "0x642b6b546c698cd1eed28288e6b1828b50e7fee85af8757451bd8a9e166de2fa",
+          "blockNumber": 124453158,
+          "feeWei": "36478800000000",
+          "gasPrice": "50000000",
+          "gasUsed": "729576",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0xc61d2bc4c4e5bb94fc933f122bc1f7a758b708a80be5bf0a71e789a50eee0972"
+      },
+      {
+        "address": "0x70566175661557A1349BB7764dfb37d89a4FcAc0",
+        "codehash": "0x52a5f5a71ab4e61938bbc3491c94e04c060707a3d8111ad5bfb260774a2fb9f1",
+        "dataHash": "0x4e012f1d99eab503cb2868be97a636216e5269985728c81d00f1801f8e9c86d9",
+        "gasEstimate": "374609",
+        "gasLimit": "449531",
+        "gasPriceWei": "50000000",
+        "id": "ShareCheckpoints",
+        "label": "ShareCheckpoints",
+        "maxFeeWei": "22476550000000",
+        "nonce": 1162,
+        "receipt": {
+          "blockHash": "0x1a84a2e80f9b78825c4c7193773da86db58703b6542d0c7f06fdd1fa04221a69",
+          "blockNumber": 124453225,
+          "feeWei": "18525050000000",
+          "gasPrice": "50000000",
+          "gasUsed": "370501",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0xd6044ef42e8e4722a33b973f980a8510537f7db8ff827b96ef9e1902c5d8efd5"
+      },
+      {
+        "address": "0x0d052B5aB632Cd62F3D64514FACb75986020Cb53",
+        "codehash": "0xfe1d552a3d53161076c407ec52a08d00f67e4bc686286a90486866d295b9ac05",
+        "dataHash": "0x829e75d2c6500538db1dc76313afb1e155b4cddb52e54f7b7e2b4bca18e16a02",
+        "gasEstimate": "1327441",
+        "gasLimit": "1592930",
+        "gasPriceWei": "50000000",
+        "id": "FirstoSale",
+        "label": "FirstoSale",
+        "maxFeeWei": "79646500000000",
+        "nonce": 1163,
+        "receipt": {
+          "blockHash": "0xed67079f1f894f08b6c0fc6a03af3321bb9e6558c7b96f793a36fb08e1b541a3",
+          "blockNumber": 124453294,
+          "feeWei": "65791550000000",
+          "gasPrice": "50000000",
+          "gasUsed": "1315831",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0x7f4356ed2e25806a4728d1ba87d4f86037a3de6fa267578db112074919b3f468"
+      },
+      {
+        "address": "0xd5C41a9Dfec0160De60A56D240EEDf0F94697aB3",
+        "codehash": "0x92cacc4f0e37d2c66b0b7b51cfb1edbe952a43cdf40eae044285c34befb1cce6",
+        "dataHash": "0xc3c45bd0ad43fc6b9598455102f287c11f719d478408a2540774729697020aec",
+        "gasEstimate": "4690011",
+        "gasLimit": "5628014",
+        "gasPriceWei": "50000000",
+        "id": "AtomicDeployment",
+        "label": "AtomicDeployment",
+        "maxFeeWei": "281400700000000",
+        "nonce": 1164,
+        "receipt": {
+          "blockHash": "0xd0abcd531073b48e738a2213a55382589c3d1b03685370cec38b0cdcd64587f2",
+          "blockNumber": 124453364,
+          "feeWei": "232596200000000",
+          "gasPrice": "50000000",
+          "gasUsed": "4651924",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0x3d514fac8c0a3c6a1139c35b2e6560db61dc56626af13e450fdadb630b975225"
+      },
+      {
+        "address": "0x5425b74570612B9828c3A4EdaABA8Bbd440c39F8",
+        "codehash": "0xd3c3c5c90473c651e73536488cfe4be1b5bebd77fb2a6c324b37e0b7fb8494b7",
+        "dataHash": "0x0788be8219432e1121993f2cbb3d4367b6686f49ab58aee707bfac05219f5206",
+        "gasEstimate": "5405931",
+        "gasLimit": "6487118",
+        "gasPriceWei": "50000000",
+        "id": "PoolVault",
+        "label": "PoolVault",
+        "maxFeeWei": "324355900000000",
+        "nonce": 1165,
+        "receipt": {
+          "blockHash": "0x733db31ce7f511e19e2b54bd54331b9b24502aa00b02664ea5ae4ad1bfe49f87",
+          "blockNumber": 124453430,
+          "feeWei": "268110350000000",
+          "gasPrice": "50000000",
+          "gasUsed": "5362207",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0x7fb8f3e2182c127d6e9b94f58cb9dfedcbf7c02815028f2098a5dee9da36b789"
+      },
+      {
+        "address": "0x3208d7b3Df5d1d72f5B9F5F936b6e7151139C8bA",
+        "codehash": "0xf999264ca7a38b74598703684f2ada762fd48274e6b3f1ca7a3ebbb17126fbe3",
+        "dataHash": "0xeb0872ad6d9ac322ce4184828039bdee85d7248599e22928165bed2ebc0b6ca9",
+        "gasEstimate": "5416839",
+        "gasLimit": "6500207",
+        "gasPriceWei": "50000000",
+        "id": "PoolFactory",
+        "label": "PoolFactory",
+        "maxFeeWei": "325010350000000",
+        "nonce": 1166,
+        "receipt": {
+          "blockHash": "0xd1385ac518f92184f510443efd4c15ddb4f826076e96d1421c5198c15ebb412f",
+          "blockNumber": 124453495,
+          "feeWei": "268651450000000",
+          "gasPrice": "50000000",
+          "gasUsed": "5373029",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0xac7aaf6e182370f15e599fcfda4f17468c3fee07d2cfa488b3c03838611f264f"
+      },
+      {
+        "address": "0xd267a316DB511341c186792Ccb3bE956cdd9559A",
+        "codehash": "0x358eaf0b82facb8475375687de1ae017de816e297eda8f9708ee3179948099e5",
+        "dataHash": "0x1079779266e3aea9b9c9e119257c3b088e44781c635f472e920ef56db05588f3",
+        "gasEstimate": "1638615",
+        "gasLimit": "1966338",
+        "gasPriceWei": "50000000",
+        "id": "ShareMarket",
+        "label": "ShareMarket",
+        "maxFeeWei": "98316900000000",
+        "nonce": 1167,
+        "receipt": {
+          "blockHash": "0xd01c03f976f55b8f8e6b3971174900d9a48fb57455d5fd0a1f15c604b102a906",
+          "blockNumber": 124453559,
+          "feeWei": "81227700000000",
+          "gasPrice": "50000000",
+          "gasUsed": "1624554",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0x19b3ed761f8c34985e8fbe8aa929e0be7f41888c94356d48c264424249602a0a"
+      },
+      {
+        "address": "0x4c95b06081B4a4F1C2d739Fb41970bb10d9848a8",
+        "codehash": "0x84e1ae88da081d08ca39c267c7d82769bd748f736e2b5425becb8f91bb218cf7",
+        "dataHash": "0x04193d0bfd00e71977ea5ea41050dff674126fbc04a6319822c9603bcd77a0d8",
+        "gasEstimate": "2161411",
+        "gasLimit": "2593694",
+        "gasPriceWei": "50000000",
+        "id": "BudgetPortfolioFactory",
+        "label": "BudgetPortfolioFactory",
+        "maxFeeWei": "129684700000000",
+        "nonce": 1168,
+        "receipt": {
+          "blockHash": "0xad5e00429f9262f1456333d601662198e42458e50fa26012730585493854472f",
+          "blockNumber": 124453622,
+          "feeWei": "107161700000000",
+          "gasPrice": "50000000",
+          "gasUsed": "2143234",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0x76da6a0d1cf318596ad4baa09f56d72f75174882032879b649a137cc94888f7e"
+      },
+      {
+        "address": "0x9b88441B6C9b961cb4Fd81b216724D08b95C4273",
+        "codehash": "0x50fb9b100a8724453a2baaa84136574de5dd247194fbe02bc054b89482fb44a2",
+        "dataHash": "0x48ce3f02943f2c46035128222408cb44eeaf85a1a2fe5dd70bf758a1083000f7",
+        "gasEstimate": "5017077",
+        "gasLimit": "6020493",
+        "gasPriceWei": "50000000",
+        "id": "BudgetPortfolioVault",
+        "label": "BudgetPortfolioVault",
+        "maxFeeWei": "301024650000000",
+        "nonce": 1169,
+        "receipt": {
+          "blockHash": "0xecd0ee15e99c18302ca1192dea87359c08f65edb7e580068b43ac818373f093b",
+          "blockNumber": 124453686,
+          "feeWei": "248820700000000",
+          "gasPrice": "50000000",
+          "gasUsed": "4976414",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0x79228f6de2cf5df2f3f1562d603e8da286f200caa057cbf65a70df38f330427a"
+      },
+      {
+        "dataHash": "0x6883580ed8c6a258e0d77710ac451072dddcfc21534d4e7893b20c6f5504cc91",
+        "gasEstimate": "5217514",
+        "gasLimit": "6261017",
+        "gasPriceWei": "50000000",
+        "id": "initialize",
+        "initializationExecution": {
+          "addresses": {
+            "beacon": "0x310EB94d4495c7fD08F2FB16bad5d850B0861673",
+            "factory": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+            "portfolioBeacon": "0xB6A81cd593be825cC562486c302cc9AB47c58423",
+            "portfolioFactory": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+            "portfolioShareMarket": "0xC6d3860817e8F04b42DA4975319aED32540e8cf8",
+            "shareMarket": "0x347e094BAAB9b74059567A25ab49dFaEA149E734",
+            "timelock": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C"
+          },
+          "coordinator": "0xd5C41a9Dfec0160De60A56D240EEDf0F94697aB3",
+          "kind": "wrapped",
+          "outerDataHash": "0x4a754c9241c73f1014de8ecac82bab77184384b45513df41e6a5a4965a0704c3",
+          "outerTo": "0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3",
+          "plannedDataHash": "0x6883580ed8c6a258e0d77710ac451072dddcfc21534d4e7893b20c6f5504cc91"
+        },
+        "label": "\u539f\u5b50\u521d\u59cb\u5316\u5355\u673a\u4e0e\u591a\u673a\u9879\u76ee",
+        "maxFeeWei": "313050850000000",
+        "nonce": 1170,
+        "receipt": {
+          "blockHash": "0x181d3484dfcee1f8d71513bbb689b44230911d91cb775af11914dba9f3b0c39a",
+          "blockNumber": 124453751,
+          "feeWei": "263315900000000",
+          "gasPrice": "50000000",
+          "gasUsed": "5266318",
+          "status": 1
+        },
+        "status": "confirmed",
+        "txHash": "0x4497fc6a8bc5fce4c006c6a1e6f7490b08d138ad9a64bcff983855c56f9e30f0"
+      }
+    ],
+    "addresses": {
+      "AtomicDeployment": "0xd5C41a9Dfec0160De60A56D240EEDf0F94697aB3",
+      "BudgetPortfolioFactory": "0x4c95b06081B4a4F1C2d739Fb41970bb10d9848a8",
+      "BudgetPortfolioVault": "0x9b88441B6C9b961cb4Fd81b216724D08b95C4273",
+      "FirstoSale": "0x0d052B5aB632Cd62F3D64514FACb75986020Cb53",
+      "FlexiblePurchase": "0x9cF9DdFff4563Ea0C3801815aabEC4C95a9f91C4",
+      "MiningOperations": "0xD99DE9369D633AE5B2397984a8747e42b366C3D8",
+      "PoolFactory": "0x3208d7b3Df5d1d72f5B9F5F936b6e7151139C8bA",
+      "PoolFunds": "0x4a61d7ab5a6b99845301fAfe393c2FA17C6E39E2",
+      "PoolVault": "0x5425b74570612B9828c3A4EdaABA8Bbd440c39F8",
+      "PurchaseValidation": "0x8908740a25c6c2D5A16FaA79b3318be238Ab277b",
+      "RewardAccounting": "0x41894Fb5B2DF10c285d4f03C6DbFA39055331A03",
+      "SaleGovernance": "0xDc78320581307FE2b657922104A317ec5bF113BF",
+      "SaleSettlement": "0xa1017cAdEc0231d0818BE777124a06eECF2e3522",
+      "ShareCheckpoints": "0x70566175661557A1349BB7764dfb37d89a4FcAc0",
+      "ShareMarket": "0xd267a316DB511341c186792Ccb3bE956cdd9559A",
+      "beacon": "0x310EB94d4495c7fD08F2FB16bad5d850B0861673",
+      "factory": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+      "lens": "0x60E358bE80D3035320019D65F2E3B32E2d7478b7",
+      "portfolioBeacon": "0xB6A81cd593be825cC562486c302cc9AB47c58423",
+      "portfolioFactory": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+      "portfolioFactoryImplementation": "0x4c95b06081B4a4F1C2d739Fb41970bb10d9848a8",
+      "portfolioShareMarket": "0xC6d3860817e8F04b42DA4975319aED32540e8cf8",
+      "portfolioVaultImplementation": "0x9b88441B6C9b961cb4Fd81b216724D08b95C4273",
+      "shareMarket": "0x347e094BAAB9b74059567A25ab49dFaEA149E734",
+      "timelock": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C"
+    },
+    "spentWei": "1998302050000000",
+    "preflight": {
+      "account": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+      "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+      "balanceWei": "164516970518502034",
+      "chainId": 56,
+      "checkedAt": "2026-09-28T03:27:58.210Z",
+      "gasPriceWei": "50000000",
+      "libraryOrder": [
+        "PoolFunds",
+        "PurchaseValidation",
+        "FlexiblePurchase",
+        "MiningOperations",
+        "RewardAccounting",
+        "SaleGovernance",
+        "SaleSettlement",
+        "ShareCheckpoints",
+        "FirstoSale"
+      ],
+      "owner": {
+        "address": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+        "codeBytes": 23,
+        "codehash": "0xb09ef517c48d2bf6eed05457ff56871b2596e3fc904fc6e9795882a870c2e993"
+      },
+      "protocols": {
+        "BEHEMOTH_CIRCUITS": {
+          "address": "0x1F5Cb4aeaE1807Bf60c3b9C0D8aDBCC14e91f12C",
+          "codeBytes": 295,
+          "codehash": "0xd8c4b0216e0aadd615fbd134465b6af060a11769edc7c844d8f14d1b8a783992"
+        },
+        "BEM": {
+          "address": "0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a",
+          "codeBytes": 2205,
+          "codehash": "0x982ba79538b51e54ee1382f57522098af0635b0f67f2574d393b29ed0958b344"
+        },
+        "CIRCUIT_MARKET": {
+          "address": "0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f",
+          "codeBytes": 130,
+          "codehash": "0xed6b710a769987f50494d713f278817992e3266e45898a990be878efc2fcbbce"
+        },
+        "FIRSTO_SIGNED_ASK_V2": {
+          "address": "0x33423244F9a5bF81b12B1a018aF6F4e079B97f29",
+          "codeBytes": 183,
+          "codehash": "0xba136f70efd54699acdcbfbbbbcc6671debaa0bc7f88d67e135b6c585db938d3"
+        },
+        "MINING": {
+          "address": "0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46",
+          "codeBytes": 130,
+          "codehash": "0xed6b710a769987f50494d713f278817992e3266e45898a990be878efc2fcbbce"
+        },
+        "PROTOCOL_FACTORY": {
+          "address": "0x68224F668083c29e9800Be2a646d42d18cedF7e2",
+          "codeBytes": 130,
+          "codehash": "0xed6b710a769987f50494d713f278817992e3266e45898a990be878efc2fcbbce"
+        },
+        "TAPEOUT_CIRCUITS": {
+          "address": "0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C",
+          "codeBytes": 295,
+          "codehash": "0xd8c4b0216e0aadd615fbd134465b6af060a11769edc7c844d8f14d1b8a783992"
+        }
+      },
+      "transactionCount": 16,
+      "treasury": {
+        "address": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+        "codeBytes": 23,
+        "codehash": "0xb09ef517c48d2bf6eed05457ff56871b2596e3fc904fc6e9795882a870c2e993"
+      },
+      "warnings": [
+        "\u5355\u94b1\u5305\u63a7\u5236\u7ba1\u7406\u548c\u5347\u7ea7\u63d0\u6848\uff1a\u5bc6\u94a5\u4e22\u5931\u6216\u6cc4\u9732\u4f1a\u5f71\u54cd\u5168\u90e8\u5408\u7ea6\uff1b48 \u5c0f\u65f6\u5ef6\u8fdf\u4e0d\u80fd\u4fdd\u8bc1\u963b\u6b62\u6076\u610f\u5347\u7ea7\u3002",
+        "\u534f\u8bae\u5730\u5740\u4ee3\u7801\u975e\u7a7a\u68c0\u67e5\u4e0d\u7b49\u4e8e\u534f\u8bae\u5b89\u5168\u5ba1\u8ba1\uff1b\u5c0f\u989d\u4e3b\u7f51\u6d4b\u8bd5\u4ecd\u4f1a\u6d88\u8017\u771f\u5b9e BNB\u3002",
+        "\u5206\u6b65\u90e8\u7f72\u53ea\u652f\u4ed8 Gas\uff0c\u4e0d\u8f6c\u5165\u4e1a\u52a1\u8d44\u91d1\u3002\u62d2\u7edd\u6216\u65ad\u7ebf\u65f6\u5df2\u786e\u8ba4\u7684\u90e8\u7f72\u8d39\u7528\u4e0d\u4f1a\u9000\u56de\u3002",
+        "\u603b Gas \u9884\u7b97\u9010\u7b14\u6267\u884c\u524d\u68c0\u67e5\uff1b\u82e5\u540e\u7eed\u6210\u672c\u8d85\u9884\u7b97\u4f1a\u4fdd\u7559\u8fdb\u5ea6\u5e76\u505c\u6b62\u3002\u94b1\u5305\u4fee\u6539\u4ea4\u6613\u8d39\u7528\u53ef\u7a81\u7834\u9875\u9762\u9884\u7b97\u3002"
+      ]
+    },
+    "verification": {
+      "blockNumber": 124453799,
+      "checkedAt": "2026-09-28T03:35:55.803Z",
+      "checks": [
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "\u534f\u8c03\u5668\u521d\u59cb\u5316\u5b8c\u6210",
+          "passed": true
+        },
+        {
+          "actual": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+          "expected": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+          "label": "Factory CREATE \u7ed1\u5b9a",
+          "passed": true
+        },
+        {
+          "actual": "0x60E358bE80D3035320019D65F2E3B32E2d7478b7",
+          "expected": "0x60E358bE80D3035320019D65F2E3B32E2d7478b7",
+          "label": "Factory.lens",
+          "passed": true
+        },
+        {
+          "actual": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+          "expected": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+          "label": "Lens.factory",
+          "passed": true
+        },
+        {
+          "actual": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+          "expected": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+          "label": "Factory.owner",
+          "passed": true
+        },
+        {
+          "actual": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+          "expected": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+          "label": "Factory.operator",
+          "passed": true
+        },
+        {
+          "actual": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+          "expected": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+          "label": "Factory.treasury",
+          "passed": true
+        },
+        {
+          "actual": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+          "expected": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+          "label": "Factory.timelock",
+          "passed": true
+        },
+        {
+          "actual": "0x310EB94d4495c7fD08F2FB16bad5d850B0861673",
+          "expected": "0x310EB94d4495c7fD08F2FB16bad5d850B0861673",
+          "label": "Factory.beacon",
+          "passed": true
+        },
+        {
+          "actual": "0x347e094BAAB9b74059567A25ab49dFaEA149E734",
+          "expected": "0x347e094BAAB9b74059567A25ab49dFaEA149E734",
+          "label": "Factory.shareMarket",
+          "passed": true
+        },
+        {
+          "actual": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+          "expected": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+          "label": "Beacon.owner",
+          "passed": true
+        },
+        {
+          "actual": "0x5425b74570612B9828c3A4EdaABA8Bbd440c39F8",
+          "expected": "0x5425b74570612B9828c3A4EdaABA8Bbd440c39F8",
+          "label": "Beacon.implementation",
+          "passed": true
+        },
+        {
+          "actual": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+          "expected": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+          "label": "Beacon.OFFICIAL_FACTORY",
+          "passed": true
+        },
+        {
+          "actual": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+          "expected": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+          "label": "Market.factory",
+          "passed": true
+        },
+        {
+          "actual": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+          "expected": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+          "label": "Market.timelock",
+          "passed": true
+        },
+        {
+          "actual": "100",
+          "expected": "100",
+          "label": "Market.feeBps",
+          "passed": true
+        },
+        {
+          "actual": "100",
+          "expected": "100",
+          "label": "Market.buyerFeeBps",
+          "passed": true
+        },
+        {
+          "actual": "604800",
+          "expected": "604800",
+          "label": "Market.ORDER_DURATION",
+          "passed": true
+        },
+        {
+          "actual": "172800",
+          "expected": "172800",
+          "label": "\u5347\u7ea7\u6700\u5c0f\u5ef6\u8fdf",
+          "passed": true
+        },
+        {
+          "actual": "172800",
+          "expected": "172800",
+          "label": "\u5ef6\u8fdf\u786c\u4e0b\u9650",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "\u7ba1\u7406\u5730\u5740\u63d0\u6848\u6743",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "\u7ba1\u7406\u5730\u5740\u53d6\u6d88\u6743",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "\u5230\u671f\u516c\u5f00\u6267\u884c",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "Timelock \u81ea\u7ba1\u7406",
+          "passed": true
+        },
+        {
+          "actual": "false",
+          "expected": "false",
+          "label": "\u90e8\u7f72\u8005\u6ca1\u6709 Timelock admin",
+          "passed": true
+        },
+        {
+          "actual": "false",
+          "expected": "false",
+          "label": "\u534f\u8c03\u5668\u6ca1\u6709 Timelock admin",
+          "passed": true
+        },
+        {
+          "actual": "0x3208d7b3Df5d1d72f5B9F5F936b6e7151139C8bA",
+          "expected": "0x3208d7b3Df5d1d72f5B9F5F936b6e7151139C8bA",
+          "label": "Factory UUPS \u5b9e\u73b0\u69fd",
+          "passed": true
+        },
+        {
+          "actual": "0xd267a316DB511341c186792Ccb3bE956cdd9559A",
+          "expected": "0xd267a316DB511341c186792Ccb3bE956cdd9559A",
+          "label": "Market UUPS \u5b9e\u73b0\u69fd",
+          "passed": true
+        },
+        {
+          "actual": "0",
+          "expected": "0",
+          "label": "\u521d\u59cb\u6c60\u5b50\u6570\u91cf",
+          "passed": true
+        },
+        {
+          "actual": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+          "expected": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+          "label": "PortfolioFactory.owner",
+          "passed": true
+        },
+        {
+          "actual": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+          "expected": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+          "label": "PortfolioFactory.operator",
+          "passed": true
+        },
+        {
+          "actual": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+          "expected": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+          "label": "PortfolioFactory.treasury",
+          "passed": true
+        },
+        {
+          "actual": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+          "expected": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+          "label": "PortfolioFactory.timelock",
+          "passed": true
+        },
+        {
+          "actual": "0xB6A81cd593be825cC562486c302cc9AB47c58423",
+          "expected": "0xB6A81cd593be825cC562486c302cc9AB47c58423",
+          "label": "PortfolioFactory.beacon",
+          "passed": true
+        },
+        {
+          "actual": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+          "expected": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+          "label": "PortfolioFactory.legacyFactory",
+          "passed": true
+        },
+        {
+          "actual": "0xC6d3860817e8F04b42DA4975319aED32540e8cf8",
+          "expected": "0xC6d3860817e8F04b42DA4975319aED32540e8cf8",
+          "label": "PortfolioFactory.shareMarket",
+          "passed": true
+        },
+        {
+          "actual": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+          "expected": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+          "label": "PortfolioFactory CREATE \u7ed1\u5b9a",
+          "passed": true
+        },
+        {
+          "actual": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+          "expected": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+          "label": "PortfolioBeacon.owner",
+          "passed": true
+        },
+        {
+          "actual": "0x9b88441B6C9b961cb4Fd81b216724D08b95C4273",
+          "expected": "0x9b88441B6C9b961cb4Fd81b216724D08b95C4273",
+          "label": "PortfolioBeacon.implementation",
+          "passed": true
+        },
+        {
+          "actual": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+          "expected": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+          "label": "PortfolioBeacon.OFFICIAL_FACTORY",
+          "passed": true
+        },
+        {
+          "actual": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+          "expected": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+          "label": "PortfolioVault.OFFICIAL_FACTORY",
+          "passed": true
+        },
+        {
+          "actual": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+          "expected": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+          "label": "PortfolioMarket.factory",
+          "passed": true
+        },
+        {
+          "actual": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+          "expected": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+          "label": "PortfolioMarket.timelock",
+          "passed": true
+        },
+        {
+          "actual": "100",
+          "expected": "100",
+          "label": "PortfolioMarket.feeBps",
+          "passed": true
+        },
+        {
+          "actual": "100",
+          "expected": "100",
+          "label": "PortfolioMarket.buyerFeeBps",
+          "passed": true
+        },
+        {
+          "actual": "604800",
+          "expected": "604800",
+          "label": "PortfolioMarket.ORDER_DURATION",
+          "passed": true
+        },
+        {
+          "actual": "0x4c95b06081B4a4F1C2d739Fb41970bb10d9848a8",
+          "expected": "0x4c95b06081B4a4F1C2d739Fb41970bb10d9848a8",
+          "label": "PortfolioFactory UUPS \u5b9e\u73b0\u69fd",
+          "passed": true
+        },
+        {
+          "actual": "0xd267a316DB511341c186792Ccb3bE956cdd9559A",
+          "expected": "0xd267a316DB511341c186792Ccb3bE956cdd9559A",
+          "label": "PortfolioMarket UUPS \u5b9e\u73b0\u69fd",
+          "passed": true
+        },
+        {
+          "actual": "0",
+          "expected": "0",
+          "label": "\u521d\u59cb\u591a\u673a\u9879\u76ee\u6570\u91cf",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "PoolFunds \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "PurchaseValidation \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "FlexiblePurchase \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "MiningOperations \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "RewardAccounting \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "SaleGovernance \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "SaleSettlement \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "ShareCheckpoints \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "FirstoSale \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "AtomicDeployment \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "PoolVault \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "PoolFactory \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "ShareMarket \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "BudgetPortfolioFactory \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "BudgetPortfolioVault \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "timelock \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "beacon \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "factory \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "shareMarket \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "portfolioFactory \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "portfolioBeacon \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "portfolioShareMarket \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "portfolioFactoryImplementation \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "portfolioVaultImplementation \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        },
+        {
+          "actual": "true",
+          "expected": "true",
+          "label": "lens \u8fd0\u884c\u4ee3\u7801\u5339\u914d",
+          "passed": true
+        }
+      ],
+      "code": {
+        "AtomicDeployment": {
+          "address": "0xd5C41a9Dfec0160De60A56D240EEDf0F94697aB3",
+          "codeBytes": 21303,
+          "codehash": "0x92cacc4f0e37d2c66b0b7b51cfb1edbe952a43cdf40eae044285c34befb1cce6"
+        },
+        "BudgetPortfolioFactory": {
+          "address": "0x4c95b06081B4a4F1C2d739Fb41970bb10d9848a8",
+          "codeBytes": 9567,
+          "codehash": "0x84e1ae88da081d08ca39c267c7d82769bd748f736e2b5425becb8f91bb218cf7"
+        },
+        "BudgetPortfolioVault": {
+          "address": "0x9b88441B6C9b961cb4Fd81b216724D08b95C4273",
+          "codeBytes": 22638,
+          "codehash": "0x50fb9b100a8724453a2baaa84136574de5dd247194fbe02bc054b89482fb44a2"
+        },
+        "FirstoSale": {
+          "address": "0x0d052B5aB632Cd62F3D64514FACb75986020Cb53",
+          "codeBytes": 5848,
+          "codehash": "0xfe1d552a3d53161076c407ec52a08d00f67e4bc686286a90486866d295b9ac05"
+        },
+        "FlexiblePurchase": {
+          "address": "0x9cF9DdFff4563Ea0C3801815aabEC4C95a9f91C4",
+          "codeBytes": 13236,
+          "codehash": "0x7f0fca50151012bdd8a13229aa979f008fe17391b97348e268d2214e7a9e1329"
+        },
+        "MiningOperations": {
+          "address": "0xD99DE9369D633AE5B2397984a8747e42b366C3D8",
+          "codeBytes": 6040,
+          "codehash": "0x3d2529da9fe90b43246f6308a2a76ebfeae0575a68b7bd831065745503f60f48"
+        },
+        "PoolFactory": {
+          "address": "0x3208d7b3Df5d1d72f5B9F5F936b6e7151139C8bA",
+          "codeBytes": 24534,
+          "codehash": "0xf999264ca7a38b74598703684f2ada762fd48274e6b3f1ca7a3ebbb17126fbe3"
+        },
+        "PoolFunds": {
+          "address": "0x4a61d7ab5a6b99845301fAfe393c2FA17C6E39E2",
+          "codeBytes": 3814,
+          "codehash": "0xd5e1b016f0aa456905fb6efb0a5511630f41020160381f239e85a90dcb245561"
+        },
+        "PoolVault": {
+          "address": "0x5425b74570612B9828c3A4EdaABA8Bbd440c39F8",
+          "codeBytes": 24414,
+          "codehash": "0xd3c3c5c90473c651e73536488cfe4be1b5bebd77fb2a6c324b37e0b7fb8494b7"
+        },
+        "PurchaseValidation": {
+          "address": "0x8908740a25c6c2D5A16FaA79b3318be238Ab277b",
+          "codeBytes": 3918,
+          "codehash": "0xa637f2995425173f0464d78f4e7a8fe3b528eed87780a474c19dc336f3bf9f85"
+        },
+        "RewardAccounting": {
+          "address": "0x41894Fb5B2DF10c285d4f03C6DbFA39055331A03",
+          "codeBytes": 4836,
+          "codehash": "0x5287123b47a453340eb09421f1620e7591894bb6bb18d769f61c1d79a4652178"
+        },
+        "SaleGovernance": {
+          "address": "0xDc78320581307FE2b657922104A317ec5bF113BF",
+          "codeBytes": 4378,
+          "codehash": "0xc14efc30a65a2cceff159aa1396ab50cba45380a268088674f4686c59c308683"
+        },
+        "SaleSettlement": {
+          "address": "0xa1017cAdEc0231d0818BE777124a06eECF2e3522",
+          "codeBytes": 3127,
+          "codehash": "0xf69342ee0b6deb63a270e52ec063b5ce0fb7e7dc2ccfb1991de9771f8a1d994d"
+        },
+        "ShareCheckpoints": {
+          "address": "0x70566175661557A1349BB7764dfb37d89a4FcAc0",
+          "codeBytes": 1466,
+          "codehash": "0x52a5f5a71ab4e61938bbc3491c94e04c060707a3d8111ad5bfb260774a2fb9f1"
+        },
+        "ShareMarket": {
+          "address": "0xd267a316DB511341c186792Ccb3bE956cdd9559A",
+          "codeBytes": 7146,
+          "codehash": "0x358eaf0b82facb8475375687de1ae017de816e297eda8f9708ee3179948099e5"
+        },
+        "beacon": {
+          "address": "0x310EB94d4495c7fD08F2FB16bad5d850B0861673",
+          "codeBytes": 868,
+          "codehash": "0x30b31db8ee3ba6aa3981e3081c5ecf2f1477f0bf63bcce2c11b3466b6326fbec"
+        },
+        "factory": {
+          "address": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+          "codeBytes": 163,
+          "codehash": "0x8b4f3999050c3baf3e5e7120d4c3b3b6c7efa30c9e041644ce29ca9127a7b7c7"
+        },
+        "lens": {
+          "address": "0x60E358bE80D3035320019D65F2E3B32E2d7478b7",
+          "codeBytes": 9101,
+          "codehash": "0x9df503947408f1ada4e68f23d52e726a339f2d84510912e16cfe8898e7be2c0d"
+        },
+        "portfolioBeacon": {
+          "address": "0xB6A81cd593be825cC562486c302cc9AB47c58423",
+          "codeBytes": 868,
+          "codehash": "0x75f6796d383fdfd60db3db1d7c53837236d85027edb409064a9d0a394f9bea3c"
+        },
+        "portfolioFactory": {
+          "address": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+          "codeBytes": 163,
+          "codehash": "0x8b4f3999050c3baf3e5e7120d4c3b3b6c7efa30c9e041644ce29ca9127a7b7c7"
+        },
+        "portfolioFactoryImplementation": {
+          "address": "0x4c95b06081B4a4F1C2d739Fb41970bb10d9848a8",
+          "codeBytes": 9567,
+          "codehash": "0x84e1ae88da081d08ca39c267c7d82769bd748f736e2b5425becb8f91bb218cf7"
+        },
+        "portfolioShareMarket": {
+          "address": "0xC6d3860817e8F04b42DA4975319aED32540e8cf8",
+          "codeBytes": 163,
+          "codehash": "0x8b4f3999050c3baf3e5e7120d4c3b3b6c7efa30c9e041644ce29ca9127a7b7c7"
+        },
+        "portfolioVaultImplementation": {
+          "address": "0x9b88441B6C9b961cb4Fd81b216724D08b95C4273",
+          "codeBytes": 22638,
+          "codehash": "0x50fb9b100a8724453a2baaa84136574de5dd247194fbe02bc054b89482fb44a2"
+        },
+        "shareMarket": {
+          "address": "0x347e094BAAB9b74059567A25ab49dFaEA149E734",
+          "codeBytes": 163,
+          "codehash": "0x8b4f3999050c3baf3e5e7120d4c3b3b6c7efa30c9e041644ce29ca9127a7b7c7"
+        },
+        "timelock": {
+          "address": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+          "codeBytes": 6608,
+          "codehash": "0x131279f01c290b8e925bdb9c33cb89d046554863d8adbb3ea8064b412c6c147b"
+        }
+      }
+    }
+  },
+  "sourceCommit": "8c5598cf44fe8fb6174969eba12b3baa13f7942b",
+  "block": {
+    "number": 124457051,
+    "hash": "0xf15af7c8bf4d52a5b01f77b8f1365a502ed03495920dc0fee4bea7f67e52c0fe",
+    "timestamp": 1790568020
+  },
+  "graph": {
+    "factory": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+    "productKind": "pool",
+    "legacyFactory": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+    "portfolioFactory": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+    "operator": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+    "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+    "blockNumber": 124457051
+  },
+  "portfolioGraph": {
+    "factory": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+    "productKind": "budget",
+    "legacyFactory": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+    "portfolioFactory": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+    "operator": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+    "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+    "blockNumber": 124457051
+  },
+  "receipts": [
+    {
+      "id": "PoolFunds",
+      "transactionHash": "0x45e697051deea6fd6842af960ec5b97bccaee0db3587ad482ecfb7da7424dad6",
+      "blockNumber": 124452757,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "PurchaseValidation",
+      "transactionHash": "0x793d031563b135dfbd5a5259ee9da7a8ac6572cd94590347448dd42273f5c57e",
+      "blockNumber": 124452830,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "FlexiblePurchase",
+      "transactionHash": "0x04da5a6d662660ecd914df67be1f5b897d69544c1f3d4e1a793bcfe3d8f2516a",
+      "blockNumber": 124452892,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "MiningOperations",
+      "transactionHash": "0xfe9a3f3c61a646959ca5542480045d9191d0d8cb47f24cd1ef91c1b56f9121ee",
+      "blockNumber": 124452958,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "RewardAccounting",
+      "transactionHash": "0x4a0a580f129e927b08101c3da800915ae9675104bf44304ef64cd73a816b85f8",
+      "blockNumber": 124453024,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "SaleGovernance",
+      "transactionHash": "0x2bccb4af1414a2aa6ff48594b4078e977f6590ab3e12fa528de907ff62cfa472",
+      "blockNumber": 124453089,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "SaleSettlement",
+      "transactionHash": "0xc61d2bc4c4e5bb94fc933f122bc1f7a758b708a80be5bf0a71e789a50eee0972",
+      "blockNumber": 124453158,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "ShareCheckpoints",
+      "transactionHash": "0xd6044ef42e8e4722a33b973f980a8510537f7db8ff827b96ef9e1902c5d8efd5",
+      "blockNumber": 124453225,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "FirstoSale",
+      "transactionHash": "0x7f4356ed2e25806a4728d1ba87d4f86037a3de6fa267578db112074919b3f468",
+      "blockNumber": 124453294,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "AtomicDeployment",
+      "transactionHash": "0x3d514fac8c0a3c6a1139c35b2e6560db61dc56626af13e450fdadb630b975225",
+      "blockNumber": 124453364,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "PoolVault",
+      "transactionHash": "0x7fb8f3e2182c127d6e9b94f58cb9dfedcbf7c02815028f2098a5dee9da36b789",
+      "blockNumber": 124453430,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "PoolFactory",
+      "transactionHash": "0xac7aaf6e182370f15e599fcfda4f17468c3fee07d2cfa488b3c03838611f264f",
+      "blockNumber": 124453495,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "ShareMarket",
+      "transactionHash": "0x19b3ed761f8c34985e8fbe8aa929e0be7f41888c94356d48c264424249602a0a",
+      "blockNumber": 124453559,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "BudgetPortfolioFactory",
+      "transactionHash": "0x76da6a0d1cf318596ad4baa09f56d72f75174882032879b649a137cc94888f7e",
+      "blockNumber": 124453622,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "BudgetPortfolioVault",
+      "transactionHash": "0x79228f6de2cf5df2f3f1562d603e8da286f200caa057cbf65a70df38f330427a",
+      "blockNumber": 124453686,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    },
+    {
+      "id": "initialize",
+      "transactionHash": "0x4497fc6a8bc5fce4c006c6a1e6f7490b08d138ad9a64bcff983855c56f9e30f0",
+      "blockNumber": 124453751,
+      "checks": {
+        "receiptSuccess": true,
+        "chainId": true,
+        "transactionHash": true,
+        "blockHash": true,
+        "nonce": true,
+        "from": true,
+        "value": true,
+        "calldataHash": true,
+        "destination": true
+      }
+    }
+  ],
+  "initializationExecution": {
+    "kind": "wrapped",
+    "coordinator": "0xd5C41a9Dfec0160De60A56D240EEDf0F94697aB3",
+    "outerTo": "0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3",
+    "outerDataHash": "0x4a754c9241c73f1014de8ecac82bab77184384b45513df41e6a5a4965a0704c3",
+    "plannedDataHash": "0x6883580ed8c6a258e0d77710ac451072dddcfc21534d4e7893b20c6f5504cc91",
+    "addresses": {
+      "timelock": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+      "beacon": "0x310EB94d4495c7fD08F2FB16bad5d850B0861673",
+      "factory": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+      "shareMarket": "0x347e094BAAB9b74059567A25ab49dFaEA149E734",
+      "portfolioFactory": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+      "portfolioBeacon": "0xB6A81cd593be825cC562486c302cc9AB47c58423",
+      "portfolioShareMarket": "0xC6d3860817e8F04b42DA4975319aED32540e8cf8"
+    }
+  },
+  "finalizedBlock": 124457063,
+  "factories": {
+    "old": {
+      "address": "0xcB24E7F96D81037086A268d6ea63c53f91D412A2",
+      "poolCount": "0",
+      "creationPaused": false,
+      "owner": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+      "operator": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+      "treasury": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E"
+    },
+    "factory": {
+      "address": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+      "poolCount": "0",
+      "creationPaused": false,
+      "owner": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+      "operator": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+      "treasury": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E"
+    },
+    "portfolioFactory": {
+      "address": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+      "portfolioCount": "0",
+      "creationPaused": false,
+      "owner": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+      "operator": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+      "treasury": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E"
+    }
+  },
+  "firsto": {
+    "address": "0x33423244F9a5bF81b12B1a018aF6F4e079B97f29",
+    "codehash": "0xba136f70efd54699acdcbfbbbbcc6671debaa0bc7f88d67e135b6c585db938d3",
+    "factory": "0x68224F668083c29e9800Be2a646d42d18cedF7e2",
+    "paused": false,
+    "feeEpoch": "1",
+    "defaultTakerFeeBps": "100",
+    "SIGNED_ASK_SCHEMA_VERSION": "2",
+    "feeBpsAtEpoch": "100",
+    "implementation": "0xe13e1b474dea29543c13caf174ae8c6d599faf46",
+    "implementationCodehash": "0x743584d511d72470b2911265f7f86e43aa3e5db3d94ba5fd7652905be434d673"
+  },
+  "canonical": true,
+  "success": true
+}

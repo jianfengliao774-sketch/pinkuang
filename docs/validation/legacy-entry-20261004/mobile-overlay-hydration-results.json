@@ -1,0 +1,16 @@
+{
+  "checkedAt": "2026-10-04T04:46:56.414Z",
+  "fixture": "actual current mobile-review document with only one canonical href replacement, existing active immutable scripts",
+  "beforeHydratedInteraction": "https://bemine.cc.cd/#home",
+  "afterHydratedInteraction": "https://bemine.cc.cd/#home",
+  "hydrationMessages": [],
+  "pageErrors": [],
+  "deniedRequests": [
+    "/bemine-v5/mobile-review/frame.html",
+    "/bemine-v5/mobile-review/frame.html",
+    "/bemine-v5/icon.svg",
+    "/bemine-v5/mobile-review/frame.html",
+    "/bemine-v5/mobile-review/frame.html"
+  ],
+  "walletRpcRequestsSent": 0
+}

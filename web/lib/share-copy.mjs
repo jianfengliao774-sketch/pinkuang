@@ -1,0 +1,93 @@
+// Copy selection is separate from rendering so an open card remains stable.
+const INVITATIONS = {
+  zh: [
+    '一份也是矿友，一起才有意思。',
+    '把朋友叫上，把矿机拼上。',
+    '一起拼矿，一起发光。',
+    '这次不围观，来当一回矿友。',
+    '大矿机，也能从小份额开始。',
+    '你的第一份矿机，和朋友一起拼。',
+    '矿机有点大，咱们一起拿。',
+    '一人一份，把参与感拼满。',
+    '把“想参与”，变成“有我一份”。',
+    '不必独自买矿机，矿友可以一起拼。',
+    '小小一份，也能坐上矿友席。',
+    '别只聊矿机，一起看看怎么参与。',
+    '把矿机放进计划，把朋友拉进话题。',
+    '给钱包一个新话题：一起拼矿。',
+    '矿机不必一个人买，故事可以一起写。',
+    '有你一份，这台矿机更有意思。',
+    '从一份矿机开始，认识一群矿友。',
+    '拼的是矿机，交的是矿友。',
+  ],
+  en: [
+    'One share makes you part of the crew.',
+    'Bring a friend. Build your mining crew.',
+    'Mine together. Shine together.',
+    'Go from watching to being part of the mining crew.',
+    'A big miner can start with a small share.',
+    'Your first miner share, with friends by your side.',
+    'Big miner? Let us share the adventure.',
+    'A share each. A whole crew together.',
+    'Turn "I wish I could join" into "I am part of it."',
+    'You do not have to buy a miner alone.',
+    'A small share. A seat with the mining crew.',
+    'Let us talk miners and explore how to take part.',
+    'Put a miner on the plan. Bring friends into the conversation.',
+    'Give your wallet a new topic: mining together.',
+    'Share a miner. Write the story together.',
+    'This miner gets more interesting with you in the crew.',
+    'Start with one miner share. Meet a whole crew.',
+    'Share a miner. Find your mining friends.',
+  ],
+};
+const UPDATES = {
+  zh: [
+    '这一份参与，值得分享。',
+    '和矿友一起，见证每一步。',
+    '每一份参与，都有自己的故事。',
+    '围观矿机日常，认识这群矿友。',
+    '矿机有进度，矿友有话题。',
+    '一起看进展，一起聊心得。',
+    '这台矿机，藏着一段共同的故事。',
+    '矿友的故事，比参数更鲜活。',
+    '分享这段参与，留下这一份记忆。',
+    '从一台矿机，看见一群同路人。',
+    '参与的每一步，都值得认真记录。',
+    '今天不聊数字，聊聊矿友的故事。',
+    '矿机连接链上，矿友连接彼此。',
+    '分享矿机故事，也分享参与的乐趣。',
+    '一份关注，让故事继续被看见。',
+    '看得见的进展，聊得来的矿友。',
+    '和矿友见证，每个值得记录的时刻。',
+    '把这段矿机故事，讲给朋友听。',
+  ],
+  en: [
+    'A shared journey. A story worth sharing.',
+    'Follow every step with the mining crew.',
+    'Every share has a story.',
+    'Explore the miner story. Meet the crew behind it.',
+    'Miner updates give the crew something to talk about.',
+    'Follow the progress. Share the experience.',
+    'One miner holds a story shared by many.',
+    'There is more to a miner than its numbers.',
+    'Share the experience. Keep the memory.',
+    'One miner. A crew on the same journey.',
+    'Every step of participation deserves a record.',
+    'Today, let us talk crew stories instead of numbers.',
+    'Miners connect on chain. People connect with each other.',
+    'Share the miner story and the joy of taking part.',
+    'A little attention helps a shared story travel.',
+    'Progress to follow. A crew to talk with.',
+    'Follow the moments worth recording with the crew.',
+    'Tell a friend the story behind this miner.',
+  ],
+};
+
+export const SHARE_MOTTO_COUNT = 18;
+
+export function shareMotto(locale = 'zh', index = 0, canSubscribe = false) {
+  const choices = (canSubscribe ? INVITATIONS : UPDATES)[locale === 'en' ? 'en' : 'zh'];
+  const safeIndex = Number.isSafeInteger(index) && index >= 0 ? index % choices.length : 0;
+  return choices[safeIndex];
+}

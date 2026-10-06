@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>旧版本已暂停</title>
+  <style>body{font:20px/1.8 system-ui;margin:12vh auto;padding:24px;max-width:640px;color:#203e35;background:#f7f6f0}a{color:#305c4c}</style>
+</head>
+<body>
+  <h1>此版本已临时关闭</h1>
+  <p>旧项目合约和资产保留。需要取回测试矿机时恢复对应入口。</p>
+  <p><a id="formal-product-link" href="https://bemine.cc.cd/">前往 BEMine 正式网站</a></p>
+  <script>
+    (() => {
+      const link = document.getElementById('formal-product-link');
+      const target = new URL('https://bemine.cc.cd/');
+      const routes = ['home', 'overview', 'pools', 'market', 'rewards', 'governance', 'records', 'operator', 'notifications'];
+      const update = () => {
+        const language = new URLSearchParams(location.search).get('lang');
+        target.search = ['zh', 'en'].includes(language) ? '?lang=' + language : '';
+        target.hash = routes.includes(location.hash.slice(1)) ? location.hash : '';
+        link.href = target.href;
+      };
+      update();
+      window.addEventListener('hashchange', update);
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,711 @@
+{
+  "schemaVersion": 1,
+  "status": "published",
+  "publishedAt": "2026-10-03T14:38:45.661483+00:00",
+  "publicUrl": "https://bemine.cc.cd/",
+  "frontendSourceHead": "df46fb0b7e48615f8294bd17a3def4e9ad4547d2",
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "rootHtmlSha256": "cbb3dd4fa741455d191c9084efba4c5ba6eeef02e81355e0469b77f2ed1df64e",
+  "releaseManifestSha256": "f84f11e23a417fcf3daf7aa14577f3f3875373ccef7d52462bfd1be5f1fce868",
+  "serviceProcessesUnchanged": true,
+  "runtimeRestarted": false,
+  "httpChecks": {
+    "root": 200,
+    "/bemine-v5": {
+      "status": 308,
+      "location": "https://bemine.cc.cd/?canonical=homepage"
+    },
+    "/bemine-v5/": {
+      "status": 308,
+      "location": "https://bemine.cc.cd/?canonical=homepage"
+    },
+    "/bemine-v5/index.html": {
+      "status": 308,
+      "location": "https://bemine.cc.cd/?canonical=homepage"
+    },
+    "canonicalPages": [
+      {
+        "path": "/404",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "6142cead26d0487eadb73f96023aed69fd183de219bfda422ed5f0108f3ab10c"
+      },
+      {
+        "path": "/404/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "6142cead26d0487eadb73f96023aed69fd183de219bfda422ed5f0108f3ab10c"
+      },
+      {
+        "path": "/404.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "6142cead26d0487eadb73f96023aed69fd183de219bfda422ed5f0108f3ab10c"
+      },
+      {
+        "path": "/_not-found",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "6142cead26d0487eadb73f96023aed69fd183de219bfda422ed5f0108f3ab10c"
+      },
+      {
+        "path": "/_not-found/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "6142cead26d0487eadb73f96023aed69fd183de219bfda422ed5f0108f3ab10c"
+      },
+      {
+        "path": "/_not-found.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "6142cead26d0487eadb73f96023aed69fd183de219bfda422ed5f0108f3ab10c"
+      },
+      {
+        "path": "/budget-share",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "e992324c23e187edda791cb0802fb227a50b13565a5d353445f8d60dfb2b8c11"
+      },
+      {
+        "path": "/budget-share/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "e992324c23e187edda791cb0802fb227a50b13565a5d353445f8d60dfb2b8c11"
+      },
+      {
+        "path": "/budget-share.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "e992324c23e187edda791cb0802fb227a50b13565a5d353445f8d60dfb2b8c11"
+      },
+      {
+        "path": "/design",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "e3495b975b651aac714b5df3bba7ce6930d470ba7ffee23c295169926b240959"
+      },
+      {
+        "path": "/design/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "e3495b975b651aac714b5df3bba7ce6930d470ba7ffee23c295169926b240959"
+      },
+      {
+        "path": "/design.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "e3495b975b651aac714b5df3bba7ce6930d470ba7ffee23c295169926b240959"
+      },
+      {
+        "path": "/factory-reuse-upgrade",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "3f4b90a988d3916b140ebab5e720aa602e472ddfb5e10ef950728147d8332095"
+      },
+      {
+        "path": "/factory-reuse-upgrade/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "3f4b90a988d3916b140ebab5e720aa602e472ddfb5e10ef950728147d8332095"
+      },
+      {
+        "path": "/factory-reuse-upgrade.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "3f4b90a988d3916b140ebab5e720aa602e472ddfb5e10ef950728147d8332095"
+      },
+      {
+        "path": "/live",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "b5090d077adb0dcd6fef674a502c561123a78fc381c2b6b747c0f877cb4932f9"
+      },
+      {
+        "path": "/live/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "b5090d077adb0dcd6fef674a502c561123a78fc381c2b6b747c0f877cb4932f9"
+      },
+      {
+        "path": "/live.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "b5090d077adb0dcd6fef674a502c561123a78fc381c2b6b747c0f877cb4932f9"
+      },
+      {
+        "path": "/mobile-review",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "134e7eee869c65fc7c8e51e7ec8ee0d8f23ecebad7cc6109372722a825cef9e8"
+      },
+      {
+        "path": "/mobile-review/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "134e7eee869c65fc7c8e51e7ec8ee0d8f23ecebad7cc6109372722a825cef9e8"
+      },
+      {
+        "path": "/mobile-review.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "134e7eee869c65fc7c8e51e7ec8ee0d8f23ecebad7cc6109372722a825cef9e8"
+      },
+      {
+        "path": "/mobile-review/frame",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "c280fb2edd0b4906e73b252bc4865fe602b44221f53be1f4351f5af4c1976cbc"
+      },
+      {
+        "path": "/mobile-review/frame/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "c280fb2edd0b4906e73b252bc4865fe602b44221f53be1f4351f5af4c1976cbc"
+      },
+      {
+        "path": "/mobile-review/frame.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "c280fb2edd0b4906e73b252bc4865fe602b44221f53be1f4351f5af4c1976cbc"
+      },
+      {
+        "path": "/mobile-review/view",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "a8512c8872447e959334792733888b291beec9b6fe751c7d7125111b0fb634c1"
+      },
+      {
+        "path": "/mobile-review/view/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "a8512c8872447e959334792733888b291beec9b6fe751c7d7125111b0fb634c1"
+      },
+      {
+        "path": "/mobile-review/view.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "a8512c8872447e959334792733888b291beec9b6fe751c7d7125111b0fb634c1"
+      },
+      {
+        "path": "/native-sale-upgrade",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "8e7f5733fb27e267bd5610ea58786e97f55440a7610b2c32b3ce05deee6765c3"
+      },
+      {
+        "path": "/native-sale-upgrade/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "8e7f5733fb27e267bd5610ea58786e97f55440a7610b2c32b3ce05deee6765c3"
+      },
+      {
+        "path": "/native-sale-upgrade.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "8e7f5733fb27e267bd5610ea58786e97f55440a7610b2c32b3ce05deee6765c3"
+      },
+      {
+        "path": "/posters",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "3e95f5bb494dc09d35970f53284156c503eb148e8203c3daec966a2064918540"
+      },
+      {
+        "path": "/posters/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "3e95f5bb494dc09d35970f53284156c503eb148e8203c3daec966a2064918540"
+      },
+      {
+        "path": "/posters.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "3e95f5bb494dc09d35970f53284156c503eb148e8203c3daec966a2064918540"
+      },
+      {
+        "path": "/preview",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "75dcd34be4f41916afa6b8b3da1da7d39509a6d022de0d6a42a76cf8c03db55e"
+      },
+      {
+        "path": "/preview/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "75dcd34be4f41916afa6b8b3da1da7d39509a6d022de0d6a42a76cf8c03db55e"
+      },
+      {
+        "path": "/preview.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "75dcd34be4f41916afa6b8b3da1da7d39509a6d022de0d6a42a76cf8c03db55e"
+      },
+      {
+        "path": "/review",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "fd4d4e823ce859efddbe56ec9e14fe639817a6cb491749eed8007f9e97096691"
+      },
+      {
+        "path": "/review/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "fd4d4e823ce859efddbe56ec9e14fe639817a6cb491749eed8007f9e97096691"
+      },
+      {
+        "path": "/review.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "fd4d4e823ce859efddbe56ec9e14fe639817a6cb491749eed8007f9e97096691"
+      },
+      {
+        "path": "/review/frame",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "d153b44062fad2212b4cc3a780e72de0a0bb4ac876cbd1ae284824a256b2043d"
+      },
+      {
+        "path": "/review/frame/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "d153b44062fad2212b4cc3a780e72de0a0bb4ac876cbd1ae284824a256b2043d"
+      },
+      {
+        "path": "/review/frame.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "d153b44062fad2212b4cc3a780e72de0a0bb4ac876cbd1ae284824a256b2043d"
+      },
+      {
+        "path": "/sale-upgrade",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "a80b736fc44b19e5dd0418993552590b679e076cf997806e65eb2d1a62d5cd1a"
+      },
+      {
+        "path": "/sale-upgrade/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "a80b736fc44b19e5dd0418993552590b679e076cf997806e65eb2d1a62d5cd1a"
+      },
+      {
+        "path": "/sale-upgrade.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "a80b736fc44b19e5dd0418993552590b679e076cf997806e65eb2d1a62d5cd1a"
+      },
+      {
+        "path": "/share/anime",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "6c69012ae498b43a9872a43d91c24191eb96428fd137cceef3e8dffb6f7f8071"
+      },
+      {
+        "path": "/share/anime/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "6c69012ae498b43a9872a43d91c24191eb96428fd137cceef3e8dffb6f7f8071"
+      },
+      {
+        "path": "/share/anime.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "6c69012ae498b43a9872a43d91c24191eb96428fd137cceef3e8dffb6f7f8071"
+      },
+      {
+        "path": "/share/finance",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "4747e69f38027221321e55b4bad60e32f7ccd6d75d1cdf4ac8d82bd4e8749bc3"
+      },
+      {
+        "path": "/share/finance/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "4747e69f38027221321e55b4bad60e32f7ccd6d75d1cdf4ac8d82bd4e8749bc3"
+      },
+      {
+        "path": "/share/finance.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "4747e69f38027221321e55b4bad60e32f7ccd6d75d1cdf4ac8d82bd4e8749bc3"
+      },
+      {
+        "path": "/share/future",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "676af6ca3953895db0169bd933df0676bbb2e599a8ae26f76d9af032e08044c3"
+      },
+      {
+        "path": "/share/future/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "676af6ca3953895db0169bd933df0676bbb2e599a8ae26f76d9af032e08044c3"
+      },
+      {
+        "path": "/share/future.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "676af6ca3953895db0169bd933df0676bbb2e599a8ae26f76d9af032e08044c3"
+      },
+      {
+        "path": "/share/ink",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "ff19bfe7479d2a2692392d6c4652f2f440dc2194a566885c5b5de980664fe188"
+      },
+      {
+        "path": "/share/ink/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "ff19bfe7479d2a2692392d6c4652f2f440dc2194a566885c5b5de980664fe188"
+      },
+      {
+        "path": "/share/ink.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "ff19bfe7479d2a2692392d6c4652f2f440dc2194a566885c5b5de980664fe188"
+      },
+      {
+        "path": "/share/original",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "2e16d20691a18b12a9e2e435269da75e4e7cdf26444132ff9dcb433fdfbfa7c3"
+      },
+      {
+        "path": "/share/original/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "2e16d20691a18b12a9e2e435269da75e4e7cdf26444132ff9dcb433fdfbfa7c3"
+      },
+      {
+        "path": "/share/original.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "2e16d20691a18b12a9e2e435269da75e4e7cdf26444132ff9dcb433fdfbfa7c3"
+      },
+      {
+        "path": "/share/papercraft",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "799e44e03b095a46699e0a548f8667a7dcad5aa617c8a9a52fc96eeb59b6d9a7"
+      },
+      {
+        "path": "/share/papercraft/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "799e44e03b095a46699e0a548f8667a7dcad5aa617c8a9a52fc96eeb59b6d9a7"
+      },
+      {
+        "path": "/share/papercraft.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "799e44e03b095a46699e0a548f8667a7dcad5aa617c8a9a52fc96eeb59b6d9a7"
+      },
+      {
+        "path": "/share/real",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "c0246590134a55de36d0015410862189efcfaab19bd9c91fda54abc89235e1ff"
+      },
+      {
+        "path": "/share/real/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "c0246590134a55de36d0015410862189efcfaab19bd9c91fda54abc89235e1ff"
+      },
+      {
+        "path": "/share/real.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "c0246590134a55de36d0015410862189efcfaab19bd9c91fda54abc89235e1ff"
+      },
+      {
+        "path": "/share/space",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "07886117785852b9e1614c4062956c2428355e76bcacd68a4b4c55d4a155dc17"
+      },
+      {
+        "path": "/share/space/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "07886117785852b9e1614c4062956c2428355e76bcacd68a4b4c55d4a155dc17"
+      },
+      {
+        "path": "/share/space.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "07886117785852b9e1614c4062956c2428355e76bcacd68a4b4c55d4a155dc17"
+      },
+      {
+        "path": "/share/tech",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "dfd1844acfe088867bc067afd7c627dbd99820a26e761d928da2732eed445c9e"
+      },
+      {
+        "path": "/share/tech/",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "dfd1844acfe088867bc067afd7c627dbd99820a26e761d928da2732eed445c9e"
+      },
+      {
+        "path": "/share/tech.html",
+        "status": 200,
+        "legacyStatus": 308,
+        "queryPreserved": true,
+        "htmlSha256": "dfd1844acfe088867bc067afd7c627dbd99820a26e761d928da2732eed445c9e"
+      }
+    ],
+    "/bemine-v5/fresh-product-release.json": 200,
+    "/bemine-v5/data/frontend-manifest.v5.json": 200,
+    "/bemine-v5/data/bem-price.json": 200,
+    "/bemine-v5/_next/static/-mp2teUopnTUGEOxdDW2A/_buildManifest.js": 200,
+    "/bemine-v5/api/chain-index/v1/display/stats": 200,
+    "bemine.cc.cd/bemine-v4/": 503,
+    "tapeout.cc.cd/bemine-full-test/": 503,
+    "tapeout.cc.cd/pinkuang-deploy-latest/": 200
+  },
+  "configHashes": {
+    "bemine-v4-domain": {
+      "before": "c7c8ca884a8b1be3136e7c8f3351e2aea0fee9e86664195c5f10f201613a19ec",
+      "after": "c7c8ca884a8b1be3136e7c8f3351e2aea0fee9e86664195c5f10f201613a19ec"
+    },
+    "bemine-v5-product.conf": {
+      "before": "e685278494033e24308342998c2fcc2b3f0b5eab65b3007c0536f82a035e90aa",
+      "after": "aa61b0b208f7aea9b73dc67e106099172dfff6f8b35853878558101f6f2848c2"
+    }
+  },
+  "scope": "Canonical routing for all 25 exported HTML pages; static content, API paths and financial runtime unchanged.",
+  "homepageFirstCanonicalizedAt": "2026-10-03T14:32:17.528308+00:00",
+  "browserVerification": {
+    "checkedAt": "2026-10-03T14:40:37.482Z",
+    "postersUrl": "https://bemine.cc.cd/posters.html?canonical=page",
+    "previewUrl": "https://bemine.cc.cd/preview.html#share/16928",
+    "recordsUrl": "https://bemine.cc.cd/#records",
+    "homeUrl": "https://bemine.cc.cd/#home",
+    "postersPageLoaded": true,
+    "previewPageLoaded": true,
+    "queryPreserved": true,
+    "fragmentPreserved": true,
+    "recordsUseRoot": true,
+    "financialTransactionsPerformed": false
+  },
+  "homeQueryAndFragmentVerification": {
+    "checkedAt": "2026-10-03T14:33:38.178Z",
+    "oldEntry": "https://bemine.cc.cd/bemine-v5/",
+    "finalHomeUrl": "https://bemine.cc.cd/",
+    "oldMarketEntry": "https://bemine.cc.cd/bemine-v5/?canonical=homepage#market",
+    "finalMarketUrl": "https://bemine.cc.cd/?canonical=homepage#market",
+    "queryAndFragmentPreserved": true,
+    "noRedirectLoop": true,
+    "financialTransactionsPerformed": false
+  },
+  "checks": {
+    "nginxConfigurationTestPassed": true,
+    "exportedHtmlPageCount": 25,
+    "nonHomepageAliasCount": 72,
+    "canonicalPageHtmlBytesUnchanged": true,
+    "redirectQueryPreserved": true,
+    "redirectHashPreserved": true,
+    "rootBodyUnchanged": true,
+    "runtimeProcessesUnchanged": true,
+    "retiredSitesRemainPaused": true
+  },
+  "publicHttpsVerification": {
+    "schemaVersion": 1,
+    "checkedAt": "2026-10-03T14:41:39.375322+00:00",
+    "scope": "Independent public HTTPS representative canonical page redirects and existing compatibility assets; no RPC, wallet, service or repository changes",
+    "publishedAtReceipt": "2026-10-03T14:38:45.661483+00:00",
+    "root": {
+      "url": "https://bemine.cc.cd/",
+      "status": 200,
+      "location": null,
+      "bytes": 36144,
+      "sha256": "cbb3dd4fa741455d191c9084efba4c5ba6eeef02e81355e0469b77f2ed1df64e",
+      "cacheControl": "no-store",
+      "passed": true
+    },
+    "pages": [
+      {
+        "url": "https://bemine.cc.cd/bemine-v5/posters.html?canonical=page",
+        "status": 308,
+        "location": "https://bemine.cc.cd/posters.html?canonical=page",
+        "bytes": 180,
+        "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc",
+        "cacheControl": "no-store",
+        "follow": {
+          "url": "https://bemine.cc.cd/posters.html?canonical=page",
+          "status": 200,
+          "location": null,
+          "bytes": 27676,
+          "sha256": "3e95f5bb494dc09d35970f53284156c503eb148e8203c3daec966a2064918540",
+          "cacheControl": "no-store"
+        },
+        "sourceFile": "posters.html",
+        "sourceSha256": "3e95f5bb494dc09d35970f53284156c503eb148e8203c3daec966a2064918540",
+        "passed": true
+      },
+      {
+        "url": "https://bemine.cc.cd/bemine-v5/mobile-review/frame/",
+        "status": 308,
+        "location": "https://bemine.cc.cd/mobile-review/frame/",
+        "bytes": 180,
+        "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc",
+        "cacheControl": "no-store",
+        "follow": {
+          "url": "https://bemine.cc.cd/mobile-review/frame/",
+          "status": 200,
+          "location": null,
+          "bytes": 10250,
+          "sha256": "c280fb2edd0b4906e73b252bc4865fe602b44221f53be1f4351f5af4c1976cbc",
+          "cacheControl": "no-store"
+        },
+        "sourceFile": "mobile-review/frame.html",
+        "sourceSha256": "c280fb2edd0b4906e73b252bc4865fe602b44221f53be1f4351f5af4c1976cbc",
+        "passed": true
+      },
+      {
+        "url": "https://bemine.cc.cd/bemine-v5/share/ink",
+        "status": 308,
+        "location": "https://bemine.cc.cd/share/ink",
+        "bytes": 180,
+        "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc",
+        "cacheControl": "no-store",
+        "follow": {
+          "url": "https://bemine.cc.cd/share/ink",
+          "status": 200,
+          "location": null,
+          "bytes": 9799,
+          "sha256": "ff19bfe7479d2a2692392d6c4652f2f440dc2194a566885c5b5de980664fe188",
+          "cacheControl": "no-store"
+        },
+        "sourceFile": "share/ink.html",
+        "sourceSha256": "ff19bfe7479d2a2692392d6c4652f2f440dc2194a566885c5b5de980664fe188",
+        "passed": true
+      }
+    ],
+    "assets": [
+      {
+        "url": "https://bemine.cc.cd/bemine-v5/data/frontend-manifest.v5.json",
+        "status": 200,
+        "location": null,
+        "bytes": 2799,
+        "sha256": "e0455e6d40c2bc4bd2d471ce4df222e03edfc6be1a0a529c91da6e9433363f97",
+        "cacheControl": "no-cache",
+        "passed": true,
+        "sourceSha256": "e0455e6d40c2bc4bd2d471ce4df222e03edfc6be1a0a529c91da6e9433363f97"
+      },
+      {
+        "url": "https://bemine.cc.cd/bemine-v5/data/bem-price.json",
+        "status": 200,
+        "location": null,
+        "bytes": 608,
+        "sha256": "e0252c585529516aeb19fe717513e6b07325bb45f7bee31bd3b262a731addd43",
+        "cacheControl": "no-store",
+        "passed": true,
+        "price": {
+          "status": "ok",
+          "updatedAt": "2026-10-03T14:41:30.372Z",
+          "priceUsdt": 31.68048380059877,
+          "refreshSeconds": 15,
+          "ageSeconds": 7.637
+        }
+      },
+      {
+        "url": "https://bemine.cc.cd/bemine-v5/images/bemine-chip-t-v4.png",
+        "status": 200,
+        "location": null,
+        "bytes": 1989687,
+        "sha256": "37973fbd07215374b9231857b62b70c76316bfd04aee857dd73250573a3f2b00",
+        "cacheControl": "no-cache",
+        "passed": true,
+        "sourceSha256": "37973fbd07215374b9231857b62b70c76316bfd04aee857dd73250573a3f2b00"
+      },
+      {
+        "url": "https://bemine.cc.cd/bemine-v5/wallets/metamask.png",
+        "status": 200,
+        "location": null,
+        "bytes": 3990,
+        "sha256": "8a1e0e6b72f243a122d0a365ba26c692c03d58c1308db10958713d602d0c819b",
+        "cacheControl": "no-cache",
+        "passed": true,
+        "sourceSha256": "8a1e0e6b72f243a122d0a365ba26c692c03d58c1308db10958713d602d0c819b"
+      }
+    ],
+    "passed": true,
+    "failures": []
+  }
+}

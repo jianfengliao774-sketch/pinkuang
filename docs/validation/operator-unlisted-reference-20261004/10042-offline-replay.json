@@ -1,0 +1,15 @@
+{
+  "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+  "tokenId": "10042",
+  "taskId": "20",
+  "verifiedWeight": "10",
+  "estimated24hAtomic": "4579200",
+  "ask": null,
+  "detailChecked": true,
+  "minerReferenceIssue": null,
+  "quoteIssue": "当前没有有效卖单，不推测成交价",
+  "observedAt": 1791047938590,
+  "replayedAtSourceCaptureTime": "2026-10-03T17:19:48.509Z",
+  "networkRequests": 0,
+  "chainRpc": 0
+}

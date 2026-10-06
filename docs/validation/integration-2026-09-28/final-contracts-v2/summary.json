@@ -1,0 +1,101 @@
+{
+  "task": "T2",
+  "stage": "contracts",
+  "startedAt": "2026-09-28T01:15:22.521Z",
+  "status": "passed",
+  "sourceCommit": "5f160c579e9d3d382df199cb29dc1573f5ae992e",
+  "ci": null,
+  "buildRoot": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pinkuang-deploy-release-20260927\\",
+  "node": "v24.19.0",
+  "profile": "ci",
+  "results": [
+    {
+      "name": "toolchain",
+      "executable": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pinkuang-deploy-release-20260927\\deploy\\node_modules\\@foundry-rs\\forge-win32-amd64\\bin\\forge.exe",
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-28T01:15:22.522Z",
+      "finishedAt": "2026-09-28T01:15:22.533Z",
+      "logPath": "C:\\Users\\Administrator\\Documents\\流片上链条\\outputs\\pinkuang-rewrite-handoff-20260928\\final-contracts-v2\\toolchain.log"
+    },
+    {
+      "name": "forge-fmt",
+      "executable": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pinkuang-deploy-release-20260927\\deploy\\node_modules\\@foundry-rs\\forge-win32-amd64\\bin\\forge.exe",
+      "args": [
+        "fmt",
+        "--check"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-28T01:15:22.533Z",
+      "finishedAt": "2026-09-28T01:15:22.578Z",
+      "logPath": "C:\\Users\\Administrator\\Documents\\流片上链条\\outputs\\pinkuang-rewrite-handoff-20260928\\final-contracts-v2\\forge-fmt.log"
+    },
+    {
+      "name": "forge-build-sizes",
+      "executable": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pinkuang-deploy-release-20260927\\deploy\\node_modules\\@foundry-rs\\forge-win32-amd64\\bin\\forge.exe",
+      "args": [
+        "build",
+        "--sizes",
+        "--force"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-28T01:15:22.578Z",
+      "finishedAt": "2026-09-28T01:16:31.290Z",
+      "logPath": "C:\\Users\\Administrator\\Documents\\流片上链条\\outputs\\pinkuang-rewrite-handoff-20260928\\final-contracts-v2\\forge-build-sizes.log"
+    },
+    {
+      "name": "forge-test",
+      "executable": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pinkuang-deploy-release-20260927\\deploy\\node_modules\\@foundry-rs\\forge-win32-amd64\\bin\\forge.exe",
+      "args": [
+        "test",
+        "--no-match-path",
+        "test/fork/**",
+        "-vv"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-28T01:16:31.291Z",
+      "finishedAt": "2026-09-28T01:17:14.545Z",
+      "logPath": "C:\\Users\\Administrator\\Documents\\流片上链条\\outputs\\pinkuang-rewrite-handoff-20260928\\final-contracts-v2\\forge-test.log"
+    },
+    {
+      "name": "upgrade-validation",
+      "executable": "C:\\Users\\Administrator\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe",
+      "args": [
+        "scripts/validate-upgrades.mjs"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-28T01:17:14.545Z",
+      "finishedAt": "2026-09-28T01:17:27.966Z",
+      "logPath": "C:\\Users\\Administrator\\Documents\\流片上链条\\outputs\\pinkuang-rewrite-handoff-20260928\\final-contracts-v2\\upgrade-validation.log"
+    },
+    {
+      "name": "slither",
+      "executable": "slither",
+      "args": [
+        ".",
+        "--filter-paths",
+        "../node_modules/|test/|script/",
+        "--fail-medium"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-28T01:17:27.969Z",
+      "finishedAt": "2026-09-28T01:17:43.096Z",
+      "logPath": "C:\\Users\\Administrator\\Documents\\流片上链条\\outputs\\pinkuang-rewrite-handoff-20260928\\final-contracts-v2\\slither.log"
+    }
+  ],
+  "finishedAt": "2026-09-28T01:17:43.096Z"
+}

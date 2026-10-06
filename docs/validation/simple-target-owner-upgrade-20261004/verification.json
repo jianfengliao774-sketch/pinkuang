@@ -1,0 +1,48 @@
+{
+  "checkedAt": "2026-10-04T03:15:20.738278+00:00",
+  "baseCommit": "9784000db2f9adf7775e0ebc232b76437f1fdef2",
+  "checks": [
+    {
+      "command": "tsx --test src/target-owner-upgrade-component.test.ts src/target-owner-upgrade-sequence.test.ts src/target-owner-upgrade-ui.test.ts",
+      "passed": 29,
+      "failed": 0
+    },
+    {
+      "command": "node --test shared/target-owner-upgrade-plan.test.mjs shared/target-owner-upgrade-proof.test.mjs scripts/package-target-owner-static.test.mjs",
+      "passed": 21,
+      "failed": 0
+    },
+    {
+      "command": "tsc -p tsconfig.target-owner.json",
+      "passed": true
+    },
+    {
+      "command": "git diff --check",
+      "passed": true
+    },
+    {
+      "command": "Python publisher AST parse",
+      "passed": true
+    }
+  ],
+  "review": "Independent read-only review of the component sequence, unknown-send recovery, cross-tab controls, and scoped static publisher found no remaining blocker.",
+  "browserPreview": "Local static preview verified one primary action, three progress states, collapsed technical details; no wallet connected or transaction requested.",
+  "chainActionsPerformed": false,
+  "onChainUpgradeComplete": false,
+  "build": {
+    "sourceCommit": "83bd2180fea2ea7cb066004d75fa4339b39222b7",
+    "command": "prepare-target-owner-static.mjs; vite build --config vite.target-owner.config.ts; package-target-owner-static.mjs",
+    "passed": true,
+    "files": 10,
+    "manifestSha256": "4bb580ab69e4d2a7a399b5ab580a3994acadab8bdd8bc9539745d036d8d34a64"
+  },
+  "publicBrowser": {
+    "url": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/",
+    "title": "BEMine \u00b7 \u5408\u7ea6\u90e8\u7f72\u4e0e\u5347\u7ea7",
+    "onePrimaryAction": true,
+    "technicalDetailsCollapsed": true,
+    "browserWalletConnected": false,
+    "walletRequestsPerformed": 0,
+    "screenshotSha256": "0c0ee5b5b901b14e619bcaa3d39b31a52cef678f04ca130fce2c01cb54046163"
+  }
+}
