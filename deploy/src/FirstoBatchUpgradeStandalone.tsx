@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Contract, FetchRequest, JsonRpcProvider, getAddress, keccak256 } from 'ethers';
+import { Contract, FetchRequest, JsonRpcProvider, getAddress, keccak256, makeError,
+  type JsonRpcPayload, type JsonRpcResult } from 'ethers';
 // The reviewed helpers are deliberately shared with the read-only product graph verifier.
 // @ts-ignore ESM helper has runtime validation; this standalone entry supplies pinned JSON only.
 import { buildFirstoBatchUpgradePlan, prepareFirstoBatchUpgradeDeployment, validateFirstoBatchUpgradeReview } from '../shared/firsto-batch-upgrade-plan.mjs';
@@ -41,9 +42,62 @@ function download(name: string, value: unknown) {
 }
 function newSalt() { const bytes = crypto.getRandomValues(new Uint8Array(32)); if (bytes.every(value => value === 0)) bytes[31] = 1;
   return `0x${Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')}`; }
-function rpc() { const request = new FetchRequest(new URL(release.rpcPath, window.location.href).href); request.timeout = 15000;
-  request.setThrottleParams({ maxAttempts: 1 }); request.retryFunc = async () => false;
-  return new JsonRpcProvider(request, 56, { batchMaxCount: 1, cacheTimeout: -1, staticNetwork: true }); }
+/** One exact retry for temporary public HTTP failures; never wraps a wallet or caches a proof read. */
+export function createFirstoBatchReadProvider(url: string, signal?: AbortSignal, timeoutMs = 15000): JsonRpcProvider {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 15000) throw new Error('Invalid read deadline.');
+  const methods = new Set(['eth_chainId', 'eth_blockNumber', 'eth_getBlockByNumber', 'eth_getCode', 'eth_getStorageAt',
+    'eth_call', 'eth_getTransactionByHash', 'eth_getTransactionReceipt']);
+  class ReadProvider extends JsonRpcProvider {
+    private readonly active = new Set<() => void>();
+    private stopped = false;
+    async _send(payload: JsonRpcPayload | JsonRpcPayload[]): Promise<JsonRpcResult[]> {
+      if (Array.isArray(payload) || !methods.has(payload.method)) throw makeError('Public provider only reads.', 'UNSUPPORTED_OPERATION');
+      const alive = () => { if (this.stopped || this.destroyed || signal?.aborted) throw makeError('Read stopped.', 'CANCELLED'); };
+      alive(); const body = JSON.stringify(payload), expires = Date.now() + timeoutMs;
+      let request: FetchRequest | null = null, timer: ReturnType<typeof setTimeout> | undefined;
+      let rejectWait: ((error: Error) => void) | undefined, waitTimer: ReturnType<typeof setTimeout> | undefined;
+      let rejectStopped: (error: Error) => void = () => {};
+      const stopped = new Promise<never>((_, reject) => { rejectStopped = reject; });
+      const cancel = (error = makeError('Read stopped.', 'CANCELLED')) => {
+        try { request?.cancel(); } catch { /* An unsent or completed HTTP request has no pending work. */ }
+        if (waitTimer) clearTimeout(waitTimer); rejectWait?.(error); rejectStopped(error);
+      };
+      const cancelActive = () => cancel(); this.active.add(cancelActive);
+      timer = setTimeout(() => cancel(makeError('Read deadline exceeded.', 'TIMEOUT', { operation: payload.method, reason: 'timeout' })), timeoutMs);
+      const perform = async () => {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          alive(); const remaining = expires - Date.now();
+          if (remaining <= 0) throw makeError('Read deadline exceeded.', 'TIMEOUT', { operation: payload.method, reason: 'timeout' });
+          request = new FetchRequest(url); request.timeout = remaining; request.body = body;
+          request.setHeader('content-type', 'application/json');
+          request.setThrottleParams({ maxAttempts: 1 }); request.retryFunc = async () => false;
+          const response = await request.send(); alive();
+          if (attempt === 0 && [429, 502, 503].includes(response.statusCode)) {
+            // All attempts share one deadline, including this short backoff.
+            await new Promise<void>((resolve, reject) => { rejectWait = reject;
+              waitTimer = setTimeout(resolve, 100); });
+            rejectWait = undefined; waitTimer = undefined; continue;
+          }
+          response.assertOk(); const result = response.bodyJson;
+          return Array.isArray(result) ? result : [result];
+        }
+        throw new Error('Read retry limit exceeded.');
+      };
+      try { return await Promise.race([perform(), stopped]); }
+      finally { if (timer) clearTimeout(timer); if (waitTimer) clearTimeout(waitTimer); this.active.delete(cancelActive); }
+    }
+    destroy() {
+      if (this.stopped) return; this.stopped = true;
+      signal?.removeEventListener('abort', abortRead);
+      for (const cancel of this.active) cancel(); this.active.clear(); super.destroy();
+    }
+  }
+  const provider = new ReadProvider(url, 56, { batchMaxCount: 1, cacheTimeout: -1, staticNetwork: true });
+  const abortRead = () => provider.destroy();
+  if (signal?.aborted) provider.destroy(); else signal?.addEventListener('abort', abortRead, { once: true });
+  return provider;
+}
+function rpc(signal: AbortSignal) { return createFirstoBatchReadProvider(new URL(release.rpcPath, window.location.href).href, signal); }
 async function pinnedJson(name: string, signal: AbortSignal): Promise<Json> {
   const file = release.files[name]; if (!file) throw new Error(`发布包缺少已审查文件 ${name}。`);
   const response = await fetch(new URL(file.path, window.location.href), { signal, cache: 'no-store', redirect: 'error', credentials: 'same-origin' });
@@ -150,7 +204,7 @@ export function FirstoBatchUpgradeStandalone() {
   async function run(label: string, action: (session: Session) => Promise<void>) {
     if (busyRef.current || !context || !key) return;
     busyRef.current = true; setBusy(label); setError(''); setMessage('');
-    const revision = epoch.current, controller = new AbortController(), provider = rpc(); abort.current = controller;
+    const revision = epoch.current, controller = new AbortController(), provider = rpc(controller.signal); abort.current = controller;
     let expectedRaw: string | null = null, locked = false;
     const boundWallet: { current: WalletOption | null } = { current: null };
     const current = () => mounted.current && revision === epoch.current && !controller.signal.aborted;
