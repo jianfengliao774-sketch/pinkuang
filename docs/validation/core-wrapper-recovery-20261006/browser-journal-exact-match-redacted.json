@@ -1,0 +1,29 @@
+{
+  "kind": "core-browser-journal-exact-wrapper-match-v1",
+  "checkedAtUtc": "2026-10-06T11:53:30.888Z",
+  "journalExportedAt": "2026-10-06T11:51:14.585Z",
+  "finalizedBlock": 126055429,
+  "finalizedBlockHash": "0x95724418ddc5dd96b03bf765c23cd6c7fe9252f77a24eb16d85964f350f39d13",
+  "txHash": "0x31b4470f2d8beeba053cd0cb2be7bfc8778903d3e13b3c6f0c8f6bcd976e71b1",
+  "receiptBlock": 126054384,
+  "receiptStatus": 1,
+  "transactionNonce": 174,
+  "journalStatus": "submitted",
+  "planOperationId": "0x5432346a5d2d3558c444d2b0a8b62e99df41bd857abe67191ba365ead83b19ff",
+  "proofOperationId": "0x5432346a5d2d3558c444d2b0a8b62e99df41bd857abe67191ba365ead83b19ff",
+  "exactPlanScheduleData": true,
+  "exactJournalScheduleHash": true,
+  "exactJournalTxHash": true,
+  "exactJournalSender": true,
+  "exactTimelockTarget": true,
+  "zeroInnerValue": true,
+  "exactOperationId": true,
+  "planSaltMatchesJournal": true,
+  "planReplacementAddresses": {
+    "PoolFunds": "0x00eB4BE0695db8d93685C8f04F1676D67318571b",
+    "FlexiblePurchase": "0xD39c4B28D09A427b165E54054508B366ED7A65d6",
+    "PoolVault": "0x9f3E3452A5F85013091382F0aB829BD7f9f05e6d"
+  },
+  "wrapperKind": "wrapped",
+  "manager": "0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3"
+}

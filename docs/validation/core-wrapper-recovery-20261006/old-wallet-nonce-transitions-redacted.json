@@ -1,0 +1,38 @@
+{
+  "kind": "old-core-wallet-nonce-transitions-v1",
+  "checkedAtUtc": "2026-10-06T11:55:32.131Z",
+  "chainId": 56,
+  "endpointKind": "public archive read-only",
+  "items": [
+    {
+      "nonce": 166,
+      "blockNumber": 125656349,
+      "blockHash": "0xfb5977dcb2d0bb7f303a6b253191027518694edd4c1dd7cca8f667a592a10ea8",
+      "blockTimeUtc": "2026-10-04T09:58:41.000Z",
+      "txHash": "0xcf7d4e24799d7c326a3dd04c9b53a53b2c155197b86d632e3de370d869432a33",
+      "from": "0x042b23288e2316dfb6503488292fd0ad2f811ae7",
+      "to": null,
+      "valueWei": "0"
+    },
+    {
+      "nonce": 167,
+      "blockNumber": 125656443,
+      "blockHash": "0x32a109a2dc77a7bd9cecdbe08eb683906a5106fd85606efb09fd5e0d8cd42e1e",
+      "blockTimeUtc": "2026-10-04T09:59:23.000Z",
+      "txHash": "0x7cc81b1a54d2620c6e350eb1f512f7eb60e21ee724fe47cb53a29b89c52940de",
+      "from": "0x042b23288e2316dfb6503488292fd0ad2f811ae7",
+      "to": null,
+      "valueWei": "0"
+    },
+    {
+      "nonce": 168,
+      "blockNumber": 125656513,
+      "blockHash": "0x30842f0dc3a3aaca48f2b8e931c22dd902fa6fafa8e5cc570c86cefab3bf9cc3",
+      "blockTimeUtc": "2026-10-04T09:59:55.000Z",
+      "txHash": "0x6765f99bddb64d9daa03e129a670206906d5761d16df6cb3ccc0d52be99d2aa6",
+      "from": "0x042b23288e2316dfb6503488292fd0ad2f811ae7",
+      "to": null,
+      "valueWei": "0"
+    }
+  ]
+}

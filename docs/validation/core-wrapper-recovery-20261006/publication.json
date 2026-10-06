@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "scope": "core exact wallet-envelope and ready original record recovery",
+  "publishedAt": "2026-10-06T12:13:51.585498+00:00",
+  "url": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/",
+  "sourceCommit": "6975fe6441dbf609641894d861be7cffc0647d38",
+  "previousSourceCommit": "6fc2d01b584d18c67b80ae048cb821e1c78e0561",
+  "releaseDirectory": "/srv/pinkuang-target-owner-upgrade/releases/6975fe6441dbf609641894d861be7cffc0647d38",
+  "pins": {
+    "trustedGenesisRecordDigest": "0x4aeef3a06351f9dc6b18a85c4a8e34899792bebb38886e0d050bbf3695e41d00",
+    "trustedGenesisManifestDigest": "0x3870f0f8c06092b6418c2bd2ab522414ee4091bb937215b6ea97f4283bd25196",
+    "trustedGenesisArtifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+    "trustedUpgradeArtifactDigest": "0xc9be5208ec97a0513d29c5f1d35a9e89f54c998b5994d2a291c09e5e496881e5",
+    "trustedReviewCatalogDigest": "0x01ff90f9a074a6faeb71c452bd8ad36fc0989b143f68fe5240c4d6ece0c538ba"
+  },
+  "archiveSha256": "240366e211c3f79b1bb8228407ff06304caab9d6557bb9309114c30e3ed3a668",
+  "manifestSha256": "82fdb5995a2b20d2f13d4f27a24bfb5984126494d13567484b3ba1b3ba181022",
+  "verifiedFiles": [
+    "assets/target-owner-upgrade-B0G5ebXi.css",
+    "assets/target-owner-upgrade-DvAU__27.js",
+    "data/gasEvidence.json",
+    "data/genesisBundle.json",
+    "data/genesisRecord.json",
+    "data/liveReview.json",
+    "data/reviewCatalog.json",
+    "data/trustedGenesisManifest.json",
+    "data/upgradeBundle.json",
+    "index.html"
+  ],
+  "retainedImmutableAssets": [
+    "assets/target-owner-upgrade-wT5pUdqv.js",
+    "assets/target-owner-upgrade-C32WT_O1.js",
+    "assets/target-owner-upgrade-CE82v1f4.js",
+    "assets/target-owner-upgrade-B-blP-HZ.js",
+    "assets/target-owner-upgrade-btLox2Nz.css",
+    "assets/target-owner-upgrade-B1nA-3NV.js",
+    "assets/target-owner-upgrade-nCzgF_Qp.js"
+  ],
+  "servicesUnchanged": true,
+  "productUnchanged": true,
+  "nginxUnchanged": true,
+  "readOnlyRpcChainId": 56,
+  "chainActionsPerformed": false,
+  "codeUpgradeComplete": false,
+  "portfolioAndReadServiceUnchanged": true
+}

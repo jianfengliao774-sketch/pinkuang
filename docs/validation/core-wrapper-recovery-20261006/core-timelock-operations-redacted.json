@@ -1,0 +1,95 @@
+{
+  "kind": "core-target-owner-wrapper-readonly-proof-v1",
+  "checkedAtUtc": "2026-10-06T11:52:32.175Z",
+  "chainId": 56,
+  "snapshot": {
+    "blockNumber": 126055300,
+    "blockHash": "0x945679b2a38201bacc07780d6db4a5126310d03f222f7e49d85224b8ead422be",
+    "blockTimeUtc": "2026-10-06T11:52:31.000Z"
+  },
+  "wallet": {
+    "address": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+    "nonceLatest": 175,
+    "noncePending": 175
+  },
+  "manager": {
+    "address": "0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3",
+    "codeHash": "0x0029019e237c175ee74871f3d4eab85c196e4ee826c7578bbb4ae054d62d17c6",
+    "matchesReviewedRuntimeHash": true
+  },
+  "beacon": {
+    "address": "0x326Ef311677d4e2952B7C83D7fc28EF9088d94a9",
+    "implementation": "0x9C359621a531629A43565166f87Db7D3Ae78310d"
+  },
+  "oldSchedule": {
+    "hash": "0xb9357d5e109556eed8f613add88b30b40bbc9a24ea4a00f8f8df731ac2da76f8",
+    "nonce": 169,
+    "from": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+    "to": "0x2c0AaE63302A7bF7caF5322Cdfc9da67d4ec8F97",
+    "valueWei": "0",
+    "selector": "0x01d5062a",
+    "calldataHash": "0x1108ac919e85cde1133f2fd4dcd49433cfcbfa14c824c10dc1a0498f2ff921eb",
+    "blockNumber": 125656597,
+    "blockHash": "0xbe8653bd8c2aeea22601d0e0e4d1cb9fdd98996def2ab498eb4fcda43149a315",
+    "blockTimeUtc": "2026-10-04T10:00:33.000Z",
+    "receiptStatus": 1,
+    "logAddresses": [
+      "0x2c0AaE63302A7bF7caF5322Cdfc9da67d4ec8F97",
+      "0x2c0AaE63302A7bF7caF5322Cdfc9da67d4ec8F97"
+    ],
+    "operationId": "0x4f29ead20ca5a72a93712bd2c589f261ad81a33afe09befa1c43626c5a0630f4",
+    "operationHashMatches": true,
+    "eventIdMatches": true,
+    "target": "0x326Ef311677d4e2952B7C83D7fc28EF9088d94a9",
+    "innerSelector": "0x3659cfe6",
+    "implementation": "0x40bab6bdDBA9aFb2CCd6Ddc44678997284173579",
+    "delaySeconds": 172800,
+    "readyAt": 1791280833,
+    "pending": true,
+    "ready": true,
+    "done": false
+  },
+  "newSchedule": {
+    "hash": "0x31b4470f2d8beeba053cd0cb2be7bfc8778903d3e13b3c6f0c8f6bcd976e71b1",
+    "nonce": 174,
+    "from": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+    "to": "0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3",
+    "valueWei": "0",
+    "selector": "0xcef6d209",
+    "calldataHash": "0xb49616d4055686250c5a423bbee5a0f4f6f056c52120c47bdcd7c895c466bc68",
+    "blockNumber": 126054384,
+    "blockHash": "0x8be08588dbdb45e46599449402b439a37ba19eabf474f25d6178bdb51acb8b73",
+    "blockTimeUtc": "2026-10-06T11:45:39.000Z",
+    "receiptStatus": 1,
+    "logAddresses": [
+      "0x2c0AaE63302A7bF7caF5322Cdfc9da67d4ec8F97",
+      "0x2c0AaE63302A7bF7caF5322Cdfc9da67d4ec8F97",
+      "0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3"
+    ],
+    "wrapper": {
+      "singleCall": true,
+      "innerTarget": "0x2c0AaE63302A7bF7caF5322Cdfc9da67d4ec8F97",
+      "innerValueWei": "0",
+      "innerSelector": "0x01d5062a",
+      "innerDataHash": "0x2bdf7057d42cb15e6cb3e7ca21e6ba54e2e37b8d0caa02a793b2f56714351e50",
+      "modeIsZero": true,
+      "envelopeCanonical": true
+    },
+    "operationId": "0x5432346a5d2d3558c444d2b0a8b62e99df41bd857abe67191ba365ead83b19ff",
+    "operationHashMatches": true,
+    "eventIdMatches": true,
+    "eventExact": true,
+    "target": "0x326Ef311677d4e2952B7C83D7fc28EF9088d94a9",
+    "innerSelector": "0x3659cfe6",
+    "innerDataHash": "0x7071f05c42d10b77de703129a64d438adc418012211a8b0d996070c675ab5e5f",
+    "implementation": "0x9f3E3452A5F85013091382F0aB829BD7f9f05e6d",
+    "delaySeconds": 172800,
+    "readyAt": 1791459939,
+    "pending": true,
+    "ready": false,
+    "done": false
+  },
+  "sameOperation": false,
+  "sameImplementation": false,
+  "newScheduleIsDirect": false
+}
