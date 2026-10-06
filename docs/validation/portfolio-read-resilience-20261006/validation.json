@@ -1,0 +1,41 @@
+{
+  "kind": "portfolio-read-resilience-validation-v1",
+  "uiSourceCommit": "d4fede17fdf3f7450359100c4a9f7cb355ea4e60",
+  "tests": {
+    "portfolio": {
+      "passed": 124,
+      "failed": 0
+    },
+    "newReadRecovery": {
+      "passed": 19,
+      "failed": 0
+    },
+    "isolatedTypeScript": "passed",
+    "productionBuild": "passed",
+    "proxy": {
+      "passed": 116,
+      "failed": 0
+    },
+    "independentReview": "passed; malformed JSON, concurrent witness invalidation, revert and deadline regressions included"
+  },
+  "walletActionsPerformed": false,
+  "configAndJournalDigestUnchanged": true,
+  "retry": {
+    "scope": "independent read methods only",
+    "attemptsMaximum": 2,
+    "firstFailureMaximumElapsedMs": 2000,
+    "explicitHttp429Retry": false,
+    "walletRetry": false
+  },
+  "historicalTiming": {
+    "persistedOnlyAfterFullReceiptAndChainProof": true,
+    "displayOnly": true,
+    "usedToValidateOrSend": false
+  },
+  "knownSchedule": {
+    "transaction": "0xe328b1082d4b61acfade27755e5fef5c29aec4da5a3ad83876463d6f96fc0202",
+    "readyAtCst": "2026-10-08 09:12:09",
+    "source": "previous canonical verification; live post-publication proof recorded separately"
+  },
+  "readSourceCommit": "e81e962af9050ef1e1ba43e30b4218c6ea02ccfa"
+}
