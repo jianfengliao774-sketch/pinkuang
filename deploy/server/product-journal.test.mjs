@@ -9,8 +9,9 @@ import { Interface, Wallet, getAddress } from 'ethers';
 import { createJournalService, createProductVerifierProvider, verifyProductIntent as verifyWithGraph, cancellationIntent, PRODUCT_POOL_ABI as poolAbi, PRODUCT_MARKET_ABI as marketAbi, PRODUCT_FACTORY_ABI as factoryAbi,
   PRODUCT_PORTFOLIO_ABI as portfolioAbi,PRODUCT_PORTFOLIO_FACTORY_ABI as portfolioFactoryAbi,verifyMarketFinalized } from './journal-api.mjs';
 import { JournalStore } from './journal-store.mjs';
-import { parseFirstoSignedAsk } from '../src/firsto-purchase.mjs';
+import { parseFirstoPurchaseAsk, parseFirstoSignedAsk } from '../src/firsto-purchase.mjs';
 import { signedSource,firstoProvider,collection,now } from '../scripts/fixtures/firsto-order.mjs';
+import { batchSource,batchProvider } from '../scripts/fixtures/firsto-batch-order.mjs';
 import { nativeSaleCompatibilityFixture } from '../shared/native-sale-compatibility-test-fixture.mjs';
 const addr = n => getAddress(`0x${n.toString(16).padStart(40,'0')}`);
 const hash = n => `0x${n.toString(16).padStart(64,'0')}`;
@@ -259,6 +260,29 @@ test('Firsto journal requires operator, exact canonical signed order and indepen
     const changed=await firstoIntentProof(options);
     await assert.rejects(verifyProductIntent(changed.p.provider,changed.record,allow));
   }
+});
+
+test('batch journal decoder admits only canonical kind1 and independently verified graph capability',async()=>{
+  const source=await batchSource(),order=parseFirstoPurchaseAsk(source,{collection,tokenId:'7',owner:source.account,now});
+  const record=intent('buyFromFirsto',[1,order.encodedOrder],'0'),p=proof(record);
+  const batch=batchProvider(source,{versionTarget:pool,block:{hash:'0x'+'12'.repeat(32)}});
+  const send=p.provider.send.bind(p.provider);
+  p.provider.getBlock=async()=>({number:100,hash:'0x'+'12'.repeat(32)});
+  p.provider.send=async(method,params)=>{
+    if(method==='eth_getBlockByNumber'||method==='eth_getCode'
+      ||method==='eth_call'&&(params[0].data.startsWith(new Interface(['function firstoBatchPurchaseVersion() view returns(uint16)']).getFunction('firstoBatchPurchaseVersion').selector)
+        ||![pool,factory,market].some(a=>a.toLowerCase()===params[0].to.toLowerCase())))
+      return batch.provider.request({method,params});
+    return send(method,params);
+  };
+  const allow=new Set([factory.toLowerCase()]);
+  await assert.rejects(verifyWithGraph(p.provider,record,allow,async()=>({})),/could not be verified/);
+  assert.equal(batch.calls.length,0,'closed protocol gate must perform no third-party reads');
+  await verifyWithGraph(p.provider,record,allow,async()=>({firstoBatchPurchase:{active:true,protocolReviewed:true}}));
+  assert.equal(p.state.simulations,0);
+  for(const bad of [intent('buyFromFirsto',[2,order.encodedOrder],'0'),intent('buyFromFirsto',[1,order.encodedOrder+'00'],'0'),
+    intent('buyFromFirsto',[1,order.encodedOrder],'1')])await assert.rejects(verifyWithGraph(p.provider,bad,allow,async()=>({firstoBatchPurchase:{active:true,protocolReviewed:true}})));
+  p.state.registered=false;await assert.rejects(verifyWithGraph(p.provider,record,allow,async()=>({firstoBatchPurchase:{active:true,protocolReviewed:true}})),/registered/);
 });
 
 test('new project signing refuses a legacy/incomplete registry and a machine already registered to any project',async()=>{

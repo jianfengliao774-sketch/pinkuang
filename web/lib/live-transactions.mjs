@@ -265,7 +265,9 @@ function normalize(config, transaction, action) {
   }
   requireValue(['deposit','completeFirstoSale','fill'].includes(decoded.name) || value === 0n, '该操作不能附带 BNB。');
   if (decoded.name === 'buyFromFirsto') {
-    requireValue(decoded.args[0] === 0n, 'Firsto 批量挂单尚未开放。'); decodeFirstoOrder(decoded.args[1]);
+    const order = decodeFirstoOrder(decoded.args[1], decoded.args[0]);
+    requireValue(order.kind === 0 || config.firstoBatchPurchase?.protocolReviewed === true
+      && config.firstoBatchPurchase?.active === true, 'Firsto 批量采购尚未通过合约升级与协议核验。');
   }
   return { factory, target, targetType, account, value, data: data.toLowerCase(), action: { kind: decoded.name } };
 }

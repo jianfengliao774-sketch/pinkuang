@@ -145,7 +145,7 @@ export default function OperatorQuotePicker({ config, mode, disabled, refreshKey
     : !direct && !selected.chain.registry?.supported ? '当前工厂尚未支持矿机唯一性登记。'
       : !direct && !selected.chain.registry.ready ? '矿机唯一性登记尚未完成。'
         : mode === 'createPool' && !executableAsk ? batchAsk
-          ? '该矿机挂的是 Firsto 批量订单，当前矿池合约不支持采购，不能用于指定矿机建池。'
+          ? `Firsto 批量订单暂不可采购。${selected.chain.firstoError || '需完成协议核验及矿池升级，当前仅作型号与产能参考。'}`
           : selected.chain.firstoError || (selected.quote?.ask
             ? quoteIssue(selected.quote) || '当前没有可执行的官网挂单或 Firsto 单笔签名订单。'
             : '这台矿机当前未挂单，不能用于指定购机；可切换“单台矿机灵活替代”作为型号与产能参考。')
@@ -176,8 +176,8 @@ export default function OperatorQuotePicker({ config, mode, disabled, refreshKey
       <p className="subtle-note">两项价格口径不同：上方按这台矿机实际挂单价除以其预计日产出；Firsto 顶部展示的是全市场参考价。{referenceOnlyAsk && '挂牌参考价不能直接用于采购。'}额外 10% 是募集预留，不计入这两个日产能价。</p>
       {duplicate && <p className="live-notice error">此矿机已有拼矿项目：<a href={`https://bscscan.com/address/${registeredPool}`} target="_blank" rel="noreferrer">{registeredPool}</a>，不能重复创建。</p>}
       {selected.chain.official ? <p>官网优先：可采购官网挂单 #{selected.chain.official.id}，链上价格 {displayAmount(selected.chain.official.priceWei)} BNB。此价格用于指定矿机方案的购机上限。</p>
-        : selected.chain.firsto ? <><p>官网暂无可用挂单；{direct ? '已读取' : '已核验'} Firsto 单笔签名订单：卖价 {displayAmount(selected.chain.firsto.priceWei)} BNB + 来源手续费 {displayAmount(selected.chain.firsto.feeWei)} BNB。</p><p><strong>矿池总支出 {displayAmount(selected.chain.firsto.grossWei)} BNB</strong>；指定矿机方案的购机上限已包含该手续费。</p></>
-        : batchAsk ? <><p className="operator-quote-warning">Firsto 确有这台矿机的批量挂单，卖价 {displayAmount(marketAsk.priceWei)} BNB。当前矿池合约不支持采购该批量订单，不能用于“指定单台矿机”建池。</p><p className="subtle-note">如只以其型号与产能作为参考，可在上方选择“单台矿机灵活替代”；募集后仍需采购符合条件的官网挂单或 Firsto 单笔签名订单，未购成按合约退款。</p></>
+        : selected.chain.firsto ? <><p>官网暂无可用挂单；{direct ? '已读取' : '已核验'} Firsto {selected.chain.firsto.kind === 1 ? '批量订单中的指定矿机' : '单笔签名订单'}：卖价 {displayAmount(selected.chain.firsto.priceWei)} BNB + 来源手续费 {displayAmount(selected.chain.firsto.feeWei)} BNB。</p><p><strong>矿池总支出 {displayAmount(selected.chain.firsto.grossWei)} BNB</strong>；指定矿机方案的购机上限已包含该手续费。</p></>
+        : batchAsk ? <><p className="operator-quote-warning">Firsto 确有这台矿机的批量挂单，卖价 {displayAmount(marketAsk.priceWei)} BNB。批量采购能力尚未核验可用，暂不能用于“指定单台矿机”建池。</p><p className="subtle-note">如只以其型号与产能作为参考，可在上方选择“单台矿机灵活替代”；募集后仍需采购符合条件的官网挂单或 Firsto 单笔签名订单，未购成按合约退款。</p></>
           : <p className="operator-quote-warning">{referenceOnlyAsk ? `${selectedVenue}已返回这台矿机的挂单，但当前没有可执行的采购路线。` : '这台矿机当前未挂单，不能用于指定购机。'}可在上方选择“单台矿机灵活替代”，作为型号与产能参考；募集后仍须找到符合条件的可执行挂单，未购成按合约退款。</p>}
       {selected.chain.firstoError && !batchAsk && <p className="operator-quote-warning">{selected.chain.firstoError}</p>}
       {mode === 'createFlexiblePoolChecked' && <p className="subtle-note">灵活购机仍按日产能参考计算购机上限；实际成交含费总价必须低于该上限。</p>}

@@ -148,7 +148,7 @@ test('selected batch ask retains its own daily price and explains why fixed crea
   const apply = button(ui, '填入建池表单');
   assert.equal(apply.disabled, true);
   const reason = elements(ui.tree).find(item => item.props?.id === apply['aria-describedby']);
-  assert.match(text(reason), /Firsto 批量订单.*当前矿池合约不支持采购/);
+  assert.match(text(reason), /Firsto 批量订单暂不可采购/);
   ui.unmount();
 });
 
@@ -179,7 +179,7 @@ test('flexible reference remains available for batch metadata while unfinished r
   const allowed = moduleFixture(undefined, { loadSelected: batchSelection }), ui = allowed.host(flexibleProps);
   await ui.settle(); button(ui, '选择矿机').onClick(); await ui.settle();
   assert.equal(button(ui, '填入建池表单').disabled, false);
-  assert.match(text(ui.tree), /当前矿池合约不支持采购该批量订单/);
+  assert.match(text(ui.tree), /批量采购能力尚未核验可用/);
   ui.unmount();
   const selected = batchSelection(); selected.chain.registry.ready = false;
   const blocked = moduleFixture(undefined, { loadSelected: () => selected });

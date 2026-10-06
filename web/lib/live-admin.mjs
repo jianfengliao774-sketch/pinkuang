@@ -3,7 +3,7 @@ import { abi, ARTIFACT_DIGEST, uint, checkedPoolCreation, readPoolSnapshot } fro
 import { GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
 import { loadOperatorQuote, readMachineRegistry, readOfficialMinerOnchain } from './operator-quotes.mjs';
 import { pollMarketDiscovery } from './discovery-poll.mjs';
-import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
+import { decodeFirstoOrder, verifyFirstoPurchaseOrder } from '../../deploy/src/firsto-purchase.mjs';
 import { assertTargetOwnerConfigured } from './target-owner-funding.mjs';
 
 const need = (value, message) => { if (!value) throw new Error(message); };
@@ -182,12 +182,12 @@ export async function readOperatorStatus({ provider, config, account }) {
 
 /** Read-only preview. The returned immutable request freezes relative deadlines for confirmation. */
 export async function prepareAdminAction(input) {
-  const { provider, config, account, kind, params = {}, subscriber, flexible, expectedTaskId, expectedReferenceWeight, pool, listingId, miningAction, firstoOrder } = input;
+  const { provider, config, account, kind, params = {}, subscriber, flexible, expectedTaskId, expectedReferenceWeight, pool, listingId, miningAction, firstoOrder, firstoKind = 0 } = input;
   const ctx = await context(provider, config, account), { from, factory, request, call, tag, status } = ctx;
   need(status.isOperator, '仅当前运营钱包可操作。');
   if (['autoPurchase', 'buyFromFirsto', 'buyFromMarket', 'buyAlternativeFromMarket'].includes(kind))
     await assertTargetOwnerConfigured({ provider, config, pool, blockTag: tag });
-  let transaction, normalizedParams, frozenFirstoOrder, details = {}, resolvedKind = kind;
+  let transaction, normalizedParams, frozenFirstoOrder, frozenFirstoKind = firstoKind, details = {}, resolvedKind = kind;
   let selectedListingId = listingId;
   const tx = (to, contract, name, args) => Object.freeze({ chainId: '0x38', from, to,
     data: contract.encodeFunctionData(name, args), value: '0x0' });
@@ -208,7 +208,7 @@ export async function prepareAdminAction(input) {
       else throw new Error('启动挖矿需要有效计算证明，当前入口只支持预备和回收。');
       data = abi.PoolVault.encodeFunctionData('mine', [inner]);
     } else if (kind === 'autoPurchase' || kind === 'buyFromFirsto') {
-      if (firstoOrder !== undefined) firsto = decodeFirstoOrder(firstoOrder);
+      if (firstoOrder !== undefined) firsto = decodeFirstoOrder(firstoOrder, firstoKind);
       else {
         const targetParams = abi.PoolVault.decodeFunctionResult('params', await request('eth_call',
           [{ to: target, data: abi.PoolVault.encodeFunctionData('params') }, 'latest']))[0];
@@ -224,15 +224,21 @@ export async function prepareAdminAction(input) {
         directKind = 'buyFromMarket'; selectedListingId = uint(official.id);
         data = abi.PoolVault.encodeFunctionData(directKind, [selectedListingId]);
       } else {
-        directKind = 'buyFromFirsto'; frozenFirstoOrder = firsto.encodedOrder;
-        data = abi.PoolVault.encodeFunctionData(directKind, [0, frozenFirstoOrder]);
+        if (firsto.kind === 1) {
+          // New batch execution cannot inherit the old display-only shortcut:
+          // the normal path rules out qualified official alternatives too.
+          return prepareAdminAction({ ...input, config: { ...config, displayOnly: false },
+            firstoOrder: firsto.encodedOrder, firstoKind: 1 });
+        }
+        directKind = 'buyFromFirsto'; frozenFirstoOrder = firsto.encodedOrder; frozenFirstoKind = firsto.kind;
+        data = abi.PoolVault.encodeFunctionData(directKind, [firsto.kind, frozenFirstoOrder]);
       }
     } else throw new Error('不支持的运营操作。');
     transaction = Object.freeze({ chainId: '0x38', from, to: target, data, value: '0x0' });
     return Object.freeze({ transaction, kind: directKind, requestKind: directKind, pool: target,
       miningAction, ...(firsto ? { firsto } : {}), ...(official ? { official } : {}),
       request: Object.freeze({ kind: directKind, pool: target, listingId: selectedListingId,
-        miningAction, firstoOrder: frozenFirstoOrder }), direct: true, displayOnly: true, checkedBlock: null });
+        miningAction, firstoOrder: frozenFirstoOrder, ...(frozenFirstoKind === 1 ? { firstoKind: 1 } : {}) }), direct: true, displayOnly: true, checkedBlock: null });
   }
   if (kind === 'createPool' || kind === 'createFlexiblePoolChecked' || kind === 'createBudgetChildPool') {
     need(!status.creationPaused, '当前已暂停创建矿池。');
@@ -266,7 +272,7 @@ export async function prepareAdminAction(input) {
     need(row?.trusted && same(row.pool, target) && same(snap.lens, configured(config, 'lens')) && snap.blockHash === status.blockHash, '矿池身份或读取区块不一致。');
     if (kind === 'autoPurchase' || kind === 'buyFromFirsto') {
       need(row.state === 1n && row.params && status.timestamp < row.params.purchaseDeadline, '矿池未募满或购机期限已过。');
-      const frozenOrder = firstoOrder === undefined ? null : decodeFirstoOrder(firstoOrder);
+      const frozenOrder = firstoOrder === undefined ? null : decodeFirstoOrder(firstoOrder, firstoKind);
       if (frozenOrder) need(same(frozenOrder.ask.collection, row.params.circuits)
         && BigInt(frozenOrder.ask.tokenId) === row.params.circuitId, 'Firsto 订单不是矿池原目标矿机。');
       const officialCheck = await readOfficialMinerOnchain(provider, row.params.circuits, row.params.circuitId,
@@ -300,7 +306,8 @@ export async function prepareAdminAction(input) {
         let order;
         if (frozenOrder) {
           // Reconfirmation verifies the frozen bytes, never replaces them with a different market order.
-          order = await verifyFirstoSignedAsk(provider, frozenOrder, { blockTag: tag });
+          order = await verifyFirstoPurchaseOrder(provider, frozenOrder, { blockTag: tag, versionTarget: target,
+            reviewedBatchProtocol: config.firstoBatchPurchase?.protocolReviewed === true && config.firstoBatchPurchase?.active === true });
         } else {
           const checked = await loadOperatorQuote({ collection: row.params.circuits, tokenId: row.params.circuitId.toString(),
             config, provider, blockTag: tag, mode: 'createPool', officialPriceCapWei: row.params.priceCap.toString() });
@@ -311,9 +318,9 @@ export async function prepareAdminAction(input) {
         need(order.checkedBlock.hash === status.blockHash, 'Firsto 订单核对区块不一致。');
         need(BigInt(order.grossWei) <= row.params.priceCap && BigInt(order.grossWei) <= row.totalRaised,
           'Firsto 含来源手续费的总价超过矿池购机上限或募集金额。');
-        frozenFirstoOrder = order.encodedOrder;
+        frozenFirstoOrder = order.encodedOrder; frozenFirstoKind = order.kind;
         resolvedKind = 'buyFromFirsto';
-        transaction = tx(target, abi.PoolVault, resolvedKind, [0, frozenFirstoOrder]);
+        transaction = tx(target, abi.PoolVault, resolvedKind, [order.kind, frozenFirstoOrder]);
         details = { firsto: order, procurementRoute: 'firsto' };
         }
       }
@@ -344,7 +351,7 @@ export async function prepareAdminAction(input) {
   await ctx.verify();
   return Object.freeze({ transaction, kind: resolvedKind, requestKind: resolvedKind, ...details,
     request: Object.freeze({ kind, params: normalizedParams, flexible, expectedTaskId, expectedReferenceWeight, pool,
-      listingId: selectedListingId, miningAction, firstoOrder: frozenFirstoOrder }),
+      listingId: selectedListingId, miningAction, firstoOrder: frozenFirstoOrder, ...(frozenFirstoKind === 1 ? { firstoKind: 1 } : {}) }),
     ...(config.displayOnly === true ? { direct: true, displayOnly: true, checkedBlock: null }
       : { checkedBlock: Object.freeze({ blockNumber: status.blockNumber, blockHash: status.blockHash, timestamp: status.timestamp }) }) });
 }

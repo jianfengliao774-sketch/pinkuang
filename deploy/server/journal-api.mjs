@@ -6,7 +6,7 @@ import { JournalConflict, JournalStore } from './journal-store.mjs';
 import { validateFreshActivation, verifyFinalizedFreshAttempt, verifyRecoveredFreshSigning, verifyConfirmedFreshActivation } from './fresh-activation-journal.mjs';
 import { verifyInitializationExecution } from '../shared/initialization-proof.mjs';
 import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
-import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
+import { decodeFirstoOrder, verifyFirstoPurchaseOrder } from '../src/firsto-purchase.mjs';
 import { fetchOfficialCandidates } from '../scripts/official-market-discovery.mjs';
 import { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI, verifyPortfolioIntent } from './portfolio-intent.mjs';
 import { verifyControlledFirstoSale } from './firsto-sale-preflight.mjs';
@@ -267,8 +267,7 @@ function decodeProduct(value) {
     try { decodeFirstoOrder(decoded.args[1]); } catch { fail(400,'Invalid canonical Firsto order.'); }
   }
   if (decoded.name === 'buyFromFirsto') {
-    if (decoded.args[0] !== 0n) fail(400, 'Firsto batch purchases are not enabled.');
-    try { decodeFirstoOrder(decoded.args[1]); } catch { fail(400, 'Invalid canonical Firsto order.'); }
+    try { decodeFirstoOrder(decoded.args[1], decoded.args[0]); } catch { fail(400, 'Invalid canonical Firsto order.'); }
   }
   if (decoded.name === 'mine') {
     let inner;
@@ -427,8 +426,9 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
       await registeredPool(record.target);
       if (['buyFromMarket','buyAlternativeFromMarket','buyFromFirsto','mine'].includes(decoded.name)
         && identity(await call(record.factory, 'operator')) !== identity(record.account)) fail(403, 'Only the Factory operator may operate mining or purchase.');
-      if (decoded.name === 'buyFromFirsto') await verifyFirstoSignedAsk({ request:({ method,params }) => provider.send(method,params) },
-        decodeFirstoOrder(decoded.args[1]), { blockTag:tag });
+      if (decoded.name === 'buyFromFirsto') await verifyFirstoPurchaseOrder({ request:({ method,params }) => provider.send(method,params) },
+        decodeFirstoOrder(decoded.args[1], decoded.args[0]), { blockTag:tag, versionTarget:record.target,
+          reviewedBatchProtocol:graph?.firstoBatchPurchase?.protocolReviewed===true&&graph.firstoBatchPurchase.active===true });
       if (decoded.name === 'deposit' && BigInt(record.value) !== decoded.args[0] * await call(record.target, 'unitPriceWei'))
         fail(409, 'Deposit value differs from the current share price.');
       if (decoded.name === 'completeSale') fail(409,'Legacy whole miner sale is disabled; review the controlled Firsto sale.');

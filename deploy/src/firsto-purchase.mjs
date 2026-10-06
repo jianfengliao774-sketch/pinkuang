@@ -1,4 +1,6 @@
 import { AbiCoder, Interface, TypedDataEncoder, ZeroAddress, getAddress, keccak256, toQuantity, verifyTypedData } from 'ethers';
+import { decodeFirstoBatchOrder, parseFirstoBatchAsk, verifyFirstoBatchAsk } from '../shared/firsto-batch-order.mjs';
+export { decodeFirstoBatchOrder, parseFirstoBatchAsk, verifyFirstoBatchAsk } from '../shared/firsto-batch-order.mjs';
 
 // Reviewed against the Firsto production ABI and BSC runtime on 2026-09-27.
 // This pin detects an upgrade before submission; a third-party proxy can still upgrade before inclusion.
@@ -55,12 +57,21 @@ function buildOrder(ask, signature) {
     feeWei:feeWei.toString(), grossWei:(BigInt(normalized.price) + feeWei).toString() });
 }
 
-export function decodeFirstoOrder(encodedOrder) {
+export function decodeFirstoOrder(encodedOrder, kind = 0) {
+  if (kind === 1 || kind === 1n) return decodeFirstoBatchOrder(encodedOrder);
+  need(kind === 0 || kind === 0n, '不支持此 Firsto 挂单类型。');
   need(typeof encodedOrder === 'string' && /^0x(?:[\da-f]{2}){384,1408}$/i.test(encodedOrder), 'Firsto 订单编码超出范围。');
   const [ask,signature] = coder.decode([FIRSTO_ASK_TUPLE,'bytes'],encodedOrder);
   const result = buildOrder(ask,signature);
   need(same(encodedOrder,result.encodedOrder), 'Firsto 订单编码不是规范格式。');
   return result;
+}
+
+export function parseFirstoPurchaseAsk(source, options) {
+  return source?.execution?.kind === 'circuit_batch_ask' ? parseFirstoBatchAsk(source, options) : parseFirstoSignedAsk(source, options);
+}
+export function verifyFirstoPurchaseOrder(provider, order, options) {
+  return order?.kind === 1 ? verifyFirstoBatchAsk(provider, order, options) : verifyFirstoSignedAsk(provider, order, options);
 }
 
 /** An indexer can supply an order, never an arbitrary destination, recipient or transaction payload. */
