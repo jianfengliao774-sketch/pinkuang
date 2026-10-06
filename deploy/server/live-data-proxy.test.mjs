@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { EventEmitter } from 'node:events';
 import { createLiveDataProxy, liveDataProxyConfiguration, validateReadRpc, FEES_CLAIMED_TOPIC } from './live-data-proxy.mjs';
 import { createDeploymentServer } from './index.mjs';
 
@@ -390,6 +391,29 @@ test('the original deadline also closes expired identity and primary cache-hit r
     assert.equal((await f.post(payload)).status, 504);
     assert.equal(dataReads, cacheHit ? 1 : 0);
   }
+});
+
+test('a slow request body cannot borrow a newer primary proof to bypass its original deadline', async t => {
+  let clock = 100000, proofs = 0;
+  t.mock.method(Date, 'now', () => clock);
+  const proxy = createLiveDataProxy({ rpcUrl: 'https://operator-rpc.test/key', transactionRpcUrl: archiveFallbackNode,
+    retryArchiveRateLimit: true, fetcher: async (_url, init) => {
+      const request = JSON.parse(init.body); proofs++;
+      return alternateAnswer(request);
+    } });
+  const request = () => Object.assign(new EventEmitter(), { method: 'POST', url: '/api/rpc',
+    headers: { 'content-type': 'application/json' }, socket: { remoteAddress: '127.0.0.1' }, pause() {} });
+  const response = () => ({ destroyed: false, writableEnded: false, setHeader() {},
+    end(body) { this.body = JSON.parse(body); this.writableEnded = true; } });
+  const firstReq = request(), firstRes = response(), first = proxy.handle(firstReq, firstRes);
+  clock += 13999;
+  const secondReq = request(), secondRes = response(), second = proxy.handle(secondReq, secondRes);
+  secondReq.emit('data', Buffer.from(JSON.stringify(rpc('eth_chainId')))); secondReq.emit('end');
+  await second; assert.equal(secondRes.statusCode, 200);
+  clock++;
+  firstReq.emit('data', Buffer.from(JSON.stringify(rpc('eth_chainId')))); firstReq.emit('end');
+  await first;
+  assert.equal(firstRes.statusCode, 504); assert.equal(proofs, 1);
 });
 
 test('alternate timeout aborts the single attempt and cannot return or cache a delayed result', async t => {

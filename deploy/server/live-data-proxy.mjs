@@ -856,6 +856,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
         requireValue(rpcUrl, 503, 'Read-only RPC is not configured.');
         const payload = validateReadRpc(await readJson(req, { maxBytes: maxRequestBytes,
           timeoutMs: remainingArchiveTime(deadline) }), { feeHistoryLogScope });
+        remainingArchiveTime(deadline);
         if (payload.method === 'eth_chainId' && now() < verifiedChainUntil)
           return send(200, { jsonrpc: '2.0', id: payload.id, result: BSC_CHAIN_ID });
         await acquire(client, deadline); acquired = true;
