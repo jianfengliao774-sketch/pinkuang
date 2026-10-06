@@ -19,8 +19,8 @@ interface IFirstoBatchForkHash is IFirstoBatchAskExchange {
     function hashAskLeaf(AskLeaf calldata leaf) external pure returns (bytes32);
 }
 
-/// @notice Real-protocol PoolVault rehearsal of public open leaf #6128 at a fixed independently observed block.
-/// @dev Requires BSC 126091631 archive state. No skip, etch, store, mockCall or replacement pin.
+/// @notice Real-protocol PoolVault rehearsal of public open leaf #6128 at a current independently observed fork state.
+/// @dev Requires a BSC current-state fork at or after 126091631; records the actual source block. No skip, etch, store, mockCall or replacement pin.
 /// A successful receipt proves this protocol path at the historical state, not current order availability.
 contract FirstoBatchCurrentPoolForkTest is Test {
     uint256 private constant FORK_BLOCK = 126091631;
@@ -48,14 +48,15 @@ contract FirstoBatchCurrentPoolForkTest is Test {
     bytes32 private minerKey;
 
     function setUp() public {
-        require(block.chainid == 56 && block.number == FORK_BLOCK, "requires BSC 126091631 archive fork");
+        require(block.chainid == 56 && block.number >= FORK_BLOCK, "requires BSC current-state fork >=126091631");
+        emit log_named_uint("actual source fork block", block.number);
         assertEq(EXCHANGE.codehash, PINNED_RUNTIME, "unverified Firsto batch runtime: no trusted fork proof");
         assertEq(NFT.ownerOf(TOKEN_ID), SELLER, "historical owner changed");
         assertTrue(NFT.getApproved(TOKEN_ID) == EXCHANGE || NFT.isApprovedForAll(SELLER, EXCHANGE));
         assertEq(FIRSTO.factory(), 0x68224F668083c29e9800Be2a646d42d18cedF7e2);
         assertFalse(FIRSTO.paused());
         assertEq(FIRSTO.BATCH_ASK_SCHEMA_VERSION(), 1);
-        assertEq(FIRSTO.hashBatchAsk(_batch()), ORDER_HASH, "historical batch digest mismatch");
+        assertEq(FIRSTO.hashBatchAsk(_batch()), ORDER_HASH, "current batch digest mismatch");
         assertEq(FIRSTO.hashAskLeaf(_leaf()), LEAF_HASH, "historical leaf hash mismatch");
         assertFalse(FIRSTO.batchCancelled(SELLER, NONCE));
         assertFalse(FIRSTO.isAskLeafInvalidated(SELLER, NONCE, 0));
@@ -116,7 +117,7 @@ contract FirstoBatchCurrentPoolForkTest is Test {
         assertFalse(FIRSTO.batchCancelled(SELLER, NONCE));
         assertEq(pool.bnbOwed(ALICE), TARGET - COST);
         _assertRealQuality();
-        emit log_named_bytes32("public historical batch digest", ORDER_HASH);
+        emit log_named_bytes32("public current batch digest", ORDER_HASH);
         emit log_named_uint("actual pool gross spend", COST);
     }
 
