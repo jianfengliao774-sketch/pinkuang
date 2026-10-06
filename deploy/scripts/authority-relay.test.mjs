@@ -234,7 +234,7 @@ test('a reverted relay requires explicit hash-pinned, canonical finalized failur
     const receipt={hash,from:gas.address,to:authority,blockNumber:100,blockHash,status:0,fee:21000n};
     const provider={getNetwork:async()=>({chainId:56n}),getTransaction:async()=>transaction,
       getTransactionReceipt:async()=>receipt,getTransactionCount:async()=>1,
-      getBlock:async tag=>tag==='finalized'?{number:110,hash:'0x'+'b'.repeat(64)}:{number:100,hash:blockHash}};
+      getBlock:async tag=>tag==='finalized'||tag===110?{number:110,hash:'0x'+'b'.repeat(64)}:{number:100,hash:blockHash}};
     const options={journal:journalPath,acknowledgeFailure:hash.toLowerCase()};
     await assert.rejects(acknowledgeFinalizedAuthorityFailure(provider,
       {...options,acknowledgeFailure:'0x'+'f'.repeat(64)},journal),/exact finalized/);
@@ -397,7 +397,7 @@ async function expiredCancelFixture() {
     getTransactionCount:async(_wallet,tag)=>typeof tag==='number'?state.finalizedNonce
       :tag==='latest'?state.latest:state.pending,
     getBlock:async tag=>tag==='latest'?{number:111,timestamp:state.time,gasLimit:30_000_000n}
-      :tag==='finalized'?{number:state.finalized,hash:'0x'+'b'.repeat(64)}
+      :tag==='finalized'||tag===state.finalized?{number:state.finalized,hash:'0x'+'b'.repeat(64)}
         :{number:tag,hash:state.canonicalHash,timestamp:state.time},
     getBlockNumber:async()=>111,
     getCode:async address=>address.toLowerCase()===gas.address.toLowerCase()?state.walletCode:'0x6000',

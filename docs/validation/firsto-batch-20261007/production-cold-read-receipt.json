@@ -1,0 +1,24 @@
+{
+  "readOnly": true,
+  "chainActionsPerformed": false,
+  "effectiveEntry": "/srv/pinkuang-target-owner-read/releases/firsto-batch-paced-778557adb9e6-20261007/deploy/server/upgrade-read/target-owner-read-server.mjs",
+  "pid": 1152887,
+  "serviceSourceCommit": "80e318a3010976217ada9ea453fc41747c3b6863",
+  "coldCachesAtStart": true,
+  "elapsedMs": 43965,
+  "completedLogicalReads": 181,
+  "methodCounts": {
+    "eth_chainId": 6,
+    "getBlock": 31,
+    "eth_call": 61,
+    "getCode": 55,
+    "getStorage": 8,
+    "getTransactionReceipt": 10,
+    "getTransaction": 10
+  },
+  "failedReads": 0,
+  "entryPath": "https://bemine.cc.cd/pinkuang-firsto-batch-upgrade/",
+  "archiveStartSpacingMs": 100,
+  "archiveMaxConcurrent": 4,
+  "pinnedStateCacheTtlMs": 900000
+}

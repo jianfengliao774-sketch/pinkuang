@@ -149,7 +149,7 @@ test('direct administrator display and creation use fixed configuration without 
   assert.equal(parsed.name, 'createPool'); assert.equal(parsed.args[0].targetRaise, 11000n);
   const repeated = await prepareAdminAction({ provider, config, account, ...result.request });
   assert.deepEqual(repeated.transaction, result.transaction);
-  assert.deepEqual(seen, ['machinePool', 'machinePool']);
+  assert.deepEqual(seen, [], 'Direct creation no longer waits for reservation checks.');
   await assert.rejects(prepareAdminAction({ provider: noRpc, config, account: addr(10), kind: 'createPool', params: base }), /运营钱包/);
   await assert.rejects(prepareAdminAction({ provider: noRpc, config, account, kind: 'createPool', params: { ...base, targetRaiseWei: '11001' } }), /100 份/);
 });
@@ -172,43 +172,17 @@ test('direct administrator reclaim reads only the exact miner parameters and rec
   assert.equal(abi.PoolVault.parseTransaction(explicitListing.transaction).args[0], 3n);
 });
 
-test('direct fixed, flexible and budget-child previews reject an occupied miner with one exact reservation read', async () => {
+test('direct fixed, flexible and budget-child previews encode locally without reservation RPC', async () => {
   for (const kind of ['createPool', 'createFlexiblePoolChecked', 'createBudgetChildPool']) {
-    let reads = 0;
-    const provider = { request: async ({ method, params }) => {
-      reads++; assert.equal(method, 'eth_call'); assert.equal(params[0].to, factory); assert.equal(params[1], 'latest');
-      const call = abi.PoolFactory.parseTransaction(params[0]);
-      assert.equal(call.name, 'machinePool'); assert.equal(call.args[0], base.circuits); assert.equal(call.args[1], 7223n);
-      return abi.PoolFactory.encodeFunctionResult('machinePool', [pool]);
-    } };
-    await assert.rejects(prepareAdminAction({ provider, config, account, kind, subscriber: other,
-      params: { ...base, circuitId: '7223' } }), error => error.code === 'MachineAlreadyReserved' && error.pool === pool);
-    assert.equal(reads, 1, 'No simulation, ownership graph, listing or Firsto read is needed to reject a duplicate.');
+    const flexible = { minVerifiedWeight: '1', referencePriceWei: '10000', targetDailyYieldAtomic: '1',
+      extraBps: '1000', referenceObservedAt: '1800000000', referenceBlock: '1', referenceDigest: `0x${'ab'.repeat(32)}` };
+    const result = await prepareAdminAction({ provider: noRpc, config, account, kind, subscriber: other,
+      flexible, expectedTaskId: '1', expectedReferenceWeight: '1', params: { ...base, circuitId: '7223' } });
+    assert.equal(abi.PoolFactory.parseTransaction(result.transaction).name, kind);
   }
 });
 
-test('direct preview reuse is short-lived and bound to the exact Factory and NFT; a released reservation can be reused', async () => {
-  const available = { factory, collection: base.circuits, tokenId: '7', pool: ZeroAddress,
-    blockTag: 'latest', checkedAt: Date.now() };
-  const reused = await prepareAdminAction({ provider: noRpc, config, account, kind: 'createPool', params: base,
-    machineReservation: available });
-  assert.equal(abi.PoolFactory.parseTransaction(reused.transaction).name, 'createPool');
-  for (const change of [{ factory: other }, { collection: OFFICIAL_COLLECTIONS[1] }, { tokenId: '8' },
-    { checkedAt: Date.now() - 15001 }, { checkedAt: Date.now() + 60000 }, { blockTag: '0x64' }, { pool }]) {
-    let reads = 0;
-    const provider = { request: async ({ method, params }) => {
-      reads++; assert.equal(method, 'eth_call'); assert.equal(params[1], 'latest');
-      return abi.PoolFactory.encodeFunctionResult('machinePool', [ZeroAddress]);
-    } };
-    const fresh = await prepareAdminAction({ provider, config, account, kind: 'createPool', params: base,
-      machineReservation: { ...available, ...change } });
-    assert.equal(abi.PoolFactory.parseTransaction(fresh.transaction).name, 'createPool'); assert.equal(reads, 1);
-  }
-  await assert.rejects(prepareAdminAction({ provider: { request: async () => { throw Error('reader unavailable'); } },
-    config, account, kind: 'createPool', params: base }), /reader unavailable/);
-});
-
-test('direct administrator signing reads nonce and exact reservation once and validates the signature', async () => {
+test('direct administrator signing reads only the nonce and validates the signature', async () => {
   const authorityAbi = new Interface(['function nonces(address) view returns(uint256)']);
   const registryAbi = new Interface(['function machinePool(address,uint256) view returns(address)']);
   const seen = [];
@@ -235,7 +209,7 @@ test('direct administrator signing reads nonce and exact reservation once and va
   const data = abi.PoolFactory.encodeFunctionData('createPool', [{ ...base, circuitId: 7n, targetRaise: 11000n,
     priceCap: 10000n, directSeller: ZeroAddress, directPrice: 0n, fundingDeadline: 1800001000n, purchaseDeadline: 1800002000n }]);
   const command = await signAuthorityAction({ provider, readProvider, config, account, kind: 'executeApprovedOperation', args: { target: factory, data } });
-  assert.deepEqual(seen, ['eth_call', 'eth_call', 'eth_signTypedData_v4']); assert.equal(command.nonce, '9');
+  assert.deepEqual(seen, ['eth_call', 'eth_signTypedData_v4']); assert.equal(command.nonce, '9');
   assert.equal(command.expectedCodehash, config.freshAuthority.codehash);
   const wrongSignerProvider = { request: async ({ method, params }) => {
     assert.equal(method, 'eth_signTypedData_v4');

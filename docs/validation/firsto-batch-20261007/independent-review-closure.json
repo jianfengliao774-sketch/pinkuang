@@ -1,0 +1,105 @@
+{
+  "kind": "firsto-batch-local-review-closure-v1",
+  "sourceHead": "5f7f7d24a9cadab75d2a35ff5edbf3aab2c79963",
+  "rootHeadAtReview": "8f0f26be21ddc76cbc28f5ec1f335d1b7dce35f2",
+  "productionWrites": 0,
+  "mainnetTransactions": 0,
+  "contractCommit": "f40eb4012100c922a653feda9b8cc14e8658807d",
+  "followupCommits": [
+    "f275a9bc2d95db080b69fa4fd3e1989f4e695855",
+    "292a42cfd5404c0a806b872d6ebbb64ce86407aa",
+    "5f7f7d24a9cadab75d2a35ff5edbf3aab2c79963"
+  ],
+  "results": {
+    "nonForkForge": {
+      "suites": 57,
+      "pass": 625,
+      "fail": 0,
+      "skip": 0,
+      "exit": 0
+    },
+    "storage": {
+      "checks": 26,
+      "ok": true
+    },
+    "planProofAndTargetOwnerProductGraph": {
+      "pass": 35,
+      "fail": 0,
+      "skip": 0
+    },
+    "batchNativeCompatibility": {
+      "pass": 3,
+      "fail": 0,
+      "skip": 0
+    },
+    "realPoolCurrentFork": {
+      "pass": 1,
+      "fail": 0,
+      "skip": 0,
+      "sourceBlock": 126092616,
+      "mainnetTransaction": false
+    },
+    "historical125506634Fork": {
+      "run": false,
+      "reason": "read RPC has no historical archive state; no pass claim"
+    }
+  },
+  "deployedCodeBytes": {
+    "PoolVault": 24316,
+    "FlexiblePurchase": 18864
+  },
+  "rootContractSourceMatches": {
+    "contracts/src/PoolVault.sol": {
+      "sha256": "5dca0b3e7ebdb38d1194aac3749672442ded779e414801a3199d46b9993b7af7",
+      "equal": true
+    },
+    "contracts/src/libraries/FlexiblePurchase.sol": {
+      "sha256": "c50ed6c946ffcb1644fd39efd61c9f989e921d87b7a43849b8684a173c286243",
+      "equal": true
+    },
+    "contracts/src/libraries/FirstoSale.sol": {
+      "sha256": "1e4dfd3e35d62ed6c230cf6f2c9e5f5d3dfcbc2d57614f43883f07c192c960fc",
+      "equal": true
+    },
+    "contracts/src/interfaces/IFirstoExchange.sol": {
+      "sha256": "f5813574af258860aeeafb2432686659ae7cbf73a92e3116c6e5caafc7602a9b",
+      "equal": true
+    },
+    "contracts/foundry.toml": {
+      "sha256": "4dea92ade84da5e39e3fa1b85877cb0fc264058f40c3b1ca2d0a8efe4ef1f656",
+      "equal": true
+    }
+  },
+  "reviewedRootSharedSources": {
+    "deploy/shared/firsto-batch-upgrade-plan.mjs": "f7744387321a60cab1f09aeac325a2bccc74bfbc0f035a223f797b11742e9a5b",
+    "deploy/shared/firsto-batch-upgrade-proof.mjs": "e17c03f602a756872e85fd42188f99e422293f6a6aaf1a940119d5f799daecd6",
+    "deploy/shared/native-sale-compatibility.mjs": "48d2e8904e8c62c4b02a37da81d0f22b98aab022425dbaeaf1741b4aeb09f2a4"
+  },
+  "logs": {
+    "allNonForkForge": {
+      "path": "/private/tmp/bemine-firsto-batch-all-nonfork-20261007.log",
+      "sha256": "6449a2166155bfd2fac7e9e6002d95365569f95460a9a3a3c25600c1466bd196"
+    },
+    "storage": {
+      "path": "/private/tmp/bemine-firsto-batch-storage-20261007.log",
+      "sha256": "e4317e48f64cc5bcd4f99ac6ca4d1c4cea794c290317d333665ed429af45cdba"
+    },
+    "sharedPlanProofAndProductGraph": {
+      "path": "/private/tmp/bemine-firsto-batch-shared-proof-final-20261007.log",
+      "sha256": "c9403c883cb193ea343b22d68704a6c08403c9f782ff590ce92d4e5a3569e52e"
+    },
+    "batchNativeCompatibility": {
+      "path": "/private/tmp/bemine-firsto-batch-native-compatibility-20261007.log",
+      "sha256": "dec498ee532c200a6afb58f7a3cacf1a20addb5c3a676cd0ede8d8a5b02eda58"
+    },
+    "realCurrentPoolFork": {
+      "path": "/private/tmp/bemine-firsto-batch-provenance-20261007/current-pool-forge-test.log",
+      "sha256": "1e59fde34af2d02a4cae9337c8810e668966dd4f52f1669dbcf8b3c757cfdff5"
+    }
+  },
+  "limitations": [
+    "Unit protocol fault tests use real runtime bytes plus selector delegation; independent current Pool fork has no etch/store/mock.",
+    "Current fork proves purchase at its source block, not current availability of the historical public ask.",
+    "No runtime activation or upgrade receipt is claimed; production capability remains closed until exact finalized beacon execution."
+  ]
+}

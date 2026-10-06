@@ -1,0 +1,14 @@
+No files changed, compilation skipped
+2026-10-06T16:32:48.043243Z  WARN evm::traces::external: etherscan config not found
+2026-10-06T16:32:49.481475Z  WARN foundry_fork_db::cache: Failed to read cache file err=Os { code: 2, kind: NotFound, message: "No such file or directory" } path="/Users/liaojianfeng/.foundry/cache/rpc/bsc/126092616"
+
+Ran 1 test for test/fork/FirstoBatchCurrentPoolFork.t.sol:FirstoBatchCurrentPoolForkTest
+[PASS] test_Fork_RealBatchLeafSettlesSellerAndDeliversOnlyExactNftToActualPool() (gas: 643065)
+Logs:
+  actual source fork block: 126092616
+  public historical batch digest: 0x245c3ed9094b1d3baaa0dc3b25386e68dde7fce70ee4e2e083f619037c256b8a
+  actual pool gross spend: 69811200000000000
+
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 12.96s (3.60s CPU time)
+
+Ran 1 test suite in 14.40s (12.96s CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)

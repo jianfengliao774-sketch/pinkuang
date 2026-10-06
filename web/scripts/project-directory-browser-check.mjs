@@ -43,12 +43,22 @@ await page.route(/\/api\/journal\//,async route=>{
 const list=()=>page.locator('[data-project-directory="unified"]');
 const rows=()=>list().locator('tbody tr');
 const settled=()=>page.waitForFunction(()=>document.querySelector('[data-project-directory="unified"]')?.getAttribute('aria-busy')==='false'&&document.querySelector('main')?.getAttribute('aria-busy')==='false');
+const assertCategoryTabs=async()=>{
+ assert.equal(await page.locator('.live-project-summary').count(),0,'Redundant category statistic cards must be removed.');
+ const tabs=list().locator('.live-toolbar .tabs button');
+ assert.equal(await tabs.count(),4,'The category tabs must exist; an empty set is not a pass.');
+ assert.deepEqual((await tabs.allTextContents()).map(text=>text.trim()),['募集中','挖矿中','整机出售中','项目总览']);
+ for(const name of ['挖矿中','整机出售中','项目总览','募集中']){
+  const tab=tabs.filter({hasText:new RegExp('^'+name+'$')});await tab.click();
+  assert.equal(await tab.getAttribute('aria-pressed'),'true');
+ }
+};
 try{
  await page.goto(base+'/#pools');await settled();await rows().filter({hasText:'多矿机项目'}).first().waitFor();
  assert.equal(await list().count(),1);assert.equal(await page.getByRole('heading',{name:'多矿机预算项目',exact:true}).count(),0);
  assert.equal(await rows().count(),2);assert(!/尚未创建拼矿项目/.test(await page.locator('body').innerText()));
- assert.equal(await page.locator('.live-project-summary button').filter({hasText:'募集中'}).locator('strong').innerText(),'2');
- checks.push('Single-miner and parent funding projects share one table and a consistent count; no separate panel or false empty state');
+ await assertCategoryTabs();assert.equal(await rows().count(),2);
+ checks.push('Single-miner and parent funding projects share one table; redundant statistic cards are absent and all four category tabs still switch correctly');
  await list().getByRole('button',{name:'项目总览',exact:true}).click();assert.equal(await rows().count(),3);
  await page.getByRole('button',{name:'加载更多',exact:true}).click();await settled();assert.equal(await rows().count(),6);
  assert(indexReads.some(r=>r.kind==='single'&&r.cursor===2));assert(indexReads.some(r=>r.kind==='portfolio'&&r.cursor===1));
@@ -70,10 +80,12 @@ try{
  await list().getByRole('alert').waitFor();await settled();
  assert((await list().locator('tr[data-project-kind="single"]').count())>0);
  assert(!/尚未创建拼矿项目/.test(await list().innerText()));
- assert.equal(await page.locator('.live-project-summary button').first().locator('strong').innerText(),'—');
+ await assertCategoryTabs();
+ assert((await list().locator('tr[data-project-kind="single"]').count())>0);
+ assert.equal(await list().getByRole('alert').count(),1,'A failed reader must retain an explicit error, not silently pass because statistic cards are absent.');
  failPortfolio=false;await list().getByRole('alert').getByRole('button',{name:'重新读取',exact:true}).click();await settled();
  assert.equal(await list().getByRole('alert').count(),0);assert.equal(await rows().filter({hasText:'多矿机项目'}).count(),1);
- checks.push('A failed parent reader leaves available singles visible, reports incomplete totals and recovers through explicit retry');
+ checks.push('A failed parent reader leaves available singles and the four switching category tabs visible, retains an explicit error and recovers through retry');
  await page.screenshot({path:join(out,'desktop-unified.png'),fullPage:true});
  await page.setViewportSize({width:390,height:844});await page.screenshot({path:join(out,'mobile-unified.png'),fullPage:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);

@@ -4,11 +4,13 @@ pragma solidity 0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IPoolVault} from "../interfaces/IPoolVault.sol";
 import {ITapeoutMining} from "../interfaces/ITapeoutMining.sol";
 import {ICircuitMarket} from "../interfaces/ICircuitMarket.sol";
-import {IFirstoSignedAskExchange} from "../interfaces/IFirstoExchange.sol";
+import {IFirstoSignedAskExchange, IFirstoBatchAskExchange} from "../interfaces/IFirstoExchange.sol";
 import {IPoolMachineRegistry} from "../interfaces/IPoolMachineRegistry.sol";
 import {PoolVaultState} from "../PoolVaultState.sol";
 import {PurchaseSelectionState} from "../PurchaseSelectionState.sol";
@@ -22,6 +24,17 @@ library FlexiblePurchase {
     address private constant MINING = 0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46;
     address private constant CIRCUIT_MARKET = 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f;
     address private constant FIRSTO_SIGNED_ASK = 0x33423244F9a5bF81b12B1a018aF6F4e079B97f29;
+    address private constant FIRSTO_BATCH_ASK = 0x3F58C9cbce933c76158B2A29B0d612c46546Dc43;
+    // Exact observed direct-contract runtime. Source/provenance review and a real-protocol
+    // fork are separate activation prerequisites; ABI/advertised API hashes are not this pin.
+    bytes32 private constant FIRSTO_BATCH_RUNTIME_HASH =
+        0x84072ba0b149f0cb72a8d1be49797ba293206d931407eeb2a25eeaf9f28db0b0;
+    bytes32 private constant BATCH_ASK_TYPEHASH = keccak256(
+        "BatchAsk(address maker,bytes32 merkleRoot,uint256 batchNonce,uint64 expiry,address payoutRecipient,uint16 feeBps,uint256 feeEpoch,uint16 schemaVersion)"
+    );
+    bytes32 private constant ASK_LEAF_TYPEHASH = keccak256(
+        "AskLeaf(address maker,address collection,uint256 tokenId,uint128 price,address payoutRecipient,uint16 feeBps,uint256 feeEpoch,uint256 batchNonce,uint256 leafIndex,uint16 schemaVersion)"
+    );
     address private constant PROTOCOL_FACTORY = 0x68224F668083c29e9800Be2a646d42d18cedF7e2;
     bytes32 private constant SIGNED_ASK_TYPEHASH = keccak256(
         "SignedAsk(address maker,address collection,uint256 tokenId,uint256 nonce,uint128 price,uint64 expiry,address payoutRecipient,uint16 feeBps,uint256 feeEpoch,uint16 schemaVersion)"
@@ -170,10 +183,14 @@ library FlexiblePurchase {
         s.totalBnbOwed += price;
     }
 
-    /// @notice Fixed signed-ask V2 purchase of the original target only. No caller-selected target or calldata.
-    /// @dev The separate batch ABI is intentionally not executable until its runtime provenance is resolved.
+    /// @notice Fixed single/batch signed purchase of the original target only; recipient is always this pool.
+    /// @dev kind=0 preserves SignedAsk V2; kind=1 consumes exactly one pinned BatchAsk V1 leaf.
     function buyFirsto(PoolVaultState.VaultStorage storage s, uint8 kind, bytes calldata encodedOrder) external {
         _requireWindow(s);
+        if (kind == 1) {
+            _buyBatch(s, encodedOrder);
+            return;
+        }
         if (kind != 0) revert IPoolVault.UnverifiedPurchaseRoute();
         // Bound work before decoding; the fixed exchange validates ECDSA or ERC-1271 signatures itself.
         if (block.chainid != 56 || encodedOrder.length < 384 || encodedOrder.length > 1408) {
@@ -226,6 +243,121 @@ library FlexiblePurchase {
         _requireFirstoFees(ask);
         if (selection.enabled) _allocateEntireSurplus(s, s.totalRaised - cost);
         emit FirstoPurchased(FIRSTO_SIGNED_ASK, orderHash, ask.tokenId, ask.price, fee, cost);
+    }
+
+    /// @dev Executes exactly one leaf of a batch-signed ask, with the NFT recipient fixed to this pool.
+    function _buyBatch(PoolVaultState.VaultStorage storage s, bytes calldata encodedOrder) private {
+        if (
+            block.chainid != 56 || encodedOrder.length < 704 || encodedOrder.length > 2752
+                || FIRSTO_BATCH_ASK.codehash != FIRSTO_BATCH_RUNTIME_HASH
+        ) revert IPoolVault.InvalidFirstoOrder();
+        (
+            IFirstoBatchAskExchange.BatchAsk memory batch,
+            IFirstoBatchAskExchange.AskLeaf memory leaf,
+            bytes32[] memory proof,
+            bytes memory signature
+        ) = abi.decode(
+            encodedOrder, (IFirstoBatchAskExchange.BatchAsk, IFirstoBatchAskExchange.AskLeaf, bytes32[], bytes)
+        );
+        if (
+            proof.length > 32 || signature.length > 1024
+                || keccak256(encodedOrder) != keccak256(abi.encode(batch, leaf, proof, signature))
+                || batch.maker == address(0) || batch.payoutRecipient == address(0) || leaf.price == 0
+                || batch.expiry <= block.timestamp || batch.schemaVersion != 1 || leaf.schemaVersion != 1
+                || leaf.maker != batch.maker || leaf.payoutRecipient != batch.payoutRecipient
+                || leaf.batchNonce != batch.batchNonce || leaf.feeBps != batch.feeBps || leaf.feeEpoch != batch.feeEpoch
+        ) revert IPoolVault.InvalidFirstoOrder();
+        bytes32 leafHash = keccak256(bytes.concat(keccak256(abi.encode(ASK_LEAF_TYPEHASH, leaf))));
+        if (batch.merkleRoot == bytes32(0) || !MerkleProof.verify(proof, batch.merkleRoot, leafHash)) {
+            revert IPoolVault.InvalidFirstoOrder();
+        }
+        if (!SignatureChecker.isValidSignatureNow(batch.maker, _batchAskHash(batch), signature)) {
+            revert IPoolVault.InvalidFirstoOrder();
+        }
+        _executeBatch(s, batch, leaf, proof, signature);
+    }
+
+    function _executeBatch(
+        PoolVaultState.VaultStorage storage s,
+        IFirstoBatchAskExchange.BatchAsk memory batch,
+        IFirstoBatchAskExchange.AskLeaf memory leaf,
+        bytes32[] memory proof,
+        bytes memory signature
+    ) private {
+        PurchaseSelectionState.SelectionStorage storage selection = _selection();
+        uint256 originalId = selection.enabled ? selection.referenceCircuitId : s.params.circuitId;
+        if (leaf.collection != s.params.circuits || leaf.tokenId != originalId || leaf.tokenId != s.params.circuitId) {
+            revert IPoolVault.WrongCircuit();
+        }
+        if (selection.enabled && !selection.modelInitialized) revert IPoolVault.PurchaseModelNotInitialized();
+        if (selection.enabled && selection.referenceVerifiedWeight == 0) {
+            revert IPoolVault.PurchasePricingNotInitialized();
+        }
+        if (_originalAvailable(s, selection)) revert IPoolVault.OriginalTargetAvailable();
+        _requireBatchAvailable(batch, leaf.leafIndex);
+        uint256 fee = uint256(leaf.price) * leaf.feeBps / 10_000;
+        uint256 cost = uint256(leaf.price) + fee;
+        if (cost > s.params.priceCap || cost > s.totalRaised) revert IPoolVault.OverPriceCap();
+        if (address(this).balance < s.totalBnbOwed + cost) revert IPoolVault.AccountingDeficit();
+        _requireFirstoQuality(selection, leaf.collection, leaf.tokenId, cost);
+        IPoolMachineRegistry(s.factory).claimMachine(leaf.collection, leaf.tokenId);
+        // Each leaf is a distinct purchase/settlement identity, even in a shared signed batch.
+        bytes32 orderHash = keccak256(bytes.concat(keccak256(abi.encode(ASK_LEAF_TYPEHASH, leaf))));
+        bytes32 key = PurchaseValidation.prepareFirstoPurchase(leaf.collection, leaf.tokenId, leaf.maker, orderHash);
+        _requireFirstoQuality(selection, leaf.collection, leaf.tokenId, cost);
+        _requireBatchAvailable(batch, leaf.leafIndex);
+        _expectNft(s, leaf.maker, FIRSTO_BATCH_ASK);
+        uint256 balanceBefore = address(this).balance;
+        IFirstoBatchAskExchange(FIRSTO_BATCH_ASK).fillAsk{value: cost}(batch, leaf, proof, signature, address(this));
+        if (address(this).balance != balanceBefore - cost) revert IPoolVault.PaymentMismatch();
+        _finish(s, cost, 2, 0, key);
+        _requireFirstoQuality(selection, leaf.collection, leaf.tokenId, cost);
+        _requireBatchFees(batch);
+        if (!IFirstoBatchAskExchange(FIRSTO_BATCH_ASK)
+                .isAskLeafInvalidated(batch.maker, batch.batchNonce, leaf.leafIndex)) {
+            revert IPoolVault.InvalidFirstoOrder();
+        }
+        if (selection.enabled) _allocateEntireSurplus(s, s.totalRaised - cost);
+        emit FirstoPurchased(FIRSTO_BATCH_ASK, orderHash, leaf.tokenId, leaf.price, fee, cost);
+    }
+
+    function _requireBatchAvailable(IFirstoBatchAskExchange.BatchAsk memory batch, uint256 index) private view {
+        _requireBatchFees(batch);
+        IFirstoBatchAskExchange exchange = IFirstoBatchAskExchange(FIRSTO_BATCH_ASK);
+        if (
+            exchange.batchCancelled(batch.maker, batch.batchNonce)
+                || exchange.isAskLeafInvalidated(batch.maker, batch.batchNonce, index)
+        ) {
+            revert IPoolVault.InvalidFirstoOrder();
+        }
+    }
+
+    function _requireBatchFees(IFirstoBatchAskExchange.BatchAsk memory batch) private view {
+        IFirstoBatchAskExchange exchange = IFirstoBatchAskExchange(FIRSTO_BATCH_ASK);
+        if (
+            FIRSTO_BATCH_ASK.codehash != FIRSTO_BATCH_RUNTIME_HASH || exchange.factory() != PROTOCOL_FACTORY
+                || exchange.paused() || exchange.BATCH_ASK_SCHEMA_VERSION() != 1
+        ) {
+            revert IPoolVault.InvalidFirstoOrder();
+        }
+        if (
+            batch.feeBps > 10_000 || batch.feeEpoch != exchange.feeEpoch()
+                || batch.feeBps != exchange.defaultTakerFeeBps()
+                || batch.feeBps != exchange.feeBpsAtEpoch(batch.feeEpoch)
+        ) revert IPoolVault.FirstoFeeChanged();
+    }
+
+    function _batchAskHash(IFirstoBatchAskExchange.BatchAsk memory batch) private view returns (bytes32) {
+        bytes32 domain = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("Firsto Circuit Batch Ask"),
+                keccak256("1"),
+                block.chainid,
+                FIRSTO_BATCH_ASK
+            )
+        );
+        return keccak256(abi.encodePacked("\x19\x01", domain, keccak256(abi.encode(BATCH_ASK_TYPEHASH, batch))));
     }
 
     function _requireFirstoFees(IFirstoSignedAskExchange.SignedAsk memory ask) private view {

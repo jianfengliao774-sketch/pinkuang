@@ -51,6 +51,12 @@ export function configureFreshPurchase(options, env = process.env, dependencies 
     targetOwnerArtifactPath: env.BEMINE_TARGET_OWNER_ARTIFACT_PATH,
     trustedTargetOwnerCatalogDigest: env.BEMINE_TARGET_OWNER_CATALOG_DIGEST,
     trustedTargetOwnerArtifactDigest: env.BEMINE_TARGET_OWNER_ARTIFACT_DIGEST,
+    firstoBatchCatalogPath: env.BEMINE_FIRSTO_BATCH_CATALOG_PATH,
+    firstoBatchArtifactPath: env.BEMINE_FIRSTO_BATCH_ARTIFACT_PATH,
+    firstoBatchProtocolReviewPath: env.BEMINE_FIRSTO_BATCH_PROTOCOL_REVIEW_PATH,
+    trustedFirstoBatchCatalogDigest: env.BEMINE_FIRSTO_BATCH_CATALOG_DIGEST,
+    trustedFirstoBatchArtifactDigest: env.BEMINE_FIRSTO_BATCH_ARTIFACT_DIGEST,
+    trustedFirstoBatchProtocolReviewDigest: env.BEMINE_FIRSTO_BATCH_PROTOCOL_REVIEW_DIGEST,
   });
   if (!trusted?.bundle?.artifacts?.FreshPoolFactory || !trusted?.freshAuthority
     || !same(options.factory, trusted.record.addresses.factory)
@@ -74,6 +80,14 @@ export async function verifyFreshPurchaseGraph(provider, options, guard, depende
     throw new Error('Fresh purchase graph or Gas-wallet binding changed.');
   if (options.send) await (dependencies.verifyDrain ?? verifyFreshLegacyDrain)(provider, freshGraphIdentity(graph), {allowCurrentPending:options.reconcileExisting === true});
   return { block, graph };
+}
+
+/** Only the independent graph verifier's current result may enable batch leaves.
+ * CLI options and quote responses cannot supply this capability in fresh mode. */
+export function freshPurchaseOrderOptions(options, proof) {
+  const capability = proof?.graph?.firstoBatchPurchase;
+  return { ...options, firstoBatchPurchase: capability?.active === true && capability.protocolReviewed === true
+    ? Object.freeze({ ...capability }) : undefined };
 }
 
 export async function verifyFreshPurchasePool(provider, options, guard, pool, dependencies = {}) {

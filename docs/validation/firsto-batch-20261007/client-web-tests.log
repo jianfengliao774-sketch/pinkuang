@@ -1,0 +1,28 @@
+✔ batch listing stays reference-only until independent protocol and upgraded capability are enabled (18.922459ms)
+✔ reviewed batch leaf can prepare a fixed fee-inclusive draft and exact pool kind1 calldata (43.024625ms)
+✔ valid original official listing wins without loading or checking a batch order (3.849708ms)
+✔ closed gate, old implementation, moved owner and invalidated leaf never produce a batch purchase draft (29.46875ms)
+✔ wallet stage rejects kind1 without current capability and never widens unknown kind (15.764166ms)
+✔ display-only batch fallback still prefers a complete official same-task alternative (21.586125ms)
+✔ quote directory GET is shared across cleanup/remount and returning to the operator page (76.968083ms)
+✔ SSE and manual refresh update rows without hiding the last page; selections are never cached (20.137542ms)
+✔ public quote cache isolates filters, source, page and revision; expiry and eviction trigger reads (0.713958ms)
+✔ known miner ID selects exact official identity directly without relying on a directory match (3.801916ms)
+✔ selected batch ask retains its own daily price and explains why fixed creation is unavailable (6.338125ms)
+✔ batch reference does not replace an available official purchase price or disable its fixed draft (4.070292ms)
+✔ official index reference keeps its actual market label when the chain has no executable listing (3.97ms)
+✔ flexible reference remains available for batch metadata while unfinished registry retains its real reason (7.945208ms)
+✔ expired batch reference is not presented as the current miner listing price (3.912667ms)
+✔ viewing unlisted #10042 shows its model and daily yield without an error or fixed procurement permission (4.10725ms)
+✔ a fresh unlisted reference may fill only the flexible form and retains the checked metadata (8.134542ms)
+✔ fresh selected metadata replaces only the same NFT directory row and removes its obsolete signed ask (4.74225ms)
+✔ a stale market reference cannot enable flexible unlisted creation (4.082625ms)
+✔ failed capacity reference remains visible without immediately repeating the paid GET (5.315959ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 427.669541

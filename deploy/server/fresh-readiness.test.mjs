@@ -13,6 +13,13 @@ import { freshGraphIdentity, validateFreshWorker } from '../shared/fresh-runtime
 import {freshIndexManifestBytes,freshIndexManifestSha256} from './chain-index/fresh-manifest.mjs';
 const a=n=>'0x'+n.toString(16).padStart(40,'0'), h=n=>'0x'+n.toString(16).padStart(64,'0');
 const stamp=2_000_000_000_000, sourceHead='a'.repeat(40);
+async function until(predicate) {
+ for(let attempt=0;attempt<20;attempt++) {
+  if(predicate())return;
+  await new Promise(resolve=>setImmediate(resolve));
+ }
+ assert.fail('Expected concurrent proof reads did not start.');
+}
 function fixture(){
  const names={factory:'factory',shareMarket:'shareMarket',portfolioFactory:'portfolioFactory',portfolioMarket:'portfolioShareMarket',lens:'lens',beacon:'beacon',timelock:'timelock',portfolioBeacon:'portfolioBeacon',portfolioImplementation:'BudgetPortfolioVault',portfolioFactoryImplementation:'BudgetPortfolioFactory'};
  const addresses={FreshPoolFactory:a(30)},code={},codehash={},manifest={kind:'fresh-v4-index',chainId:56,artifactDigest:h(40),deployment:{txHash:h(1),blockNumber:100,blockHash:h(100)},verifiedBlockNumber:110,verifiedBlockHash:h(110),authority:a(20),gasWallet:a(21),freshAuthority:{codehash:h(20),deploymentTxHash:h(20),administratorOne:a(22),administratorTwo:a(23)}};
@@ -251,10 +258,101 @@ test('machine readiness validates live systemd identity, full graph and each hea
  const f=fixture(),read=createFreshMachineReadiness({provider:f.provider,verifyGraph:async()=>f.graph,sourceHead,now:()=>stamp,readWorker:f.pulse,unitState:async name=>name.includes('-v4-')?f.unit:f.oldUnit,drainOptions:{readDrain:()=>f.drain}});
  assert.equal((await read()).ready,true);f.unit.InvocationID='e'.repeat(32);await assert.rejects(read,/systemd/);
 });
+test('machine readiness starts both worker proofs and old-sender drain together, then checks the graph anchor',async()=>{
+ const f=fixture(),started=[],release=new Map(),blocks=[];
+ const unitState=name=>new Promise(resolve=>{started.push(name);release.set(name,resolve);});
+ const provider={...f.provider,getBlock:async number=>{blocks.push(number);return f.provider.getBlock(number);}};
+ const read=createFreshMachineReadiness({provider,verifyGraph:async()=>f.graph,sourceHead,now:()=>stamp,
+  readWorker:f.pulse,unitState,drainOptions:{readDrain:()=>f.drain}});
+ const task=read();
+ try {
+  await until(()=>started.length===3);
+  assert.deepEqual(new Set(started),new Set(['pinkuang-v4-purchase.service','pinkuang-v4-mining.service','pinkuang-purchase-v2.service']));
+  assert.equal(blocks.length,0,'no worker or canonical block read bypasses its service proof');
+ } finally {
+  for(const [name,resolve] of release)resolve(name.includes('-v4-')?f.unit:f.oldUnit);
+ }
+ assert.equal((await task).ready,true);
+ assert.equal(blocks.at(-1),f.graph.blockNumber,'the graph anchor remains the final check');
+});
+test('a failed worker waits for the already-started worker and drain reads before rejecting',async()=>{
+ const f=fixture(),started=[],release=new Map();
+ const unitState=name=>new Promise((resolve,reject)=>{started.push(name);release.set(name,{resolve,reject});});
+ const read=createFreshMachineReadiness({provider:f.provider,verifyGraph:async()=>f.graph,sourceHead,now:()=>stamp,
+  readWorker:f.pulse,unitState,drainOptions:{readDrain:()=>f.drain}});
+ const task=read();let returned=false;void task.finally(()=>{returned=true;}).catch(()=>{});
+ await until(()=>started.length===3);
+ release.get('pinkuang-v4-purchase.service').reject(new Error('controlled worker failure'));
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(returned,false,'a failed worker cannot leave the other active reads behind');
+ for(const [name,entry] of release)if(name!=='pinkuang-v4-purchase.service')
+  entry.resolve(name.includes('-v4-')?f.unit:f.oldUnit);
+ await assert.rejects(task,/controlled worker failure/);
+});
 test('root drain rejects enabled old service and noncanonical/incorrect-status terminal receipt',async()=>{
  const f=fixture(),opts={readDrain:()=>f.drain,unitState:async()=>f.oldUnit};assert.equal((await verifyFreshLegacyDrain(f.provider,f.identity,opts)).oldSendersDisabled,true);
  f.oldUnit.UnitFileState='enabled';await assert.rejects(verifyFreshLegacyDrain(f.provider,f.identity,opts),/active or enabled/);f.oldUnit.UnitFileState='disabled';
  f.drain.journals[0].phase='reverted';await assert.rejects(verifyFreshLegacyDrain(f.provider,f.identity,opts),/canonical finalized/);
+});
+test('eight old journals verify at most four complete RPC triplets at once',async()=>{
+ const f=fixture(),started=[];let active=0,highWater=0,releaseFirst,releaseSecond;
+ const first=new Promise(resolve=>{releaseFirst=resolve;}),second=new Promise(resolve=>{releaseSecond=resolve;});
+ f.drain.cutoverNonce=f.drain.latestNonce=f.drain.pendingNonce=8;
+ f.drain.journals=Array.from({length:8},(_,nonce)=>({...f.drain.journals[0],nonce,
+  txHash:h(70+nonce),blockNumber:90+nonce,blockHash:h(90+nonce)}));
+ f.provider.getTransactionCount=async()=>8;
+ f.provider.getTransaction=async hash=>{
+  const nonce=Number(BigInt(hash))-70;started.push(nonce);active++;highWater=Math.max(highWater,active);
+  try{await (nonce<4?first:second);return {hash,chainId:56n,from:a(21),nonce};}
+  finally{active--;}
+ };
+ f.provider.getTransactionReceipt=async hash=>{const nonce=Number(BigInt(hash))-70;
+  return {hash,status:1,blockNumber:90+nonce,blockHash:h(90+nonce)};};
+ const task=verifyFreshLegacyDrain(f.provider,f.identity,{readDrain:()=>f.drain,unitState:async()=>f.oldUnit});
+ try {
+  await until(()=>started.length===4);
+  assert.equal(highWater,4);assert.equal(started.length,4);
+  releaseFirst();await until(()=>started.length===8);
+  assert.equal(highWater,4);assert.equal(active,4);
+ } finally {releaseFirst();releaseSecond();}
+ assert.equal((await task).oldSendersDisabled,true);
+ assert.deepEqual([...started].sort((x,y)=>x-y),[0,1,2,3,4,5,6,7]);
+});
+test('asynchronous journal failure waits for active triplets and starts no extra rows',async()=>{
+ const f=fixture(),started=[];let release;
+ const held=new Promise(resolve=>{release=resolve;});
+ f.drain.cutoverNonce=f.drain.latestNonce=f.drain.pendingNonce=8;
+ f.drain.journals=Array.from({length:8},(_,nonce)=>({...f.drain.journals[0],nonce,
+  txHash:h(70+nonce),blockNumber:90+nonce,blockHash:h(90+nonce)}));
+ f.provider.getTransactionCount=async()=>8;
+ f.provider.getTransaction=async hash=>{
+  const nonce=Number(BigInt(hash))-70;started.push(nonce);
+  if(nonce===0)throw new Error('controlled journal RPC failure');
+  await held;return {hash,chainId:56n,from:a(21),nonce};
+ };
+ f.provider.getTransactionReceipt=async hash=>{const nonce=Number(BigInt(hash))-70;
+  return {hash,status:1,blockNumber:90+nonce,blockHash:h(90+nonce)};};
+ const task=verifyFreshLegacyDrain(f.provider,f.identity,{readDrain:()=>f.drain,unitState:async()=>f.oldUnit});
+ let returned=false;void task.finally(()=>{returned=true;}).catch(()=>{});
+ try {
+  await until(()=>started.length===4);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(returned,false,'the rejection must wait for three already-started rows');
+  assert.equal(started.length,4,'a rejected lane must not schedule another row');
+ } finally {release();}
+ await assert.rejects(task,/controlled journal RPC failure/);
+ assert.equal(started.length,4,'no remaining row may start after failure');
+});
+test('a synchronous RPC throw still starts and settles the remaining reads in its triplet',async()=>{
+ const f=fixture();let receiptStarted=false,releaseReceipt;
+ f.provider.getTransaction=()=>{throw new Error('controlled synchronous RPC failure');};
+ f.provider.getTransactionReceipt=()=>{receiptStarted=true;return new Promise(resolve=>{releaseReceipt=resolve;});};
+ const task=verifyFreshLegacyDrain(f.provider,f.identity,{readDrain:()=>f.drain,unitState:async()=>f.oldUnit});
+ let returned=false;void task.finally(()=>{returned=true;}).catch(()=>{});
+ await until(()=>receiptStarted);
+ assert.equal(returned,false,'readiness must wait for the already-started receipt read');
+ releaseReceipt({hash:h(70),status:1,blockNumber:90,blockHash:h(90)});
+ await assert.rejects(task,/controlled synchronous RPC failure/);
 });
 test('v4 own pending nonce blocks NEW signing readiness but not existing journal reconciliation',async()=>{
  const f=fixture(),opts={readDrain:()=>f.drain,unitState:async()=>f.oldUnit};f.provider.getTransactionCount=async(_a,tag)=>tag==='pending'?3:2;
@@ -275,19 +373,18 @@ test('machine IPC uses replay-protected HMAC and never produces a wallet signatu
  }finally{await new Promise(resolve=>server.close(resolve));}
 });
 
-test('fresh public relay POST requires current graph/index readiness; GET recovery remains available',async()=>{
- const key=Buffer.alloc(32,7),account=a(22),origin='https://bemine.example';let forwarded=0,ready=false;
+test('fresh public relay leaves current-state verification to the signer for POST and GET',async()=>{
+ const key=Buffer.alloc(32,7),account=a(22),origin='https://bemine.example';let forwarded=0,readinessChecks=0;
  const signer=createAuthoritySignerServer({handle(req,res){forwarded++;res.end(JSON.stringify({status:'pending'}));}},key);
  await new Promise(resolve=>signer.listen(0,'127.0.0.1',resolve));
  const config={socketPath:'/test/relay.sock',origin,key,freshProductRequired:true};
- assert.throws(()=>createAuthorityRelayProxy(config),/independent graph and index/);
- const proxy=createAuthorityRelayProxy(config,{store:{session:()=>account,close(){}},verifyAdministrator:async()=>{},verifyOperationalReadiness:async()=>{if(!ready)throw Error('index stale');},
+ const proxy=createAuthorityRelayProxy(config,{store:{session:()=>account,close(){}},verifyAdministrator:async()=>{},verifyOperationalReadiness:async()=>{readinessChecks++;throw Error('index stale');},
  transport:(options,callback)=>httpRequest({...options,socketPath:undefined,hostname:'127.0.0.1',port:signer.address().port},callback)});
  const {createServer}=await import('node:http'),server=createServer((req,res)=>proxy.handle(req,res));await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  const base=`http://127.0.0.1:${server.address().port}/api/journal/authority-relay`,headers={origin,cookie:'pinkuang_journal='+'a'.repeat(43),'x-pinkuang-account':account,'content-type':'application/json'};
- try{assert.equal((await fetch(base,{method:'POST',headers,body:'{}'})).status,503);assert.equal(forwarded,0);
- assert.equal((await fetch(base+'/status',{headers})).status,200);assert.equal(forwarded,1);
- ready=true;assert.equal((await fetch(base,{method:'POST',headers,body:'{}'})).status,200);assert.equal(forwarded,2);
+ try{assert.equal((await fetch(base,{method:'POST',headers,body:'{}'})).status,200);assert.equal(forwarded,1);
+ assert.equal((await fetch(base+'/status',{headers})).status,200);assert.equal(forwarded,2);
+ assert.equal(readinessChecks,0);
  }finally{await new Promise(resolve=>server.close(resolve));await new Promise(resolve=>signer.close(resolve));proxy.close();}
 });
 

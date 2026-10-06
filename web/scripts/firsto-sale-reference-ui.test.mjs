@@ -49,12 +49,12 @@ test('all wallets see only backend status; visible polling never requests a sign
 test('only a fresh confirmed result refreshes governance, once per exact quote',async()=>{
   const ui=harness({statuses:[result('pending'),result('confirmed'),result('confirmed'),result('confirmed',{observedAt:1790905000})]});
   try{await ui.settle();assert.equal(ui.updates,0);ui.tick();await ui.settle();assert.equal(ui.updates,1);
-    ui.tick();await ui.settle();assert.equal(ui.updates,1);ui.tick();await ui.settle();assert.equal(ui.updates,2);assert.match(ui.text(),/0.03444/);
+    ui.tick();await ui.settle();assert.equal(ui.updates,1);ui.tick();await ui.settle();assert.equal(ui.updates,2);assert.match(ui.text(),/0\.0344/);
   }finally{ui.dispose();}
 });
 test('stale or unavailable status retains displayed quote but cannot report confirmation',async()=>{
   const stale=result('confirmed');stale.stale=true;const ui=harness({statuses:[stale]});try{
-    await ui.settle();assert.equal(ui.updates,0);assert.match(ui.text(),/保留最近参考价/);assert.match(ui.text(),/0.03444/);
+    await ui.settle();assert.equal(ui.updates,0);assert.match(ui.text(),/保留最近参考价/);assert.match(ui.text(),/0\.0344/);
   }finally{ui.dispose();}
   const failed=harness({reject:true});try{await failed.settle();assert.equal(failed.updates,0);assert.match(failed.text(),/暂不可用/);
     assert.equal(failed.nextDelay,30000);failed.tick();await failed.settle();assert.equal(failed.reads,2);

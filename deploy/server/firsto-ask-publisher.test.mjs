@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Interface } from 'ethers';
 import { createFirstoNativeAsk } from '../shared/firsto-native-ask.mjs';
+import { nativeSaleCompatibilityFixture } from '../shared/native-sale-compatibility-test-fixture.mjs';
 import { createFirstoAskPublisher, createFirstoAskApiWorker, firstoAskPublisherConfiguration, readNativeFirstoAsk, trackFirstoAsks,
   FIRSTO_ASK_API_ORIGIN, FIRSTO_NATIVE_SIGNATURE } from './firsto-ask-publisher.mjs';
 
@@ -38,9 +39,9 @@ function fixture(options = {}) {
   const provider = { send: async method => { assert.equal(method, 'eth_chainId'); return options.chainId ?? '0x38'; },
     broadcastTransaction: () => assert.fail('the publication worker cannot broadcast'),
     getSigner: () => assert.fail('the publication worker cannot sign') };
-  const create = () => createFirstoAskPublisher({ config, provider, factory,
+  const create = () => createFirstoAskPublisher({ config, provider, factory: options.graph?.factory ?? factory,
     verifyDeployment: async () => { graphReads++; if (options.graphError) throw new Error('unapproved graph');
-      return options.oldGraph ? {} : { nativeSaleUpgrade: { version: 1 } }; },
+      return options.graph ?? (options.oldGraph ? {} : { nativeSaleUpgrade: { version: 1 } }); },
     hasPendingSaleIntent: async () => { intentReads++; return options.pending?.(intentReads) ?? false; },
     publishStatus: (_path, value) => statuses.push(structuredClone(value)), dependencies });
   const publisher = create();
@@ -72,6 +73,18 @@ test('legacy capability and inactive native authorization never contact the publ
   const old = fixture({ oldGraph: true }); await old.publisher.tick();
   assert.equal(old.calls.length, 0); assert.equal(old.nativeReads, 0); assert.equal(old.publisher.snapshot().enabled, false);
   await old.publisher.close();
+});
+
+test('verified successor publishes normally; public JSON and incomplete successor claims cannot publish', async () => {
+  const reviewed = await nativeSaleCompatibilityFixture(), graph = await reviewed.makeGraph();
+  const f = fixture({ graph }); await f.publisher.tick();
+  assert.equal(posts(f).length, 1); assert.equal(f.row.status, 'publication-accepted'); await f.publisher.close();
+  for (const denied of [structuredClone(graph), { ...graph, nativeSaleCompatibility: undefined },
+    { ...graph, transactionReady: false }, { ...graph, codehash: {} }]) {
+    const blocked = fixture({ graph: denied }); await blocked.publisher.tick();
+    assert.equal(blocked.calls.length, 0); assert.equal(blocked.nativeReads, 0);
+    assert.equal(blocked.publisher.snapshot().enabled, false); await blocked.publisher.close();
+  }
 });
 
 test('expired native listings are marked expired without posting or pretending the pool closed', async () => {

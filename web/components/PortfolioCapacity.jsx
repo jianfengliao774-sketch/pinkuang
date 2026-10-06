@@ -8,6 +8,9 @@ export default function PortfolioCapacity({config,provider,portfolio,locale}){
   const en=locale==='en',L=(zh,english)=>en?english:zh;
   const [quote,setQuote]=useState(null),[busy,setBusy]=useState(false),[progress,setProgress]=useState(null),[now,setNow]=useState(Date.now());
   const request=useRef(null);
+  const holdingsKey=JSON.stringify([portfolio.pool, String(portfolio.childCount),
+    ...(portfolio.children || []).map(child=>[child.pool, String(child.state), child.sold===true])]);
+  useEffect(()=>{request.current?.abort();request.current=null;setQuote(null);setBusy(false);setProgress(null);},[holdingsKey]);
   useEffect(()=>()=>request.current?.abort(),[]);
   useEffect(()=>{if(!quote?.available)return;const remaining=quote.validUntil-Date.now();if(remaining<=0){setNow(Date.now());return;}const timer=setTimeout(()=>setNow(Date.now()),remaining+1);return()=>clearTimeout(timer);},[quote]);
   async function load(){request.current?.abort();const abort=new AbortController();request.current=abort;setBusy(true);setQuote(null);setProgress(null);

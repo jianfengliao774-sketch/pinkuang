@@ -1,5 +1,5 @@
 // Keep older snapshots for instant display, but only skip a server GET briefly.
-export const DISPLAY_REFRESH_REUSE_MS = 15_000;
+export const DISPLAY_REFRESH_REUSE_MS = 30_000;
 export function displayRefreshPageKey(route, account) {
   return JSON.stringify([route.route, route.pool?.toLowerCase() || '', account?.toLowerCase() || '']);
 }
@@ -21,8 +21,8 @@ export function canReuseDisplayRead(entry, generation, now = Date.now()) {
  * Preserve input previews and in-flight reads, while allowing pending/result
  * status to coexist with fresh balances and purchase progress. */
 export function displayRefreshPaused(state = {}, {
-  displayOnly = false, portfolioBusy = false, pastFirstRecordsPage = false,
+  displayOnly = false, portfolioBusy = false, pastFirstRecordsPage = false, displayReading = false,
 } = {}) {
-  return !!(state.loading || state.busy || state.inputModal || portfolioBusy || pastFirstRecordsPage
+  return !!(state.loading || state.busy || state.inputModal || portfolioBusy || pastFirstRecordsPage || displayReading
     || !displayOnly && (state.modal || state.pending));
 }

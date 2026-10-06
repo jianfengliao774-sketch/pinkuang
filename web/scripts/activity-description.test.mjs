@@ -26,8 +26,8 @@ test('all actual public index event types have both language descriptions', () =
 test('project creation shows real budget and project identity, not an invented creator or paid balance', () => {
   const entry = describeActivity(row('PortfolioCreated', { portfolio: pool, budgetWei: '1200000000000000000', absoluteCapWei: '300000000000000000', unitCapWei: '100000000000' }));
   assert.equal(entry.label, '创建多矿机项目');
-  assert.equal(fact(entry, '募集预算'), '1.20000 BNB');
-  assert.equal(fact(entry, '单机总价上限'), '0.30000 BNB');
+  assert.equal(fact(entry, '募集预算'), '1.2000 BNB');
+  assert.equal(fact(entry, '单机总价上限'), '0.3000 BNB');
   assert.match(entry.description, /不是认购付款/);
   assert.deepEqual(entry.facts.map(item => item.label), ['项目', '募集预算', '单机总价上限']);
   const single = describeActivity(row('PoolCreated', { circuitId: '9007199254740993', targetRaise: '1000000000000000000' }));
@@ -37,15 +37,15 @@ test('both member/user ABIs retain exact integers and display BNB / BEM separate
   for (const key of ['member', 'user']) {
     const subscription = describeActivity(row('Deposited', { [key]: account, shares: '7', amount: '12345000000000000' }));
     assert.equal(fact(subscription, '份数'), '7');
-    assert.equal(fact(subscription, '认购款'), '0.01235 BNB');
+    assert.equal(fact(subscription, '认购款'), '0.0123 BNB');
     const claim = describeActivity(row('BemClaimed', { [key]: account, amount: '123450000' }));
-    assert.equal(fact(claim, '已领取'), '1.23450 BEM');
+    assert.equal(fact(claim, '已领取'), '1.2345 BEM');
     assert.match(claim.description, /转入领取账户/);
   }
   const trade = describeActivity(row('OrderFilled', { buyer: account, amount: '3', gross: '2000000000000000000', fee: '20000000000000000' }));
   assert.equal(fact(trade, '成交份数'), '3');
-  assert.equal(fact(trade, '成交基价'), '2.00000 BNB');
-  assert.equal(fact(trade, '卖方费用'), '0.02000 BNB');
+  assert.equal(fact(trade, '成交基价'), '2.0000 BNB');
+  assert.equal(fact(trade, '卖方费用'), '0.0200 BNB');
 });
 test('refund, surplus and sale credits are never described as paid to the wallet', () => {
   for (const event of ['DepositWithdrawn', 'PurchaseSurplusSettled', 'SaleProceedsSettled']) {
@@ -61,19 +61,19 @@ test('refund, surplus and sale credits are never described as paid to the wallet
 test('parent allocations and receipts are not personal claims or an assumed successful purchase', () => {
   const acquisition = describeActivity(row('AcquisitionFinalized', { children: '0', spent: '0', officialFee: '0', refundableToMembers: '5000000000000000' }));
   assert.equal(fact(acquisition, '已购矿机数'), '0');
-  assert.equal(fact(acquisition, '成员可退余款'), '0.00500 BNB');
+  assert.equal(fact(acquisition, '成员可退余款'), '0.0050 BNB');
   assert.match(acquisition.description, /成员仍需领取/);
   assert(!/购机成功/.test(acquisition.description));
   assert.match(describeActivity(row('BemCollected', { child: pool, received: '500000000' })).description, /转入预算项目/);
-  assert.equal(fact(describeActivity(row('BemCollected', { received: '500000000' })), '项目收到'), '5.00000 BEM');
+  assert.equal(fact(describeActivity(row('BemCollected', { received: '500000000' })), '项目收到'), '5.0000 BEM');
   assert.match(describeActivity(row('ChildSaleSettled')).description, /成员再按权益领取/);
 });
 test('purchase/sale detail logs identify the same trade and do not double-count or mislabel fees', () => {
   const sale = describeActivity(row('SaleCompleted', { gross: '1000000000000000000', toPlatform: '10000000000000000', toMembers: '990000000000000000', burnedBem: '123450000' }));
-  assert.equal(fact(sale, '成交基价'), '1.00000 BNB');
-  assert.equal(fact(sale, '销毁'), '1.23450 BEM');
+  assert.equal(fact(sale, '成交基价'), '1.0000 BNB');
+  assert.equal(fact(sale, '销毁'), '1.2345 BEM');
   const firsto = describeActivity(row('FirstoSaleCompleted', { gross: '1000000000000000000', takerFee: '10000000000000000' }));
-  assert.equal(fact(firsto, 'Firsto 买方费用'), '0.01000 BNB');
+  assert.equal(fact(firsto, 'Firsto 买方费用'), '0.0100 BNB');
   assert.match(firsto.description, /不是第二次出售/);
   assert.match(describeActivity(row('FirstoPurchased')).description, /不是另一次付款/);
   assert.match(describeActivity(row('Funded')).description, /进入购机阶段/);
@@ -102,7 +102,7 @@ test('missing, fractional, unsafe, negative and oversized amount fields are not 
     assert.equal(fact(entry, '账户'), undefined);
     assert.equal(fact(entry, '份数'), '2');
   }
-  assert.equal(fact(describeActivity(row('Deposited', { amount: 0n })), '认购款'), '0.00000 BNB');
+  assert.equal(fact(describeActivity(row('Deposited', { amount: 0n })), '认购款'), '0.0000 BNB');
 });
 test('unknown events stay inspectable and raw CSV retains every original log and exact field', () => {
   for (const event of ['FutureUnknown', 'toString', '__proto__']) assert.equal(describeActivity(row(event)).rawEvent, event);

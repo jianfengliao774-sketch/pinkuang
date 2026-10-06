@@ -1,0 +1,27 @@
+{
+  "kind": "firsto-current-pool-local-fork-forge-v1",
+  "checkedAtUtc": "2026-10-06T16:32:48Z",
+  "sourceBlock": 126092616,
+  "sourceMode": "fresh latest BSC state via read-only remote RPC into local Anvil; no historical archive claim",
+  "testPath": "/private/tmp/bemine-firsto-batch-contract-20261007/contracts/test/fork/FirstoBatchCurrentPoolFork.t.sol",
+  "testSha256": "0e3d83332c7bf6933e77a3a5fce5732ae19fac6c5ca1a5c28f281e060164de6e",
+  "sourceHeadAtRun": "f40eb4012100c922a653feda9b8cc14e8658807d",
+  "forgeExit": 0,
+  "suiteResult": "ok. 1 passed; 0 failed; 0 skipped",
+  "testName": "test_Fork_RealBatchLeafSettlesSellerAndDeliversOnlyExactNftToActualPool",
+  "gasUsed": 643065,
+  "grossSpendWei": "69811200000000000",
+  "publicBatchDigest": "0x245c3ed9094b1d3baaa0dc3b25386e68dde7fce70ee4e2e083f619037c256b8a",
+  "logPath": "/private/tmp/bemine-firsto-batch-provenance-20261007/current-pool-forge-test.log",
+  "logSha256": "1e59fde34af2d02a4cae9337c8810e668966dd4f52f1669dbcf8b3c757cfdff5",
+  "remoteReadRpcCalls": 183,
+  "mainnetTransactionsByAudit": 0,
+  "note": "Launcher returned exit 1 due to summary parser expecting uppercase PASSED; Forge itself exited 0 and reported 1 passed. Launcher parser corrected after this run without retesting.",
+  "candidateRootHeadAtComparison": "ea08afe8e361d20d8dbc0df17b5fe65abecbe081",
+  "candidateRootRelevantSourcesMatch": true,
+  "matchedSourcePaths": [
+    "contracts/src/PoolVault.sol",
+    "contracts/src/libraries/FirstoSale.sol",
+    "contracts/src/interfaces/IFirstoExchange.sol"
+  ]
+}

@@ -140,15 +140,15 @@ const batchSelection = () => ({ chain: { collection: address, tokenId: '5181', o
 test('selected batch ask retains its own daily price and explains why fixed creation is unavailable', async () => {
   const f = moduleFixture(undefined, { loadSelected: batchSelection }), ui = f.host(props);
   await ui.settle(); button(ui, '选择矿机').onClick(); await ui.settle();
-  assert.match(text(ui.tree), /Firsto挂单日产能价：7\.42984 BNB \/ \(BEM \/ 天\)（挂牌参考/);
-  assert.match(text(ui.tree), /全市场参考日产能价：7\.50000 BNB/);
+  assert.match(text(ui.tree), /Firsto挂单日产能价：7\.4298 BNB \/ \(BEM \/ 天\)（挂牌参考/);
+  assert.match(text(ui.tree), /全市场参考日产能价：7\.5000 BNB/);
   assert.match(text(ui.tree), /Firsto 确有这台矿机的批量挂单/);
   assert.match(text(ui.tree), /上方选择“单台矿机灵活替代”/);
   assert.doesNotMatch(text(ui.tree), /当前没有本项目可采购的官网挂单/);
   const apply = button(ui, '填入建池表单');
   assert.equal(apply.disabled, true);
   const reason = elements(ui.tree).find(item => item.props?.id === apply['aria-describedby']);
-  assert.match(text(reason), /Firsto 批量订单.*当前矿池合约不支持采购/);
+  assert.match(text(reason), /Firsto 批量订单暂不可采购/);
   ui.unmount();
 });
 
@@ -157,7 +157,7 @@ test('batch reference does not replace an available official purchase price or d
   selected.chain.firstoError = null;
   const f = moduleFixture(undefined, { loadSelected: () => selected }), ui = f.host(props);
   await ui.settle(); button(ui, '选择矿机').onClick(); await ui.settle();
-  assert.match(text(ui.tree), /官网挂单日产能价：0\.21633 BNB/);
+  assert.match(text(ui.tree), /官网挂单日产能价：0\.2163 BNB/);
   assert.doesNotMatch(text(ui.tree), /挂牌参考，尚无可执行采购路线|不能用于“指定单台矿机”/);
   assert.equal(button(ui, '填入建池表单').disabled, false);
   ui.unmount();
@@ -167,7 +167,7 @@ test('official index reference keeps its actual market label when the chain has 
   const selected = batchSelection(); selected.quote.ask.venue = 'official'; selected.chain.firstoError = null;
   const f = moduleFixture(undefined, { loadSelected: () => selected }), ui = f.host(props);
   await ui.settle(); button(ui, '选择矿机').onClick(); await ui.settle();
-  assert.match(text(ui.tree), /官网挂单日产能价：7\.42984 BNB/);
+  assert.match(text(ui.tree), /官网挂单日产能价：7\.4298 BNB/);
   assert.match(text(ui.tree), /官网已返回这台矿机的挂单，但当前没有可执行的采购路线/);
   assert.doesNotMatch(text(ui.tree), /Firsto挂单日产能价|Firsto 确有这台矿机的批量挂单/);
   assert.equal(button(ui, '填入建池表单').disabled, true);
@@ -179,7 +179,7 @@ test('flexible reference remains available for batch metadata while unfinished r
   const allowed = moduleFixture(undefined, { loadSelected: batchSelection }), ui = allowed.host(flexibleProps);
   await ui.settle(); button(ui, '选择矿机').onClick(); await ui.settle();
   assert.equal(button(ui, '填入建池表单').disabled, false);
-  assert.match(text(ui.tree), /当前矿池合约不支持采购该批量订单/);
+  assert.match(text(ui.tree), /批量采购能力尚未核验可用/);
   ui.unmount();
   const selected = batchSelection(); selected.chain.registry.ready = false;
   const blocked = moduleFixture(undefined, { loadSelected: () => selected });
@@ -196,7 +196,7 @@ test('expired batch reference is not presented as the current miner listing pric
   const f = moduleFixture(undefined, { loadSelected: () => selected }), ui = f.host(props);
   await ui.settle(); button(ui, '选择矿机').onClick(); await ui.settle();
   assert.match(text(ui.tree), /当前市场挂单日产能价：—/);
-  assert.doesNotMatch(text(ui.tree), /7\.42984/);
+  assert.doesNotMatch(text(ui.tree), /7\.4298/);
   assert.equal(button(ui, '填入建池表单').disabled, true);
   ui.unmount();
 });
@@ -216,7 +216,7 @@ test('viewing unlisted #10042 shows its model and daily yield without an error o
   await ui.settle(); assert.match(text(ui.tree), /未挂单 · 仅作参考/);
   button(ui, '查看矿机').onClick(); await ui.settle();
   assert.match(text(ui.tree), /TapeOut #10042 · 矿机资料已读取/);
-  assert.match(text(ui.tree), /预计日产出：1\.23457 BEM \/ 天/);
+  assert.match(text(ui.tree), /预计日产出：1\.2346 BEM \/ 天/);
   assert.match(text(ui.tree), /这台矿机当前未挂单，不能用于指定购机/);
   assert.equal(elements(ui.tree).some(item => item.props?.role === 'alert'), false);
   assert.equal(button(ui, '填入建池表单').disabled, true);
@@ -247,16 +247,16 @@ test('fresh selected metadata replaces only the same NFT directory row and remov
   const untouched = row(10043);
   const f = moduleFixture(async () => ({ ...unlistedPage(), rows: [old, untouched] }), { loadSelected: unlistedSelection });
   const ui = f.host(props); await ui.settle();
-  assert.match(text(ui.tree), /Firsto 签名挂单/); assert.match(text(ui.tree), /999\.00000 BNB/);
+  assert.match(text(ui.tree), /Firsto 签名挂单/); assert.match(text(ui.tree), /999\.0000 BNB/);
   button(ui, '选择矿机').onClick(); await ui.settle();
   const rows = elements(ui.tree).filter(item => item.type === 'tr');
   const selectedRow = rows.find(item => /TapeOut #10042/.test(text(item)));
   const otherRow = rows.find(item => /TapeOut #10043/.test(text(item)));
   const selectedCells = elements(selectedRow).filter(item => item.type === 'td');
-  assert.equal(text(selectedCells[1]), '— BNB'); assert.match(text(selectedCells[2]), /1\.23457 BEM/);
+  assert.equal(text(selectedCells[1]), '— BNB'); assert.match(text(selectedCells[2]), /1\.2346 BEM/);
   assert.equal(text(selectedCells[5]), '未挂单 · 仅作参考');
-  assert.match(text(otherRow), /0\.01000 BNB/); assert.match(text(otherRow), /官网挂单/);
-  assert.doesNotMatch(text(ui.tree), /999\.00000 BNB|Firsto 签名挂单/);
+  assert.match(text(otherRow), /0\.0100 BNB/); assert.match(text(otherRow), /官网挂单/);
+  assert.doesNotMatch(text(ui.tree), /999\.0000 BNB|Firsto 签名挂单/);
   assert.match(text(ui.tree), /第 1 \/ 2 页/);
   assert.equal(elements(ui.tree).some(item => item.props?.role === 'alert'), false);
   assert.equal(button(ui, '填入建池表单').disabled, true); ui.unmount();

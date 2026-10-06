@@ -4,6 +4,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { Contract, Interface, Transaction, getAddress, keccak256, parseEther, parseUnits } from 'ethers';
 import { acquireKeeperLock, acquireWalletLock, readJournal, writeJournal, reconcilePending } from '../scripts/purchase-keeper.mjs';
 import { writeFirstoAskStatus } from './firsto-ask-publisher-store.mjs';
+import { hasVerifiedNativeSaleCapability } from '../shared/native-sale-compatibility.mjs';
 
 const poolAbi = new Interface(['function cancelExpired()', 'function nativeFirstoSaleVersion() view returns(uint8)',
   'function factory() view returns(address)', 'function state() view returns(uint8)',
@@ -135,7 +136,7 @@ export function createFirstoListingExpiryKeeper({ config, provider, signer, fact
   async function tick() {
     if (stopped) return;
     const graph = await verifyDeployment();
-    snapshot.enabled = graph?.nativeSaleUpgrade?.version === 1;
+    snapshot.enabled = hasVerifiedNativeSaleCapability(graph, { factory });
     if (!snapshot.enabled) { flush(); return; }
     need((await provider.getNetwork()).chainId === 56n, 'Expiry RPC must be BSC mainnet.');
     await discover();
@@ -181,7 +182,7 @@ export function createFirstoListingExpiryKeeper({ config, provider, signer, fact
         // wallet pointer, preserving recovery across a process crash.
         releaseWallet = lockWallet(from, options.journal);
         const currentGraph = await verifyDeployment();
-        need(currentGraph?.nativeSaleUpgrade?.version === 1, 'Native expiry graph is no longer active.');
+        need(hasVerifiedNativeSaleCapability(currentGraph, { factory }), 'Native expiry graph is no longer active.');
         const current = await readExpiry(provider, { factory, pool });
         if (!current.eligible || `${current.listedProposalId}:${current.expiresAt}` !== listingKey) {
           row(pool, 'idle'); continue;

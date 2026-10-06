@@ -118,13 +118,59 @@ export async function connectWallet(provider, { reselectAccount = false } = {}) 
   // A successful permission/switch response does not prove the selected account or chain.
   return requireWallet(provider, owner);
 }
+const journalSessions = new WeakMap();
+const journalSessionGenerations = new WeakMap();
+const JOURNAL_SESSION_CACHE_MS = 60_000;
+const sessionGeneration = provider => journalSessionGenerations.get(provider) ?? 0;
+const advanceSessionGeneration = provider => journalSessionGenerations.set(provider, sessionGeneration(provider) + 1);
+function journalSessionKey(account, config) {
+  return JSON.stringify([globalThis.location?.origin ?? config.origin, journalBase(config), address(account)]);
+}
+function cachedJournalSession(provider, account, config, fetcher) {
+  const cached = journalSessions.get(provider)?.get(journalSessionKey(account, config));
+  return cached?.fetcher === fetcher && cached.expiresAt > Date.now() ? cached : null;
+}
+function rememberJournalSession(provider, account, config, fetcher) {
+  // Cookies are shared by this origin. A successful response for another
+  // account retires this provider's old account snapshot immediately.
+  const sessions = new Map();
+  sessions.set(journalSessionKey(account, config), { fetcher, expiresAt: Date.now() + JOURNAL_SESSION_CACHE_MS });
+  journalSessions.set(provider, sessions);
+  advanceSessionGeneration(provider);
+}
+export function invalidateJournalSession(provider) { journalSessions.delete(provider); advanceSessionGeneration(provider); }
+/** Read-only warm-up: never requests a wallet signature or creates a session. */
+export async function preloadJournalSession({ provider, account, config = {}, fetcher = globalThis.fetch, isCurrent = () => true }) {
+  if (!provider?.request || config.displayOnly !== true) return false;
+  const owner = address(account);
+  if (cachedJournalSession(provider, owner, config, fetcher)) return true;
+  const generation = sessionGeneration(provider);
+  const current = () => isCurrent() && sessionGeneration(provider) === generation;
+  try {
+    const snapshot = await request(config, 'session', 'GET', undefined, undefined, fetcher);
+    if (!current()) return false;
+    if (!same(snapshot.account, owner)) { invalidateJournalSession(provider); return false; }
+    rememberJournalSession(provider, owner, config, fetcher);
+    return true;
+  } catch (error) {
+    if (current()) invalidateJournalSession(provider);
+    if (error instanceof JournalError && error.status === 401) return false;
+    throw error;
+  }
+}
 /** Authentication may prompt personal_sign. Call only from the user's connect/login action. */
 export async function authenticate({ provider, account, config = {}, fetcher = globalThis.fetch, onState }) {
   const direct = config.displayOnly === true;
   const owner = direct ? address(account) : await requireWallet(provider, address(account));
+  if (direct && cachedJournalSession(provider, owner, config, fetcher)) return { account: owner };
+  const generation = sessionGeneration(provider);
   try {
     const current = await request(config, 'session', 'GET', undefined, undefined, fetcher);
-    if (same(current.account, owner)) return { account: owner };
+    if (same(current.account, owner)) {
+      if (direct && sessionGeneration(provider) === generation) rememberJournalSession(provider, owner, config, fetcher);
+      return { account: owner };
+    }
+    if (sessionGeneration(provider) === generation) invalidateJournalSession(provider);
   } catch (error) { if (!(error instanceof JournalError) || error.status !== 401) throw error; }
   const challenge = await request(config, 'challenge', 'POST', { account: owner }, undefined, fetcher);
   const origin = globalThis.location?.origin ?? config.origin;
@@ -141,6 +187,7 @@ export async function authenticate({ provider, account, config = {}, fetcher = g
   if (!direct) await requireWallet(provider, owner);
   const session = await request(config, 'session', 'POST', { account: owner, nonce: challenge.nonce, signature }, undefined, fetcher);
   requireValue(same(session.account, owner), '服务器会话的钱包地址不匹配。');
+  if (direct) rememberJournalSession(provider, owner, config, fetcher);
   return { account: owner };
 }
 export async function readPending({ account, config = {}, fetcher = globalThis.fetch }) {
@@ -218,7 +265,9 @@ function normalize(config, transaction, action) {
   }
   requireValue(['deposit','completeFirstoSale','fill'].includes(decoded.name) || value === 0n, '该操作不能附带 BNB。');
   if (decoded.name === 'buyFromFirsto') {
-    requireValue(decoded.args[0] === 0n, 'Firsto 批量挂单尚未开放。'); decodeFirstoOrder(decoded.args[1]);
+    const order = decodeFirstoOrder(decoded.args[1], decoded.args[0]);
+    requireValue(order.kind === 0 || config.firstoBatchPurchase?.protocolReviewed === true
+      && config.firstoBatchPurchase?.active === true, 'Firsto 批量采购尚未通过合约升级与协议核验。');
   }
   return { factory, target, targetType, account, value, data: data.toLowerCase(), action: { kind: decoded.name } };
 }

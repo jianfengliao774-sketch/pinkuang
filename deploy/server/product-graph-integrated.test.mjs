@@ -105,6 +105,79 @@ test('unknown Factory implementation fails before any other product read', async
   assert.equal(reads, 1);
 });
 
+test('public product graph uses the archive read RPC while the journal RPC stays separate', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'product-graph-read-rpc-'));
+  const { evidence } = fixture();
+  const initial = genesisRecord.steps.find(step => step.id === 'initialize');
+  const blockNumber = initial.receipt.blockNumber + 100;
+  const blockHash = salt('6');
+  const addresses = genesisRecord.addresses;
+  const calls = { journal: [], read: [] };
+  const block = (number, hash) => ({ number: `0x${number.toString(16)}`, hash,
+    parentHash: salt('0'), nonce: '0x0000000000000000', sha3Uncles: salt('0'),
+    logsBloom: `0x${'0'.repeat(512)}`, transactionsRoot: salt('0'), stateRoot: salt('0'),
+    receiptsRoot: salt('0'), miner: addr(1), difficulty: '0x0', totalDifficulty: '0x0',
+    extraData: '0x', size: '0x0', gasLimit: '0x1c9c380', gasUsed: '0x0',
+    timestamp: '0x6553f164', transactions: [], uncles: [], baseFeePerGas: '0x0' });
+  const rpcServer = kind => createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const request = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    calls[kind].push(request.method);
+    let response;
+    if (request.method === 'eth_chainId') response = { result: '0x38' };
+    else if (request.method === 'eth_getBlockByNumber') {
+      const tag = request.params[0];
+      const number = tag === 'finalized' || tag === `0x${blockNumber.toString(16)}`
+        ? blockNumber : tag === `0x${initial.receipt.blockNumber.toString(16)}`
+          ? initial.receipt.blockNumber : null;
+      response = { result: number === null ? null : block(number,
+        number === blockNumber ? blockHash : initial.receipt.blockHash) };
+    } else if (request.method === 'eth_call') response = kind === 'read'
+      ? { result: `0x${addresses.PoolVault.slice(2).padStart(64, '0')}` }
+      : { error: { code: -32000, message: 'historical state unavailable' } };
+    else response = { error: { code: -32601, message: 'unsupported test method' } };
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ jsonrpc: '2.0', id: request.id, ...response }));
+  });
+  const journalRpc = rpcServer('journal'), readRpc = rpcServer('read');
+  await Promise.all([new Promise(resolve => journalRpc.listen(0, '127.0.0.1', resolve)),
+    new Promise(resolve => readRpc.listen(0, '127.0.0.1', resolve))]);
+  const service = createJournalService({ dbPath: join(directory, 'private', 'journal.sqlite'),
+    origin: 'http://127.0.0.1:4173',
+    rpcUrl: `http://127.0.0.1:${journalRpc.address().port}`,
+    readRpcUrl: `http://127.0.0.1:${readRpc.address().port}`,
+    currentArtifactDigest: () => genesisRecord.artifactDigest,
+    productDeploymentRecord: genesisRecord, productArtifactBundle: genesisBundle,
+    integratedUpgradeEvidence: evidence, integratedUpgradeArtifact: candidateBundle, genesisManifest,
+    allowedProductFactories: [addresses.factory, addresses.portfolioFactory],
+    productGraphVerifier: async (provider, factory, confirmedBlock) => {
+      assert.equal(factory, addresses.factory);
+      assert.equal(confirmedBlock.number, blockNumber);
+      const implementation = await provider.send('eth_call',
+        [{ to: addresses.beacon, data: '0x5c60da1b' }, `0x${(blockNumber - 1).toString(16)}`]);
+      assert.equal(getAddress(`0x${implementation.slice(-40)}`), addresses.PoolVault);
+      return { factory, blockNumber, artifactDigest: genesisRecord.artifactDigest,
+        addresses, codehash: Object.fromEntries(Object.entries(genesisRecord.verification.code)
+          .map(([name, value]) => [name, value.codehash])) };
+    } });
+  const server = createServer((req, res) => service.handle(req, res));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/journal/product-graph`);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).verifiedBlockHash, blockHash);
+    assert.ok(calls.read.includes('eth_call'), 'historical proof uses the archive read RPC');
+    assert.deepEqual(calls.journal, [], 'public graph never consults the signing RPC');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+    await service.close();
+    await Promise.all([new Promise(resolve => journalRpc.close(resolve)),
+      new Promise(resolve => readRpc.close(resolve))]);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('public product-graph response is pinned to a verified block and never falls back to an unreviewed digest', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'product-graph-api-'));
   const { evidence } = fixture();

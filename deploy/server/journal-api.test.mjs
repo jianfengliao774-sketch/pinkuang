@@ -1105,6 +1105,15 @@ test('production configuration requires explicit private store, exact HTTPS orig
   assert.throws(() => journalConfiguration({ NODE_ENV: 'production' }), /requires explicit/);
   assert.throws(() => journalConfiguration({ NODE_ENV: 'production', DEPLOYMENT_JOURNAL_DB: '/tmp/j.sqlite',
     DEPLOYMENT_JOURNAL_ORIGIN: 'https://app.example', DEPLOYMENT_JOURNAL_RPC_URL: 'http://rpc.example' }), /HTTPS/);
+  const configured = journalConfiguration({ NODE_ENV: 'production', DEPLOYMENT_JOURNAL_DB: '/tmp/j.sqlite',
+    DEPLOYMENT_JOURNAL_ORIGIN: 'https://app.example', DEPLOYMENT_JOURNAL_RPC_URL: 'https://sign.example/rpc',
+    BEMINE_READ_RPC_URL: 'https://archive.example/rpc' });
+  assert.equal(configured.rpcUrl, 'https://sign.example/rpc');
+  assert.equal(configured.readRpcUrl, 'https://archive.example/rpc');
+  assert.equal(journalConfiguration({ NODE_ENV: 'production', DEPLOYMENT_JOURNAL_DB: '/tmp/j.sqlite',
+    DEPLOYMENT_JOURNAL_ORIGIN: 'https://app.example', DEPLOYMENT_JOURNAL_RPC_URL: 'https://sign.example/rpc' }).readRpcUrl,
+  undefined, 'unset archive RPC keeps the existing journal RPC fallback');
+  assert.throws(() => journalConfiguration({ BEMINE_READ_RPC_URL: 'http://archive.example/rpc' }), /HTTPS/);
   assert.equal(journalConfiguration({ NODE_ENV: 'development', DEPLOYMENT_JOURNAL_ORIGIN: 'https://app.example' }).secureCookies, true);
   const cli = spawnSync(process.execPath, ['server/index.mjs'], { cwd: fileURLToPath(new URL('..', import.meta.url)),
     env: { PATH: process.env.PATH, NODE_ENV: 'development' }, encoding: 'utf8', timeout: 3_000 });

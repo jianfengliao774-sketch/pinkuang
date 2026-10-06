@@ -33,12 +33,12 @@ test('direct occupied miner selection stops before any paid Firsto GET and null 
 });
 
 test('listing daily capacity price divides the displayed ask by daily BEM with exact decimal arithmetic', () => {
-  assert.equal(listingDailyCapacityPrice('39441600000000000', '432000'), '9.13000');
-  assert.equal(listingDailyCapacityPrice('123456789012345678', '100000000'), '0.12346');
-  assert.equal(listingDailyCapacityPrice('1000000000000000000', '300000000'), '0.33333');
-  assert.equal(listingDailyCapacityPrice('1', '1'), '<0.00001');
-  assert.equal(listingDailyCapacityPrice('123494999999999999', '100000000'), '0.12349');
-  assert.equal(listingDailyCapacityPrice('123495000000000000', '100000000'), '0.12350');
+  assert.equal(listingDailyCapacityPrice('39441600000000000', '432000'), '9.1300');
+  assert.equal(listingDailyCapacityPrice('123456789012345678', '100000000'), '0.1235');
+  assert.equal(listingDailyCapacityPrice('1000000000000000000', '300000000'), '0.3333');
+  assert.equal(listingDailyCapacityPrice('1', '1'), '<0.0001');
+  assert.equal(listingDailyCapacityPrice('123449999999999999', '100000000'), '0.1234');
+  assert.equal(listingDailyCapacityPrice('123450000000000000', '100000000'), '0.1235');
   for (const [ask, daily] of [[null, '100000000'], ['1000000000000000000', null], ['0', '100000000'], ['1000000000000000000', '0']])
     assert.equal(listingDailyCapacityPrice(ask, daily), null);
   assert.throws(() => listingDailyCapacityPrice('-1', '100000000'));

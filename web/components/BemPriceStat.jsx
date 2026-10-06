@@ -2,7 +2,8 @@
 import {useEffect,useState} from 'react';
 import {Coins} from 'lucide-react';
 import {useI18n} from '../lib/i18n';
-import {BEM_POOL,PRICE_REFRESH_MS,validBemQuote} from '../lib/bem-price.mjs';
+import {BEM_POOL,PRICE_DISPLAY_REFRESH_MS as PRICE_REFRESH_MS,validBemQuote} from '../lib/bem-price.mjs';
+import {displayDecimal} from '../lib/amount-display.mjs';
 import styles from './BemPriceStat.module.css';
 
 export default function BemPriceStat({variant='home'}){
@@ -27,7 +28,7 @@ export default function BemPriceStat({variant='home'}){
    finally{clearTimeout(timeout);controller.signal.removeEventListener('abort',cancel);busy=false;if(!stopped)setLoading(false);}
   }
   refresh();
-  const timer=setInterval(()=>{setNow(Date.now());refresh();},PRICE_REFRESH_MS);
+  const timer=setInterval(()=>{if(document.hidden)return;setNow(Date.now());refresh();},PRICE_REFRESH_MS);
   const onVisible=()=>{if(!document.hidden){setNow(Date.now());refresh();}};
   document.addEventListener('visibilitychange',onVisible);
   return()=>{stopped=true;controller.abort();clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);};
@@ -36,14 +37,14 @@ export default function BemPriceStat({variant='home'}){
  const updated=available?new Date(quote.updatedAt).toLocaleTimeString(locale==='en'?'en-GB':'zh-CN',{hour12:false}):'';
  if(variant==='metric')return <div className={`metric live-price-metric ${styles.price}`}>
   <div className="metric-label">{t('当前币价')}<Coins size={18}/></div>
-  <div className="metric-value">{available?quote.priceUsdt.toFixed(2):'—'}<small>USDT</small></div>
-  <div className="metric-note">{available?t('每 15 秒更新 · {time}',{time:updated}):t(loading?'正在获取行情':'行情暂不可用')}</div>
+  <div className="metric-value">{available?displayDecimal(quote.priceUsdt):'—'}<small>USDT</small></div>
+  <div className="metric-note">{available?t('每 30 秒更新 · {time}',{time:updated}):t(loading?'正在获取行情':'行情暂不可用')}</div>
   <p className={styles.sources}><span>{t('来源：')}</span><a href={`https://bscscan.com/address/${BEM_POOL}`} target="_blank" rel="noreferrer">PancakeSwap V3</a></p>
  </div>;
  return <div className={`bemine-stat ${styles.price}`}>
   <div><span>{t('当前币价')}</span><Coins size={18}/></div>
-  <strong>{available?quote.priceUsdt.toFixed(2):'—'}<small>USDT</small></strong>
-  <p className={styles.status}>{available?t('每 15 秒更新 · {time}',{time:updated}):t(loading?'正在获取行情':'行情暂不可用')}</p>
+  <strong>{available?displayDecimal(quote.priceUsdt):'—'}<small>USDT</small></strong>
+  <p className={styles.status}>{available?t('每 30 秒更新 · {time}',{time:updated}):t(loading?'正在获取行情':'行情暂不可用')}</p>
   <p className={styles.sources}><span>{t('来源：')}</span><a href={`https://bscscan.com/address/${BEM_POOL}`} target="_blank" rel="noreferrer">PancakeSwap V3</a></p>
  </div>;
 }

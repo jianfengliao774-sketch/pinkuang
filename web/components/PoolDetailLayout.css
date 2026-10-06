@@ -1,0 +1,46 @@
+.live-platform .detail-layout { align-items: start; }
+.live-platform .detail-layout > .purchase-panel {
+  position: static; top: auto; max-height: none; overflow: visible; overscroll-behavior: auto;
+}
+.live-platform .detail-main .detail-stats {
+  grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 1fr)); gap: 24px;
+}
+.live-platform .detail-main .detail-stats > div:last-child { display: block; }
+.live-platform .detail-main .detail-stats span { font-size: 16px; color: var(--muted); }
+.live-platform .detail-main .detail-stats strong { font-size: 32px; line-height: 1.5; }
+.live-platform .detail-main .detail-stats strong small { font-size: 15px; }
+.live-platform .detail-main .live-details .details-list { margin: 0; }
+.live-platform .detail-main .live-details .details-list > div { font-size: 16px; padding-block: 16px; line-height: 1.65; gap: 16px; }
+.live-platform .detail-main .live-details .details-list dd { font-size: inherit; overflow-wrap: anywhere; }
+.live-platform .detail-main .live-detail-refund-actions { display: block; margin-top: 18px; container-type: inline-size; }
+.live-platform .detail-main .live-detail-refund-buttons { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.live-platform .detail-main .live-detail-output-note { margin: 16px 0 0; font-size: 16px; line-height: 1.7; }
+@media (min-width: 761px) {
+  .live-platform .detail-main .live-detail-output-note:lang(zh) { white-space: nowrap; font-size: clamp(14px, 3.4cqw, 16px); }
+}
+.live-platform .detail-layout .btn.live-invite-friends {
+  background: #203e36; color: #e8d3aa; border: 1px solid var(--brand-gold); border-radius: 8px;
+}
+.live-platform .detail-layout .btn.live-invite-friends:hover { background: #d9c194; color: #203e36; }
+.live-platform .detail-layout > .live-detail-records { grid-column: 1 / -1; width: 100%; min-width: 0; margin: 0; }
+.live-platform .live-detail-records .table-wrap table { width: 100%; min-width: 950px; }
+.live-platform .live-detail-records :is(th, td) { padding: 16px 14px; }
+.live-platform .live-detail-records th:first-child { width: 170px; }
+.live-platform .live-activity-time { white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 14px; }
+.live-platform .live-mobile-activity-heading { flex-wrap: wrap; gap: 6px 12px; }
+@media (min-width: 761px) and (max-width: 1180px) {
+  .live-platform .detail-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .live-platform .detail-layout > .live-detail-records { order: 3; }
+  .live-platform .detail-main .detail-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+  .live-platform .detail-main .detail-stats > div:first-child {
+    grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  }
+  .live-platform .detail-main .detail-stats > div:first-child strong { margin: 0; }
+  .live-platform .detail-main .detail-stats span { font-size: 14px; }
+  .live-platform .detail-main .detail-stats strong { font-size: 26px; }
+  .live-platform .detail-main .detail-stats strong small { font-size: 13px; }
+  .live-platform .detail-main .live-details .details-list > div { font-size: 15px; padding-block: 13px; }
+  .live-platform .detail-main .live-detail-output-note { font-size: 15px; }
+}

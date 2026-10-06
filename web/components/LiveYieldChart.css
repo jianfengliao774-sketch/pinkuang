@@ -1,0 +1,55 @@
+.app-shell .live-yield.live-yield-compact > .section-head {
+  padding-top: 16px;
+  padding-bottom: 12px;
+  row-gap: 10px;
+}
+
+.live-yield.live-yield-compact > .section-head h2 {
+  margin: 0;
+}
+
+.live-yield.live-yield-compact > .section-head p {
+  margin-top: 4px;
+}
+
+.live-yield.live-yield-compact > .chart-summary {
+  padding-top: 10px;
+  padding-bottom: 2px;
+  row-gap: 8px;
+}
+
+.live-yield.live-yield-compact > .chart-summary > div {
+  gap: 4px;
+}
+
+.live-yield.live-yield-compact > .live-yield-status {
+  margin-bottom: 8px;
+}
+
+.live-yield.live-yield-compact .live-yield-bars {
+  height: 110px;
+  margin-top: 14px;
+}
+
+.live-yield.live-yield-compact .live-yield-zero {
+  margin: 0;
+}
+
+.live-yield.live-yield-compact > .live-yield-empty {
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 26px;
+  padding-bottom: 26px;
+}
+
+.live-yield.live-yield-compact > .live-yield-axis {
+  margin-top: 8px;
+  margin-bottom: 6px;
+}
+
+.app-shell .live-yield.live-yield-compact > .chart-foot {
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 8px;
+  padding-bottom: 12px;
+}

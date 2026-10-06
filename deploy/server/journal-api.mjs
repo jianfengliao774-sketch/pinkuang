@@ -6,10 +6,11 @@ import { JournalConflict, JournalStore } from './journal-store.mjs';
 import { validateFreshActivation, verifyFinalizedFreshAttempt, verifyRecoveredFreshSigning, verifyConfirmedFreshActivation } from './fresh-activation-journal.mjs';
 import { verifyInitializationExecution } from '../shared/initialization-proof.mjs';
 import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
-import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
+import { decodeFirstoOrder, verifyFirstoPurchaseOrder } from '../src/firsto-purchase.mjs';
 import { fetchOfficialCandidates } from '../scripts/official-market-discovery.mjs';
 import { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI, verifyPortfolioIntent } from './portfolio-intent.mjs';
 import { verifyControlledFirstoSale } from './firsto-sale-preflight.mjs';
+import { hasVerifiedNativeSaleCapability, verifiedNativeSaleCompatibility } from '../shared/native-sale-compatibility.mjs';
 import { readBudgetCandidates } from './budget-candidates.mjs';
 import { isFreshWalletAction } from '../shared/fresh-wallet-actions.mjs';
 import { freshProductConfiguration, createFreshProductGate, FRESH_AUTHORITY_ONLY } from './fresh-product-gate.mjs';
@@ -19,6 +20,7 @@ import { legacyFactoryConfiguration, verifyCreationCutover } from './creation-cu
 import { clientAddress, createRequestLimiter } from './request-limiter.mjs';
 import { verifyGasSignerAttestation } from '../shared/gas-signer-attestation.mjs';
 import { firstoAskPublisherConfiguration, createFirstoAskApiWorker, trackFirstoAsks } from './firsto-ask-publisher.mjs';
+import { createFixedReadOnlyRpcProvider } from '../shared/runtime-rpc-selection.mjs';
 export { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI } from './portfolio-intent.mjs';
 
 const MAX_BODY = 64 * 1024;
@@ -265,8 +267,7 @@ function decodeProduct(value) {
     try { decodeFirstoOrder(decoded.args[1]); } catch { fail(400,'Invalid canonical Firsto order.'); }
   }
   if (decoded.name === 'buyFromFirsto') {
-    if (decoded.args[0] !== 0n) fail(400, 'Firsto batch purchases are not enabled.');
-    try { decodeFirstoOrder(decoded.args[1]); } catch { fail(400, 'Invalid canonical Firsto order.'); }
+    try { decodeFirstoOrder(decoded.args[1], decoded.args[0]); } catch { fail(400, 'Invalid canonical Firsto order.'); }
   }
   if (decoded.name === 'mine') {
     let inner;
@@ -383,7 +384,7 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
     // the reviewed upgrade has actually become the verified chain graph.
     if (decoded.name === 'createBudgetChildPool' && !graph?.securityUpgrade)
       fail(409, 'Budget child creation requires the verified upgraded Factory.');
-    if (decoded.name === 'delist' && graph?.nativeSaleUpgrade?.version !== 1)
+    if (decoded.name === 'delist' && !hasVerifiedNativeSaleCapability(graph, { factory: record.factory }))
       fail(409, 'Delisting requires the verified native-sale upgrade.');
     await verifyCreationCutover(provider, record, decoded, block, legacyFactory, fail,
       { freshGraphVerified: graph?.freshFactoryVerified === true && Boolean(graph?.freshAuthority) });
@@ -425,8 +426,9 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
       await registeredPool(record.target);
       if (['buyFromMarket','buyAlternativeFromMarket','buyFromFirsto','mine'].includes(decoded.name)
         && identity(await call(record.factory, 'operator')) !== identity(record.account)) fail(403, 'Only the Factory operator may operate mining or purchase.');
-      if (decoded.name === 'buyFromFirsto') await verifyFirstoSignedAsk({ request:({ method,params }) => provider.send(method,params) },
-        decodeFirstoOrder(decoded.args[1]), { blockTag:tag });
+      if (decoded.name === 'buyFromFirsto') await verifyFirstoPurchaseOrder({ request:({ method,params }) => provider.send(method,params) },
+        decodeFirstoOrder(decoded.args[1], decoded.args[0]), { blockTag:tag, versionTarget:record.target,
+          reviewedBatchProtocol:graph?.firstoBatchPurchase?.protocolReviewed===true&&graph.firstoBatchPurchase.active===true });
       if (decoded.name === 'deposit' && BigInt(record.value) !== decoded.args[0] * await call(record.target, 'unitPriceWei'))
         fail(409, 'Deposit value differs from the current share price.');
       if (decoded.name === 'completeSale') fail(409,'Legacy whole miner sale is disabled; review the controlled Firsto sale.');
@@ -903,6 +905,20 @@ export function createBoundedOfficialProvider(url, timeoutMs = OFFICIAL_RPC_TIME
   return new JsonRpcProvider(request, 56, { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 });
 }
 
+/** Public graph reads share the configured paid node, with four outstanding
+ * read requests at most. Same-node rate-limit backoff never authorizes writes,
+ * another endpoint, or reuse of a stale proof for transaction permission. */
+export function createPublicOfficialReadProvider(url, timeoutMs = OFFICIAL_RPC_TIMEOUT_MS) {
+  const request = new FetchRequest(url);
+  request.timeout = timeoutMs;
+  request.setThrottleParams({ maxAttempts: 1 });
+  request.retryFunc = async () => false;
+  return createFixedReadOnlyRpcProvider(request, {
+    network: 56, providerOptions: { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 },
+    maxConcurrentReads: 4,
+  });
+}
+
 /** The signing RPC must not batch independent graph checks: some BSC endpoints
  * return incomplete batch responses, which otherwise reject valid intents. */
 export function createProductVerifierProvider(url, timeoutMs = OFFICIAL_RPC_TIMEOUT_MS) {
@@ -960,7 +976,7 @@ export function createPinnedSigningGraphVerifier(graphVerifier, trustedProduct, 
   };
 }
 
-export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = false,
+export function createJournalService({ dbPath, origin, rpcUrl, readRpcUrl, secureCookies = false,
   provider: suppliedProvider, currentArtifactDigest, assertSigningInputsCurrent = () => {}, allowedProductFactories = [], productDeploymentRecordPath,
   productDeploymentRecord, productArtifactBundle, productArtifactBundlePath, productGraphVerifier, legacyFactory,
   officialCandidateDiscovery = fetchOfficialCandidates, officialSnapshotFetch = fetch, budgetCandidateDiscovery = readBudgetCandidates,
@@ -973,6 +989,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   salePolicyCatalogPath, salePolicyArtifactPath,
   nativeSaleCatalogPath, nativeSaleArtifactPath,
   targetOwnerCatalogPath, targetOwnerArtifactPath, trustedTargetOwnerCatalogDigest, trustedTargetOwnerArtifactDigest,
+  firstoBatchCatalogPath, firstoBatchArtifactPath, firstoBatchProtocolReviewPath,
+  trustedFirstoBatchCatalogDigest, trustedFirstoBatchArtifactDigest, trustedFirstoBatchProtocolReviewDigest,
   firstoAskPublisher = null, firstoAskPublisherDependencies,
   gasWalletAddressReader, gasWalletProofReader, freshConsolePreGenesis = false,
   freshStage2Hold = true, freshProduct = null, freshProductReadinessReader } = {}) {
@@ -1000,7 +1018,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const productIntentAccounts = new Map();
   let productIntentWindow = -1;
   const provider = suppliedProvider ?? (rpcUrl ? createProductVerifierProvider(rpcUrl) : null);
-  const officialProvider = suppliedProvider ? suppliedProvider : rpcUrl ? createBoundedOfficialProvider(rpcUrl) : null;
+  const officialRpcUrl = readRpcUrl ?? rpcUrl;
+  const officialProvider = suppliedProvider ?? (officialRpcUrl ? createPublicOfficialReadProvider(officialRpcUrl) : null);
   if (!Array.isArray(allowedProductFactories) || allowedProductFactories.length > 32) throw new Error('Invalid product Factory allowlist.');
   const productFactories = new Set(allowedProductFactories.map(identity));
   if (productFactories.has('0x0000000000000000000000000000000000000000')) throw new Error('Zero product Factory is forbidden.');
@@ -1011,7 +1030,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     integratedUpgradeArtifact,genesisManifestPath,genesisManifest,
     productActivationPath:freshActivationEvidencePath,expectedGasWallet,salePolicyCatalogPath,salePolicyArtifactPath,
     nativeSaleCatalogPath,nativeSaleArtifactPath,
-    targetOwnerCatalogPath,targetOwnerArtifactPath,trustedTargetOwnerCatalogDigest,trustedTargetOwnerArtifactDigest});
+    targetOwnerCatalogPath,targetOwnerArtifactPath,trustedTargetOwnerCatalogDigest,trustedTargetOwnerArtifactDigest,
+    firstoBatchCatalogPath,firstoBatchArtifactPath,firstoBatchProtocolReviewPath,
+    trustedFirstoBatchCatalogDigest,trustedFirstoBatchArtifactDigest,trustedFirstoBatchProtocolReviewDigest});
   if (gasWalletAddressReader !== undefined && typeof gasWalletAddressReader !== 'function')
     throw new Error('Gas wallet credential address reader is invalid.');
   if (gasWalletProofReader !== undefined && typeof gasWalletProofReader !== 'function')
@@ -1552,6 +1573,28 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         operationId:graph.securityUpgrade?.operationId ?? null,
         ...(graph.salePolicyUpgrade ? {salePolicyUpgrade:graph.salePolicyUpgrade} : {}),
         ...(graph.nativeSaleUpgrade ? {nativeSaleUpgrade:graph.nativeSaleUpgrade} : {}),
+        ...(graph.firstoBatchPurchase?.active === true ? {firstoBatchPurchase:{
+          version:graph.firstoBatchPurchase.version,protocolReviewed:true,active:true,
+          implementation:graph.firstoBatchPurchase.implementation,
+          candidateArtifactDigest:graph.firstoBatchPurchase.candidateArtifactDigest,
+          catalogDigest:graph.firstoBatchPurchase.catalogDigest,operationId:graph.firstoBatchPurchase.operationId,
+          verifiedBlockNumber:graph.firstoBatchPurchase.verifiedBlockNumber,
+          verifiedBlockHash:graph.firstoBatchPurchase.verifiedBlockHash}} : {}),
+        ...(verifiedNativeSaleCompatibility(graph)
+          ? {nativeSaleCompatibility:graph.nativeSaleCompatibility} : {}),
+        // Publish only the completed graph verifier's capability. The private
+        // operator catalog, governance salt and recovery records are not an API.
+        ...(graph.targetOwnerUpgrade ? {targetOwnerUpgrade:{
+          version:graph.targetOwnerUpgrade.version,
+          candidateArtifactDigest:graph.targetOwnerUpgrade.candidateArtifactDigest,
+          catalogDigest:graph.targetOwnerUpgrade.catalogDigest,
+          operationId:graph.targetOwnerUpgrade.operationId,
+          replacements:Object.fromEntries(['PoolFunds','FlexiblePurchase','PoolVault']
+            .map(name=>[name,graph.targetOwnerUpgrade.replacements[name]])),
+          codehash:Object.fromEntries(['PoolFunds','FlexiblePurchase','PoolVault']
+            .map(name=>[name,graph.targetOwnerUpgrade.codehash[name]])),
+          verifiedBlockNumber:graph.targetOwnerUpgrade.verifiedBlockNumber,
+          verifiedBlockHash:graph.targetOwnerUpgrade.verifiedBlockHash}} : {}),
         ...(graph.freshAuthority ? {freshAuthority:{address:graph.freshAuthority.address,
           codehash:graph.freshAuthority.codehash,activationBlock:graph.freshAuthority.activationBlock,
           activationHash:graph.freshAuthority.activationHash,
@@ -2048,7 +2091,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       await Promise.allSettled([...inFlight]);
       store.close();
       if (!suppliedProvider) provider?.destroy();
-      if (officialProvider !== provider) officialProvider?.destroy();
+      if (!suppliedProvider && officialProvider !== provider) await officialProvider?.settleAndDestroy();
     },
   };
 }
@@ -2058,8 +2101,10 @@ export function journalConfiguration(env = process.env) {
   const dbPath = env.DEPLOYMENT_JOURNAL_DB || (!production && fileURLToPath(new URL('../.local/journal.sqlite', import.meta.url)));
   const origin = env.DEPLOYMENT_JOURNAL_ORIGIN || (!production && 'http://127.0.0.1:4173');
   const rpcUrl = env.DEPLOYMENT_JOURNAL_RPC_URL;
+  const readRpcUrl = env.BEMINE_READ_RPC_URL;
   if (!dbPath || !origin || production && !rpcUrl) throw new Error('Production journal requires explicit DB, origin and BSC RPC URL.');
   if (rpcUrl && !/^https:\/\//.test(rpcUrl)) throw new Error('Journal BSC RPC URL must use HTTPS.');
+  if (readRpcUrl && !/^https:\/\//.test(readRpcUrl)) throw new Error('Product read RPC URL must use HTTPS.');
   if (production && !/^https:\/\//.test(origin)) throw new Error('Production journal origin must use HTTPS.');
   if (env.BEMINE_FRESH_CONSOLE_PRE_GENESIS !== undefined
     && !['0','1'].includes(env.BEMINE_FRESH_CONSOLE_PRE_GENESIS))
@@ -2067,7 +2112,7 @@ export function journalConfiguration(env = process.env) {
   if (env.BEMINE_FRESH_STAGE2_HOLD !== undefined
     && !['0','1'].includes(env.BEMINE_FRESH_STAGE2_HOLD))
     throw new Error('BEMINE_FRESH_STAGE2_HOLD must be 0 or 1.');
-  return { dbPath, origin, rpcUrl,
+  return { dbPath, origin, rpcUrl, readRpcUrl,
     firstoAskPublisher: firstoAskPublisherConfiguration(env, { dbPath }),
     freshConsolePreGenesis: env.BEMINE_FRESH_CONSOLE_PRE_GENESIS === '1',
     // Missing configuration must never enable the seven Authority writes.
@@ -2092,6 +2137,12 @@ export function journalConfiguration(env = process.env) {
     targetOwnerArtifactPath: env.BEMINE_TARGET_OWNER_ARTIFACT_PATH,
     trustedTargetOwnerCatalogDigest: env.BEMINE_TARGET_OWNER_CATALOG_DIGEST,
     trustedTargetOwnerArtifactDigest: env.BEMINE_TARGET_OWNER_ARTIFACT_DIGEST,
+    firstoBatchCatalogPath: env.BEMINE_FIRSTO_BATCH_CATALOG_PATH,
+    firstoBatchArtifactPath: env.BEMINE_FIRSTO_BATCH_ARTIFACT_PATH,
+    firstoBatchProtocolReviewPath: env.BEMINE_FIRSTO_BATCH_PROTOCOL_REVIEW_PATH,
+    trustedFirstoBatchCatalogDigest: env.BEMINE_FIRSTO_BATCH_CATALOG_DIGEST,
+    trustedFirstoBatchArtifactDigest: env.BEMINE_FIRSTO_BATCH_ARTIFACT_DIGEST,
+    trustedFirstoBatchProtocolReviewDigest: env.BEMINE_FIRSTO_BATCH_PROTOCOL_REVIEW_DIGEST,
     expectedGasWallet: env.BEMINE_EXPECTED_GAS_WALLET,
     secureCookies: production || origin.startsWith('https://') || env.DEPLOYMENT_JOURNAL_SECURE_COOKIES === '1' };
 }

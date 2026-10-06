@@ -1,4 +1,4 @@
-import { Interface, ZeroAddress, getAddress, keccak256, verifyTypedData } from 'ethers';
+import { Interface, ZeroAddress, concat, getAddress, keccak256, verifyTypedData } from 'ethers';
 import { abi } from './chain-client.mjs';
 import { authorityTypedAction } from '../../deploy/shared/authority-typed.mjs';
 import { boundedReadPreview } from './bounded-read-preview.mjs';
@@ -17,6 +17,45 @@ const authorityAbi = new Interface([
 const integer = value => { const n = BigInt(value); need(n >= 0n, '金额、编号或时间不能为负。'); return n; };
 const creationNames = new Set(['createPool', 'createPoolWithExpiry', 'createBudgetChildPool',
   'createFlexiblePool', 'createFlexiblePoolChecked']);
+const HASH = /^0x[\da-f]{64}$/i;
+const sameBytes = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+const signedKinds = new Set(['reviewSale', 'reviewChildSale', 'setSaleReference', 'claimFees',
+  'executeApprovedOperation', 'buyBudgetOfficial', 'buyBudgetFirsto']);
+
+/** Include the complete signed envelope: a reverted nonce can be signed again. */
+export function authorityCommandData(command) {
+  need(command && signedKinds.has(command.kind) && command.args
+    && /^0x[\da-f]{130}$/i.test(command.signature ?? ''), '管理员签名内容不完整。');
+  const fragment = abi.PlatformAuthority.getFunction(command.kind);
+  const values = fragment.inputs.map(input => ['nonce', 'deadline', 'signature'].includes(input.name)
+    ? command[input.name] : command.args[input.name]);
+  return abi.PlatformAuthority.encodeFunctionData(fragment, values);
+}
+
+export function authorityOperationId(command) {
+  return keccak256(concat([getAddress(command.authority), authorityCommandData(command)]));
+}
+
+/** Latest shared journal status is useful only for this exact submitted command. */
+export function authorityStatusForRequest(status, operationId, hash = null) {
+  if (!HASH.test(operationId ?? '') || !HASH.test(status?.operationId ?? '')
+    || !sameBytes(status.operationId, operationId)
+    || hash && (!HASH.test(status.hash ?? '') || !sameBytes(status.hash, hash))) return null;
+  return status;
+}
+
+function relayMetadata(result) {
+  if (!result || typeof result !== 'object') return null;
+  const safe = {};
+  for (const name of ['status', 'rawStatus', 'reason', 'message', 'kind'])
+    if (typeof result[name] === 'string') safe[name] = result[name];
+  for (const name of ['hash', 'requestId', 'operationId'])
+    if (HASH.test(result[name] ?? '')) safe[name] = result[name];
+  for (const name of ['accepted', 'archived', 'recoveryRequired'])
+    if (typeof result[name] === 'boolean') safe[name] = result[name];
+  if (Number.isSafeInteger(result.blockNumber) && result.blockNumber >= 0) safe.blockNumber = result.blockNumber;
+  return safe;
+}
 
 /** Inspect the signed bytes, never the picker selection or an older preview's permission. */
 function creationReservation(config, kind, args) {
@@ -88,6 +127,154 @@ export function approvedPortfolioPurchase(config, prepared) {
 
 const emit = (callback, status) => { try { callback?.({ status }); } catch { /* UI cannot alter submission. */ } };
 
+// Tokens never expose a reusable signature payload and do not survive serialization.
+const preparedSignatures = new WeakMap();
+const stable = value => JSON.stringify(value, (_, item) => typeof item === 'bigint' ? item.toString()
+  : item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+const frozenCopy = value => {
+  const copy = JSON.parse(stable(value));
+  const freeze = item => { if (item && typeof item === 'object') { Object.values(item).forEach(freeze); Object.freeze(item); } return item; };
+  return freeze(copy);
+};
+const signaturePayload = signed => ({ types: { EIP712Domain: [
+  { name: 'name', type: 'string' }, { name: 'version', type: 'string' },
+  { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' },
+], ...signed.types }, primaryType: signed.primaryType, domain: signed.domain, message: signed.message });
+
+const nonceCaches = new WeakMap();
+export const AUTHORITY_NONCE_CACHE_MS = 30_000;
+function nonceScope({ provider, config, account }) {
+  need(provider?.request && config?.displayOnly === true && config.stage === 'fresh-active'
+    && config.status === 'ready', '当前配置不支持预先准备管理员签名。');
+  const signer = getAddress(account), authority = getAddress(config.authority ?? config.manifest?.authority);
+  const pinned = config.freshAuthority ?? config.manifest?.freshAuthority;
+  need(signer !== ZeroAddress && authority !== ZeroAddress && pinned && same(pinned.address, authority)
+    && HASH.test(pinned.codehash ?? ''), '管理员签名配置不完整。');
+  let scopes = nonceCaches.get(provider);
+  if (!scopes) { scopes = new Map(); nonceCaches.set(provider, scopes); }
+  const key = stable([signer, config]);
+  let scope = scopes.get(key);
+  if (!scope) {
+    scope = { entry: null, leases: new Set() }; scopes.set(key, scope);
+    if (scopes.size > 16) {
+      const oldest = scopes.keys().next().value;
+      for (const entry of scopes.get(oldest).leases) entry.consumed = true;
+      scopes.delete(oldest);
+    }
+  }
+  return { signer, authority, key, configKey: stable(config), scope };
+}
+
+/** One demand read, shared by this wallet/deployment/account. No timer or polling. */
+async function nonceEntry(input) {
+  const { provider, readProvider, config, account, readTimeoutMs = 8000,
+    isCurrent = () => true, signal } = input;
+  const { signer, authority, configKey, scope } = nonceScope(input);
+  need(isCurrent() && !signal?.aborted, '页面或钱包已改变，请重新预览。');
+  const now = Date.now(), cached = scope.entry;
+  for (const entry of scope.leases) if (entry.consumed || entry.readyAt && now - entry.readyAt >= 600_000) {
+    entry.consumed = true; scope.leases.delete(entry);
+  }
+  if (cached && !cached.consumed && (cached.task || now >= cached.readyAt && now < cached.expiresAt)) {
+    if (cached.task) await cached.task;
+    need(isCurrent() && !signal?.aborted && stable(config) === configKey && !cached.consumed,
+      '页面、钱包或签名序号已改变，请重新预览。');
+    return cached;
+  }
+  const entry = { consumed: false, readyAt: 0, expiresAt: 0, nonce: null, task: null };
+  scope.entry = entry; scope.leases.add(entry);
+  entry.task = boundedReadPreview(async ({ provider: reader }) => {
+    const raw = await reader.request({ method: 'eth_call', params: [{ to: authority,
+      data: authorityAbi.encodeFunctionData('nonces', [signer]) }, 'latest'] });
+    const nonce = authorityAbi.decodeFunctionResult('nonces', raw)[0];
+    need(authorityAbi.encodeFunctionResult('nonces', [nonce]).toLowerCase() === raw.toLowerCase(),
+      '管理员签名序号返回值无效。');
+    need(stable(config) === configKey && !entry.consumed, '页面、钱包或签名序号已改变，请重新预览。');
+    entry.nonce = nonce; entry.readyAt = Date.now(); entry.expiresAt = entry.readyAt + AUTHORITY_NONCE_CACHE_MS;
+    return entry;
+  }, { provider: readProvider, timeoutMs: readTimeoutMs, isCurrent, signal });
+  try { await entry.task; return entry; }
+  catch (problem) { if (scope.entry === entry) scope.entry = null; scope.leases.delete(entry); throw problem; }
+  finally { entry.task = null; }
+}
+
+/** Entering the workbench may prefetch once; callers choose when to refresh. */
+export async function prefetchAuthorityNonce(input) { return (await nonceEntry(input)).nonce; }
+
+/** Retire every prepared payload sharing this nonce before the wallet request. */
+export function invalidateAuthorityNonce(input, nonce) {
+  const { scope } = nonceScope(input);
+  for (const entry of scope.leases) if (nonce === undefined || entry.nonce === nonce) {
+    entry.consumed = true; scope.leases.delete(entry);
+    if (scope.entry === entry) scope.entry = null;
+  }
+}
+
+/** Preview only. Reuse a recent nonce and freeze the exact later wallet request. */
+export async function prepareAuthoritySignature({ provider, readProvider, config, account, kind, args,
+  validitySeconds = 600, cacheLifetimeMs = 300000, readTimeoutMs = 8000,
+  isCurrent = () => true, signal, onState }) {
+  need(config?.displayOnly === true && config.stage === 'fresh-active' && config.status === 'ready',
+    '当前配置不支持预先准备管理员签名。');
+  need(provider?.request && isCurrent() && !signal?.aborted, '页面或钱包已改变，请重新预览。');
+  const signer = getAddress(account), authority = getAddress(config.authority ?? config.manifest?.authority);
+  need(authority !== ZeroAddress && signer !== ZeroAddress && Number.isInteger(validitySeconds)
+    && validitySeconds > 0 && validitySeconds <= 900 && Number.isSafeInteger(cacheLifetimeMs)
+    && cacheLifetimeMs > 0 && cacheLifetimeMs <= 600000, '管理员签名有效期无效。');
+  const pinned = config.freshAuthority ?? config.manifest?.freshAuthority;
+  need(pinned && same(pinned.address, authority) && /^0x[\da-f]{64}$/i.test(pinned.codehash ?? ''), '管理员签名配置不完整。');
+  const configKey = stable(config), argsKey = stable(args), capturedArgs = frozenCopy(args);
+  creationReservation(config, kind, capturedArgs); // Exact calldata validation is local; the contract checks availability.
+  emit(onState, 'preparing-authority');
+  const entry = await nonceEntry({ provider, readProvider, config, account, readTimeoutMs, isCurrent, signal });
+  const nonce = entry.nonce;
+  need(isCurrent() && !signal?.aborted && stable(config) === configKey && stable(args) === argsKey,
+    '预览期间页面、钱包或操作参数已改变，请重新预览。');
+  const createdAt = Date.now(), deadline = (BigInt(Math.floor(createdAt / 1000)) + BigInt(validitySeconds)).toString();
+  const signed = frozenCopy(authorityAction(authority, kind, capturedArgs, nonce, deadline));
+  const token = Object.freeze({});
+  // The read signal may be aborted by its caller's normal cleanup after a successful
+  // preview. Only page/wallet epochs govern the token after preparation completes.
+  preparedSignatures.set(token, { provider, signer, configKey, kind, argsKey, isCurrent, createdAt, nonceEntry: entry,
+    expiresAt: Math.min(createdAt + cacheLifetimeMs, Number(deadline) * 1000), signed,
+    payload: JSON.stringify(signaturePayload(signed)),
+    command: frozenCopy({ authority, expectedCodehash: pinned.codehash.toLowerCase(), kind,
+      args: capturedArgs, nonce: nonce.toString(), deadline }) });
+  return token;
+}
+
+/** One explicit confirmation consumes one token. No read RPC, simulation, retry or relay POST. */
+export async function signPreparedAuthorityAction({ prepared, provider, config, account, kind, args,
+  isCurrent = () => true, onState }) {
+  const stored = prepared && typeof prepared === 'object' ? preparedSignatures.get(prepared) : null;
+  need(stored, '管理员签名准备已失效或已使用，请重新预览。');
+  preparedSignatures.delete(prepared); // Also consumed by rejection, context mismatch or an unknown wallet result.
+  const current = () => {
+    need(provider === stored.provider && getAddress(account) === stored.signer
+      && stable(config) === stored.configKey && kind === stored.kind && stable(args) === stored.argsKey,
+    '钱包、配置或操作参数与预览不同，请重新预览。');
+    need(stored.isCurrent() && isCurrent(),
+      '页面或钱包已改变，请重新预览。');
+  };
+  current();
+  need(Date.now() >= stored.createdAt && Date.now() < stored.expiresAt,
+    '管理员签名准备已过期，请重新预览。');
+  need(!stored.nonceEntry.consumed, '此签名序号已发起过钱包请求，请重新预览。');
+  emit(onState, 'awaiting-admin-signature');
+  current();
+  invalidateAuthorityNonce({ provider, config, account }, stored.nonceEntry.nonce);
+  const signature = await stored.provider.request({ method: 'eth_signTypedData_v4',
+    params: [stored.signer, stored.payload] });
+  current();
+  need(Date.now() < Number(stored.command.deadline) * 1000, '管理员签名已过期，请重新预览。');
+  need(same(verifyTypedData(stored.signed.domain, stored.signed.types, stored.signed.message, signature), stored.signer),
+    '钱包签名与当前管理员地址不一致。');
+  // A different transaction may have consumed the cached nonce. Only the relay/chain decides;
+  // never obtain a new nonce or sign again as an automatic recovery step.
+  return { ...stored.command, signature };
+}
+
 /** Read the nonce and exact NFT reservation together; only then request the signature. */
 export async function signAuthorityAction({ provider, readProvider, config, account, kind, args,
   validitySeconds = 600, readTimeoutMs = 8000, isCurrent = () => true, onState }) {
@@ -98,31 +285,9 @@ export async function signAuthorityAction({ provider, readProvider, config, acco
   const rpc = (method, params = []) => provider.request({ method, params });
   const reservation = creationReservation(config, kind, args);
   if (config.displayOnly === true) {
-    const pinned = config.freshAuthority ?? config.manifest?.freshAuthority;
-    need(pinned && same(pinned.address, authority) && /^0x[\da-f]{64}$/i.test(pinned.codehash ?? ''), '管理员签名配置不完整。');
-    emit(onState, 'preparing-authority');
-    const [nonce] = await boundedReadPreview(async ({ provider: reader }) => Promise.all([
-      reader.request({ method: 'eth_call', params: [{ to: authority,
-        data: authorityAbi.encodeFunctionData('nonces', [signer]) }, 'latest'] })
-        .then(raw => authorityAbi.decodeFunctionResult('nonces', raw)[0]),
-      reservation ? requireMachineAvailable(reader, reservation) : null,
-    ]),
-    { provider: readProvider, timeoutMs: readTimeoutMs, isCurrent });
-    const deadline = (BigInt(Math.floor(Date.now() / 1000)) + BigInt(validitySeconds)).toString();
-    const signed = authorityAction(authority, kind, args, nonce, deadline);
-    const payload = { types: { EIP712Domain: [
-      { name: 'name', type: 'string' }, { name: 'version', type: 'string' },
-      { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' },
-    ], ...signed.types }, primaryType: signed.primaryType, domain: signed.domain, message: signed.message };
-    need(isCurrent(), '页面或钱包已改变，请重新预览。');
-    emit(onState, 'awaiting-admin-signature');
-    const signature = await rpc('eth_signTypedData_v4', [signer, JSON.stringify(payload)]);
-    need(same(verifyTypedData(signed.domain, signed.types, signed.message, signature), signer),
-      '钱包签名与当前管理员地址不一致。');
-    // The relay retains its execution checks. This hash identifies the build;
-    // it is not evidence that the browser re-read the live runtime.
-    return { authority, expectedCodehash: pinned.codehash.toLowerCase(), kind, args,
-      nonce: nonce.toString(), deadline, signature };
+    const input = { provider, readProvider, config, account, kind, args, validitySeconds, readTimeoutMs, isCurrent, onState };
+    const prepared = await prepareAuthoritySignature(input);
+    return signPreparedAuthorityAction({ ...input, prepared });
   }
   need(BigInt(await rpc('eth_chainId')) === 56n, '请切换到 BSC 主网。');
   const block = await rpc('eth_getBlockByNumber', ['latest', false]);
@@ -157,9 +322,10 @@ export async function signAuthorityAction({ provider, readProvider, config, acco
 
 /** Session/status reconciliation must not postpone the administrator's wallet prompt.
  * Authentication is still required before any relay POST. No transaction is broadcast here. */
-export async function prepareAuthoritySubmission({ authenticate, ...input }) {
+export async function prepareAuthoritySubmission({ authenticate, prepared, ...input }) {
   need(typeof authenticate === 'function', '管理员代付需要本站登录会话。');
-  const command = await signAuthorityAction(input);
+  const command = prepared === undefined ? await signAuthorityAction(input)
+    : await signPreparedAuthorityAction({ ...input, prepared });
   need((input.isCurrent ?? (() => true))(), '页面或钱包已改变，请重新预览。');
   emit(input.onState, 'authenticating');
   await authenticate({ onState: input.onState });
@@ -168,13 +334,22 @@ export async function prepareAuthoritySubmission({ authenticate, ...input }) {
 }
 
 export async function submitAuthorityAction(config, account, command) {
+  const requestId = authorityOperationId(command);
   const base = (config.journalBase ?? '/api/journal').replace(/\/$/, '');
   const response = await fetch(`${base}/authority-relay`, { method: 'POST', credentials: 'same-origin',
     cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Pinkuang-Account': getAddress(account) },
     body: JSON.stringify({ command }), signal: AbortSignal.timeout(30_000) });
   const result = await response.json().catch(() => null);
   if (!response.ok || !result) throw Object.assign(new Error(result?.error
-    || `管理员代付服务暂不可用（HTTP ${response.status}）。`), { httpStatus: response.status });
+    || `管理员代付服务暂不可用（HTTP ${response.status}）。`),
+    { httpStatus: response.status,
+      submissionRejected: [400, 401, 403, 404, 405, 409, 413, 415, 429].includes(response.status),
+      relayResult: relayMetadata(result) });
+  need(sameBytes(result.requestId, requestId), '代付响应不属于本次签名；请保留请求并核对状态，不要重复发送。');
+  if (result.accepted === false) throw Object.assign(new Error(result.message || '本次签名请求未被代付服务接受。'),
+    { httpStatus: response.status, submissionRejected: true, relayResult: relayMetadata(result) });
+  need(result.accepted === true && HASH.test(result.hash ?? '') && authorityStatusForRequest(result, requestId),
+    '代付响应尚未证明本次请求已被接受；请核对状态，不要重复发送。');
   return result;
 }
 

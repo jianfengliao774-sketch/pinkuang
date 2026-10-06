@@ -6,8 +6,9 @@ export const CAPACITY_MANUAL_MIN_INTERVAL_MS = 10_000;
 /** Quotes are optional display data, scoped to the deployment, exact price
  * and supplied NFT identity. A page/read generation is deliberately absent. */
 export function capacityRequestKey({ manifest, factory = manifest?.factory, pool, pricePerUnitWei,
-  displayOnly = false, params, allowUnownedTarget = false } = {}) {
-  if (!HASH.test(manifest?.artifactDigest) || !ADDRESS.test(manifest?.factory)
+  displayOnly = false, params, allowUnownedTarget = false, includeOfficialAsk = false } = {}) {
+  if (typeof includeOfficialAsk !== 'boolean' || typeof allowUnownedTarget !== 'boolean'
+    || !HASH.test(manifest?.artifactDigest) || !ADDRESS.test(manifest?.factory)
     || !ADDRESS.test(factory) || factory.toLowerCase() !== manifest.factory.toLowerCase()
     || !ADDRESS.test(pool) || typeof pricePerUnitWei !== 'bigint' || pricePerUnitWei < 0n) return null;
   const market = manifest.shareMarket;
@@ -17,13 +18,28 @@ export function capacityRequestKey({ manifest, factory = manifest?.factory, pool
   return JSON.stringify([manifest.artifactDigest.toLowerCase(), factory.toLowerCase(),
     manifest.chainId ?? 56, market?.toLowerCase() ?? '', pool.toLowerCase(), pricePerUnitWei.toString(),
     displayOnly === true, displayOnly === true ? false : allowUnownedTarget === true,
-    collection?.toLowerCase() ?? '', tokenId ?? '']);
+    collection?.toLowerCase() ?? '', tokenId ?? '', includeOfficialAsk]);
+}
+
+/** Persisted estimates must prove which optional ask/ownership reads were performed. */
+export function capacityAskPolicyMatches(quote, input = {}) {
+  if (typeof quote?.includeOfficialAsk !== 'boolean'
+    || quote.includeOfficialAsk !== (input.includeOfficialAsk === true)
+    || typeof quote.allowUnownedTarget !== 'boolean'
+    || (input.displayOnly !== true && quote.allowUnownedTarget !== (input.allowUnownedTarget === true))) return false;
+  const pricePresent = typeof quote.minerAskPriceWei === 'bigint' && quote.minerAskPriceWei > 0n;
+  if (!['official', 'firsto', null].includes(quote.minerAskSource)
+    || (quote.minerAskSource !== null) !== pricePresent) return false;
+  if (!quote.includeOfficialAsk) return quote.officialAskStatus === 'not_requested' && quote.minerAskSource !== 'official';
+  return ['ready', 'absent', 'unavailable'].includes(quote.officialAskStatus)
+    && (quote.officialAskStatus === 'ready') === (quote.minerAskSource === 'official');
 }
 
 function reusableSavedQuote(quote, input, now) {
   return quote?.available === true && quote.pool?.toLowerCase() === input.pool.toLowerCase()
     && quote.pricePerUnitWei === input.pricePerUnitWei && quote.forPriceWei === input.pricePerUnitWei.toString()
     && (quote.displayOnly === true) === (input.displayOnly === true)
+    && capacityAskPolicyMatches(quote, input)
     && Number.isSafeInteger(quote.validUntil) && quote.validUntil > now
     && (!input.params || quote.collection?.toLowerCase() === input.params.circuits.toLowerCase()
       && quote.tokenId === input.params.circuitId.toString());

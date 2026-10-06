@@ -4,8 +4,9 @@ import { createReadOnlyHttpProvider } from './live-config.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { QUOTE_BASE } from './quote-base.mjs';
 import { uint, referenceQuote } from './chain-client.mjs';
-import { parseFirstoSignedAsk, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
+import { parseFirstoPurchaseAsk, verifyFirstoPurchaseOrder } from '../../deploy/src/firsto-purchase.mjs';
 import { readMachineReservation } from '../../deploy/shared/machine-reservation.mjs';
+import { AMOUNT_DISPLAY_PLACES } from './amount-display.mjs';
 
 const MARKET = '0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f';
 const MINING = '0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46';
@@ -31,7 +32,7 @@ function minerEligibilityIssue(miner) {
 export { QUOTE_BASE };
 export const QUOTE_SOURCE = 'https://tapeout.firsto.ai/circuits';
 /** Exact BNB per estimated daily BEM for the displayed market ask; never use the fundraising reserve. */
-export function listingDailyCapacityPrice(priceWei, estimated24hAtomic, decimals = 5) {
+export function listingDailyCapacityPrice(priceWei, estimated24hAtomic, decimals = AMOUNT_DISPLAY_PLACES) {
   if (priceWei == null || estimated24hAtomic == null) return null;
   const price = uint(priceWei), yieldAtomic = uint(estimated24hAtomic);
   if (price === 0n || yieldAtomic === 0n) return null;
@@ -154,15 +155,25 @@ export async function checkMinerOnchain(provider, quote, { config, blockTag = 'l
     || BigInt(chain.official.priceWei) <= uint(officialPriceCapWei));
   if (!officialWithinCap && quote.ask?.venue === 'firsto') {
     if (config?.displayOnly === true) {
-      try { firsto = parseFirstoSignedAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner }); }
+      try {
+        const order = parseFirstoPurchaseAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner });
+        if (order.kind === 0) firsto = order;
+        else {
+          requireValue(config.firstoBatchPurchase?.protocolReviewed === true && config.firstoBatchPurchase?.active === true,
+            'Firsto 批量协议尚未完成审核，当前仅供参考。');
+          return checkMinerOnchain(provider, quote, { config: { ...config, displayOnly: false }, blockTag, officialPriceCapWei });
+        }
+      }
       catch (error) { firstoError = operatorQuoteError(error); }
     }
     else if (!chain.registry.supported) firstoError = '当前工厂版本尚未开放 Firsto 合约采购。';
     else if (!chain.registry.ready) firstoError = '矿机唯一性登记尚未完成，Firsto 采购暂不可用。';
     else {
       try {
-        const order = parseFirstoSignedAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner });
-        firsto = await verifyFirstoSignedAsk(provider, order, { blockTag: toQuantity(BigInt(chain.blockNumber)) });
+        const order = parseFirstoPurchaseAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner });
+        firsto = await verifyFirstoPurchaseOrder(provider, order, { blockTag: toQuantity(BigInt(chain.blockNumber)),
+          versionTarget: config?.firstoBatchPurchase?.implementation,
+          reviewedBatchProtocol: config?.firstoBatchPurchase?.protocolReviewed === true && config?.firstoBatchPurchase?.active === true });
         requireValue(firsto.checkedBlock.hash === chain.blockHash, 'Firsto 订单与矿机核对区块不一致。');
       } catch (error) { firsto = null; firstoError = operatorQuoteError(error); }
     }
@@ -196,10 +207,28 @@ export async function loadOperatorQuote({ collection, tokenId, config, provider,
   if (!officialWithinCap && config?.displayOnly === true) {
     let firsto = null, firstoError = null;
     if (quote.ask?.venue === 'firsto') {
-      try { firsto = parseFirstoSignedAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner }); }
+      try {
+        const order = parseFirstoPurchaseAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner });
+        if (order.kind === 0) firsto = order;
+        else {
+          requireValue(config.firstoBatchPurchase?.protocolReviewed === true && config.firstoBatchPurchase?.active === true,
+            'Firsto 批量协议尚未完成审核，当前仅供参考。');
+          // Legacy display reads deliberately omit a block anchor. New batch
+          // execution requires a complete canonical read before it is offered.
+          chain = await readOfficialMinerOnchain(reader, collection, tokenId, {
+            config: { ...config, displayOnly: false }, blockTag, checkReservation: forCreation });
+          matchQuoteToMiner(quote, chain);
+          if (!chain.official || officialPriceCapWei !== undefined && BigInt(chain.official.priceWei) > uint(officialPriceCapWei)) {
+            firsto = await verifyFirstoPurchaseOrder(reader, order, {
+              blockTag: toQuantity(BigInt(chain.blockNumber)), versionTarget: config.firstoBatchPurchase?.implementation,
+              reviewedBatchProtocol: config.firstoBatchPurchase?.protocolReviewed === true && config.firstoBatchPurchase?.active === true });
+            requireValue(same(firsto.checkedBlock.hash, chain.blockHash), 'Firsto 订单与矿机核对区块不一致。');
+          }
+        }
+      }
       catch (error) { firstoError = operatorQuoteError(error); }
     }
-    chain = Object.freeze({ ...officialChain, firsto, firstoError });
+    chain = Object.freeze({ ...chain, firsto, firstoError });
   } else if (!officialWithinCap && quote.ask) chain = await checkMinerOnchain(reader, quote, { config, blockTag, officialPriceCapWei });
   return Object.freeze({ quote, chain, reference: results[1].status === 'fulfilled' ? results[1].value : null,
     referenceError: results[1].status === 'rejected' ? operatorQuoteError(results[1].reason) : null });

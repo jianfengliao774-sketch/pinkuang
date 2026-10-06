@@ -203,7 +203,8 @@ export async function main(args = process.argv.slice(2)) {
     do {
       try {
         const proof = freshGuard ? await fresh.verifyFreshPurchaseGraph(provider,{...options,reconcileExisting:true},freshGuard) : null;
-        const result = await runSupervisorCycle(provider, options, signer, state);
+        const orderOptions = freshGuard ? fresh.freshPurchaseOrderOptions(options, proof) : options;
+        const result = await runSupervisorCycle(provider, orderOptions, signer, state);
         console.log(serial({ at: new Date().toISOString(), mode: options.send ? 'send' : 'dry-run', ...result }));
         if (reportOperatorReview(result.results)) break;
         if (heartbeat && !stopping) publishSupervisorReadiness(heartbeat,proof,result);

@@ -30,3 +30,15 @@ test('active wallet confirmation postpones display updates; cleanup prevents lat
   f.pause(false); f.flush(); assert.equal(f.count(), 1);
   f.stream.emit('3'); f.stop(); assert.equal(f.queue.size, 0);
 });
+
+
+test('hidden pages retain the newest revision without retry timers and resume when visible', () => {
+  let stream, visible, reads = 0, timer;
+  const doc = { visibilityState:'hidden', addEventListener: (_name, fn) => { visible=fn; }, removeEventListener() {} };
+  class Source { constructor(){stream=this;} addEventListener(_name,fn){this.update=fn;} removeEventListener(){} close(){} }
+  const stop = startDisplayUpdates(config, { EventSourceImpl:Source, documentObject:doc, onUpdate:()=>reads++,
+    schedule:fn=>{timer=fn;return 1;}, unschedule:()=>{timer=null;} });
+  stream.update({data:JSON.stringify({revision:'1'})});stream.update({data:JSON.stringify({revision:'2'})});
+  const flush=timer;timer=null;flush();assert.equal(reads,0);assert.equal(timer,null);
+  doc.visibilityState='visible';visible();assert.equal(typeof timer,'function');timer();assert.equal(reads,1);stop();
+});

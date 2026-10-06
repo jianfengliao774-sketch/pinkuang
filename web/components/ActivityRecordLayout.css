@@ -1,0 +1,299 @@
+@media (min-width: 1000px) {
+  .live-platform .live-activity-table-desktop {
+    --activity-column-time: 12%;
+    --activity-column-block: 10%;
+    --activity-column-operation: 30%;
+    --activity-column-amount: 24%;
+    --activity-column-contract: 12%;
+    --activity-column-transaction: 12%;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .live-platform .table-wrap.live-activity-table-desktop > table,
+  .live-platform .live-detail-records .table-wrap.live-activity-table-desktop > table {
+    table-layout: fixed;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .live-platform .table-wrap.live-activity-table-desktop :is(th, td) {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    padding: 14px 8px;
+    vertical-align: top;
+    font-size: 16px;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .live-platform .table-wrap.live-activity-table-desktop th {
+    vertical-align: middle;
+  }
+
+  .live-platform .table-wrap.live-activity-table-desktop :is(col, th)[data-activity-column="time"] { width: var(--activity-column-time); }
+  .live-platform .table-wrap.live-activity-table-desktop :is(col, th)[data-activity-column="block"] { width: var(--activity-column-block); }
+  .live-platform .table-wrap.live-activity-table-desktop :is(col, th)[data-activity-column="operation"] { width: var(--activity-column-operation); }
+  .live-platform .table-wrap.live-activity-table-desktop :is(col, th)[data-activity-column="amount"] { width: var(--activity-column-amount); }
+  .live-platform .table-wrap.live-activity-table-desktop :is(col, th)[data-activity-column="contract"] { width: var(--activity-column-contract); }
+  .live-platform .table-wrap.live-activity-table-desktop :is(col, th)[data-activity-column="transaction"] { width: var(--activity-column-transaction); }
+
+  .live-platform .table-wrap.live-activity-table-desktop .live-activity-time {
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    white-space: normal;
+  }
+
+  .live-platform .live-activity-table-desktop .live-activity-time time {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .live-platform .live-activity-table-desktop .live-activity-time :is(.date, .clock) {
+    display: block;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-activity-table-desktop .activity-operation {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-activity-table-desktop .activity-operation p {
+    font-size: 15px;
+    line-height: 1.65;
+  }
+
+  .live-platform .live-activity-table-desktop .activity-operation :is(small, code) {
+    font-size: 14px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-activity-table-desktop .live-activity-amount-line {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    font-variant-numeric: tabular-nums;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-activity-table-desktop .live-activity-amount-line + .live-activity-amount-line {
+    margin-top: 6px;
+  }
+
+  .live-platform .live-activity-table-desktop .text-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    max-width: 100%;
+    font-size: inherit;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-activity-table-desktop .live-activity-link-label {
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    text-overflow: clip;
+    overflow: visible;
+  }
+
+  .live-platform .live-activity-table-desktop .text-button > svg {
+    flex: 0 0 auto;
+  }
+}
+
+@media (min-width: 1000px) and (max-width: 1100px) {
+  .live-platform .live-activity-table-desktop {
+    --activity-column-time: 14%;
+    --activity-column-operation: 24%;
+    --activity-column-amount: 28%;
+  }
+
+  .live-platform .table-wrap.live-activity-table-desktop :is(th, td) {
+    padding-inline: 6px;
+  }
+}
+
+@media (max-width: 1000px) {
+  .live-platform .table-wrap.live-activity-table-desktop {
+    display: none;
+  }
+
+  .live-platform main .live-mobile-activity {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    gap: 0;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-row {
+    min-width: 0;
+    max-width: 100%;
+    padding: 13px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    min-width: 0;
+    max-width: 100%;
+    gap: 6px 12px;
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-heading :is(span, strong, time) {
+    min-width: 0;
+    max-width: 100%;
+    font-size: inherit;
+    font-variant-numeric: tabular-nums;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-row .activity-operation {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-row .activity-operation :is(strong, p, small, code) {
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-amounts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    max-width: 100%;
+    gap: 8px;
+    margin: 9px 0 0;
+    padding: 9px 0 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-amounts > div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    min-width: 0;
+    max-width: 100%;
+    gap: 4px 12px;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-amounts :is(dt, dd) {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-amounts dt {
+    color: var(--muted);
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-amounts dd {
+    color: var(--ink);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+    gap: 4px 16px;
+    margin-top: 4px;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-links > span,
+  .live-platform .live-mobile-activity .live-mobile-activity-links .text-button {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+    gap: 4px;
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-links > span {
+    flex-wrap: wrap;
+    min-height: 44px;
+  }
+
+  .live-platform .live-mobile-activity .live-activity-link-label {
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    text-overflow: clip;
+    overflow: visible;
+  }
+
+  .live-platform .live-mobile-activity .text-button > svg {
+    flex: 0 0 auto;
+  }
+
+  .live-platform .live-mobile-activity .live-empty {
+    padding: 23px 14px;
+    font-size: 15px;
+  }
+
+  .live-platform .live-mobile-activity .live-empty h3 {
+    margin: 9px 0 6px;
+    font-size: 15px;
+  }
+}

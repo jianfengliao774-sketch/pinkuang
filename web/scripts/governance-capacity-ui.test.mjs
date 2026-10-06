@@ -34,6 +34,7 @@ function harness({prepareWait,actionWait,snapshotOverride={},configOverride={},p
     react: hooks,
     '../lib/capacity-input.mjs': capacity,
     '../app/live-governance.css': {},
+    './LiveGovernanceLayout.css': {},
     './FirstoSaleReferenceAction': {__esModule:true,default:ReferenceAction},
     '../lib/live-governance.mjs': {
       fetchNativeFirstoPublication:publicationReader,
@@ -84,8 +85,8 @@ function harness({prepareWait,actionWait,snapshotOverride={},configOverride={},p
 test('governance keeps an eighteen-decimal sale input after blur and sends the exact entered price', async () => {
   const ui=harness();try {
     await ui.settle();ui.edit('sale','0.015001234567890123');
-    assert.equal(ui.input('sale').props.value,'0.01500');
-    assert.equal(ui.input('capacity').props.value,'3.47251');
+    assert.equal(ui.input('sale').props.value,'0.0150');
+    assert.equal(ui.input('capacity').props.value,'3.4725');
     ui.input('sale').props.onFocus();ui.render();
     assert.equal(ui.input('sale').props.value,'0.015001234567890123');
     ui.input('sale').props.onBlur();ui.render();
@@ -96,7 +97,7 @@ test('governance keeps an eighteen-decimal sale input after blur and sends the e
 test('passive focus of the linked sale display never changes the capacity-derived exact transaction price', async () => {
   const ui=harness();try {
     await ui.settle();ui.edit('capacity','0.01000');
-    assert.equal(ui.input('sale').props.value,'0.00004');
+    assert.equal(ui.input('sale').props.value,'<0.0001');
     ui.input('sale').props.onFocus();ui.render();
     assert.equal(ui.input('sale').props.value,'0.0000432');
     ui.input('sale').props.onBlur();ui.render();
@@ -107,7 +108,7 @@ test('passive focus of the linked sale display never changes the capacity-derive
 test('a positive capacity-derived sale below display precision remains visible and sends positive wei', async () => {
   const ui=harness();try {
     await ui.settle();ui.edit('capacity','0.000000001');
-    assert.equal(ui.input('sale').props.value,'<0.00001');
+    assert.equal(ui.input('sale').props.value,'<0.0001');
     assert.equal((await ui.preview()).priceWei,'4320000');
   }finally{ui.dispose();}
 });
@@ -128,7 +129,7 @@ test('a daily output change while an unsigned proposal preview is pending cannot
     finish();await ui.settle();
     assert.equal(ui.hasPreview(),false);
     assert.equal(ui.sends,0);
-    assert.equal(ui.input('sale').props.value,'0.00005','The current linked display still updates while preview was busy.');
+    assert.equal(ui.input('sale').props.value,'<0.0001','The current linked display still updates while preview was busy.');
   }finally{finish();ui.dispose();}
 });
 
@@ -190,7 +191,7 @@ test('confirmation is modal and cannot close or send twice while its exact actio
 
 test('a failed refresh preserves the known deployed review rule and snapshot while blocking all wallet actions', async () => {
   const ui=harness({snapshotOverride:{saleReviewThresholdBps:8000n}});try {
-    await ui.settle();ui.edit('sale','0.01500');ui.failNextRead();
+    await ui.settle();ui.edit('sale','0.0150');ui.failNextRead();
     ui.allNodes().find(node=>node.props?.className==='live-gov-refresh').props.onClick();await ui.settle();
     const text=node=>!node?'':typeof node==='string'?node:Array.isArray(node)?node.map(text).join(''):
       typeof node==='object'?text(node.props?.children):'';
@@ -229,7 +230,7 @@ test('only successful current business snapshots reach the parent and absent rev
       typeof node==='object'?text(node.props?.children):'';
     const header=ui.allNodes().find(node=>node.props?.className==='live-section-head');
     assert.match(text(header),/规定比例/);assert.doesNotMatch(text(header),/100%|80%/);
-    ui.edit('sale','0.01500');await ui.preview();assert.equal(ui.acceptedSnapshots.length,2);
+    ui.edit('sale','0.0150');await ui.preview();assert.equal(ui.acceptedSnapshots.length,2);
     assert.equal(ui.acceptedSnapshots[1],ui.acceptedSnapshots[0],'The callback receives the actual prepared snapshot object.');
     assert.equal(ui.sends,0,'Parent display updates cannot submit a transaction.');
   }finally{ui.dispose();}

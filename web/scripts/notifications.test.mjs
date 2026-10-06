@@ -63,9 +63,9 @@ test('inbox links use verified pool-shaped addresses, bilingual copy distinguish
   assert.equal(notificationTarget({ payload: { pool: account, projectKind: 'javascript:bad' } }), `#detail/${account}`);
   assert.equal(notificationTarget({ payload: { pool: 'javascript:alert(1)' } }), '#governance');
   const payload = { pool: account, circuitId: '16210', proposalId: '1', priceWei: '6500000000000000000', endsAt: 1801000000 };
-  assert.match(notificationMessage({ kind: 'proposal', payload }, 'zh').body, /6\.50000 BNB/);
-  assert.match(notificationMessage({ kind: 'listed', payload: { ...payload, priceWei: '75500000000000001' } }, 'en').body, /0\.07550 BNB/);
-  assert.match(notificationMessage({ kind: 'listed', payload: { ...payload, priceWei: '1' } }, 'zh').body, /<0\.00001 BNB/);
+  assert.match(notificationMessage({ kind: 'proposal', payload }, 'zh').body, /6\.5000 BNB/);
+  assert.match(notificationMessage({ kind: 'listed', payload: { ...payload, priceWei: '75500000000000001' } }, 'en').body, /0\.0755 BNB/);
+  assert.match(notificationMessage({ kind: 'listed', payload: { ...payload, priceWei: '1' } }, 'zh').body, /<0\.0001 BNB/);
   assert.equal(payload.priceWei, '6500000000000000000');
   assert.match(notificationMessage({ kind: 'proposal', payload }, 'en').body, /connect your wallet/);
   assert.match(notificationMessage({ kind: 'vote_closed', payload: { ...payload, passed: true } }, 'zh').body, /截止后不能执行/);

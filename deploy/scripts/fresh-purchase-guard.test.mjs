@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { KEEPER_STATE_ROOT } from './purchase-keeper.mjs';
-import { configureFreshPurchase, verifyFreshPurchaseGraph } from './fresh-purchase-guard.mjs';
+import { configureFreshPurchase, verifyFreshPurchaseGraph, freshPurchaseOrderOptions } from './fresh-purchase-guard.mjs';
 import { parseSupervisorArguments } from './purchase-supervisor.mjs';
 import { parseSupervisorArguments as parseMiningArguments } from './mining-supervisor.mjs';
 import { ORIGINAL_GAS_WALLET } from '../shared/original-gas-wallet.mjs';
@@ -104,4 +104,26 @@ test('fresh auto purchase requires a current canonical graph before signing', as
     options(), guard, { verifyGraph: async () => graph }), /mainnet/);
   await assert.rejects(verifyFreshPurchaseGraph({ ...provider, getBlock: async () => ({ ...block, timestamp: block.timestamp - 120 }) },
     options(), guard, { verifyGraph: async () => graph }), /current/);
+});
+
+
+test('fresh purchase forwards batch catalog pins and grants only the current verified graph capability', () => {
+  const paths={firstoBatchCatalogPath:'/srv/reviewed/batch-catalog.json',firstoBatchArtifactPath:'/srv/reviewed/batch-artifacts.json',
+    firstoBatchProtocolReviewPath:'/srv/reviewed/batch-protocol-review.json',trustedFirstoBatchCatalogDigest:'0x'+'c'.repeat(64),
+    trustedFirstoBatchArtifactDigest:'0x'+'d'.repeat(64),trustedFirstoBatchProtocolReviewDigest:'0x'+'e'.repeat(64)};
+  let captured;
+  configureFreshPurchase(options(),{...env,BEMINE_FIRSTO_BATCH_CATALOG_PATH:paths.firstoBatchCatalogPath,
+    BEMINE_FIRSTO_BATCH_ARTIFACT_PATH:paths.firstoBatchArtifactPath,BEMINE_FIRSTO_BATCH_PROTOCOL_REVIEW_PATH:paths.firstoBatchProtocolReviewPath,
+    BEMINE_FIRSTO_BATCH_CATALOG_DIGEST:paths.trustedFirstoBatchCatalogDigest,BEMINE_FIRSTO_BATCH_ARTIFACT_DIGEST:paths.trustedFirstoBatchArtifactDigest,
+    BEMINE_FIRSTO_BATCH_PROTOCOL_REVIEW_DIGEST:paths.trustedFirstoBatchProtocolReviewDigest},
+    {...dependencies,configuration(input){captured=input;return trusted;}});
+  assert.deepEqual(Object.fromEntries(Object.keys(paths).map(key=>[key,captured[key]])),paths);
+  const forged={...options(),firstoBatchPurchase:{active:true,protocolReviewed:true}};
+  for(const proof of [null,{graph:{}},{graph:{firstoBatchPurchase:{active:false,protocolReviewed:true}}},
+    {graph:{firstoBatchPurchase:{active:true,protocolReviewed:false}}}])
+    assert.equal(freshPurchaseOrderOptions(forged,proof).firstoBatchPurchase,undefined);
+  const capability={active:true,protocolReviewed:true,implementation:authority};
+  const enabled=freshPurchaseOrderOptions(forged,{graph:{firstoBatchPurchase:capability}});
+  assert.deepEqual(enabled.firstoBatchPurchase,capability);
+  assert(Object.isFrozen(enabled.firstoBatchPurchase));assert.notEqual(enabled.firstoBatchPurchase,capability);
 });

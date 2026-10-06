@@ -9,6 +9,7 @@ import { fetchNativeFirstoPublication, proposalReferenceRecord, prepareGovernanc
 import { createUiContext } from '../lib/ui-context.mjs';
 import FirstoSaleReferenceAction from './FirstoSaleReferenceAction';
 import '../app/live-governance.css';
+import './LiveGovernanceLayout.css';
 
 const short = value => value ? `${value.slice(0, 8)}…${value.slice(-6)}` : '—';
 const errorText = problem => problem?.shortMessage || problem?.message || '出售治理请求未完成。';
@@ -248,9 +249,15 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
     && publication.askHash?.toLowerCase() === snapshot.nativeFirstoSale.orderHash?.toLowerCase();
   const reviewPricePercent = snapshot?.saleReviewThresholdBps == null ? null : Number(snapshot.saleReviewThresholdBps) / 100;
   return <section className="live-section live-governance" aria-label="真实整机出售治理">
-    <div className="live-section-head"><div><h2>整机出售治理</h2><p>{config?.stage === 'genesis'
-      ? '创世矿池按链上购机成本判定折价：地址过半，折价至少 60 份赞成；其他价格份额过半。'
-      : `同轮报价共用投票快照。赞成人数与份额均须严格过半；执行挂牌须有当前 Firsto 参考价。${reviewPricePercent == null ? '仅低于参考价规定比例的报价需要平台审核。' : `仅售价低于参考价的 ${reviewPricePercent}% 时须经平台审核。`}`}</p></div><button className="live-gov-refresh" disabled={busy || !config || !poolValue} onClick={() => void refresh({ force: true })}><RefreshCw size={15}/>刷新治理</button></div>
+    <div className="live-section-head">
+      <div className="live-governance-title-row">
+        <h2>整机出售治理</h2>
+        <button className="live-gov-refresh" disabled={busy || !config || !poolValue} onClick={() => void refresh({ force: true })}><RefreshCw size={15}/>刷新治理</button>
+      </div>
+      <p>{config?.stage === 'genesis'
+        ? '创世矿池按链上购机成本判定折价：地址过半，折价至少 60 份赞成；其他价格份额过半。'
+        : `同轮报价共用投票快照。赞成人数与份额均须严格过半；执行挂牌须有当前 Firsto 参考价。${reviewPricePercent == null ? '仅低于参考价规定比例的报价需要平台审核。' : `仅售价低于参考价的 ${reviewPricePercent}% 时须经平台审核。`}`}</p>
+    </div>
     {error && !previewVisible && <div className="live-gov-error" role="alert"><CircleAlert size={16}/>{error}</div>}
     <div className="live-gov-selector"><label>矿池地址<input value={poolValue} readOnly={!!selectedPool} list="live-governance-pools" onChange={event => { requests.current.invalidate(); setPoolInput(event.target.value); }} placeholder="0x…"/></label><datalist id="live-governance-pools">{pools.map(pool => <option value={pool} key={pool}/>)}</datalist><span>{config?.displayOnly ? '选择矿池，查看提案并参与投票。' : '只有经过链上 Factory 注册核对的池可操作。'}</span></div>
     {!snapshot && <p className="live-gov-muted">{config?.displayOnly ? '选择矿池，读取提案与余额。' : '选择矿池并读取。页面不从浏览器缓存恢复提案或余额。'}</p>}
@@ -275,7 +282,7 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
       </div>}
       {snapshot.state === 2n && <div className="live-gov-propose"><h3>{roundOpen ? '提出同轮竞价' : '发起新一轮出售提案'}</h3><p>{snapshot.stage === 'genesis'
         ? '整机价与日产能价按当前 24H 日产换算。创世矿池按链上实际购机成本判断折价。'
-        : '整机价与日产能价按当前 24H 日产换算。执行挂牌时以运营方届时上链的新鲜 Firsto 市场参考价判断是否需要平台审核。'}</p><p>日产能价表示 1 BEM/天产能的价格，按 Firsto 公式：拟出售整机价 ÷ 当前预计日产出；不含交易手续费。</p>{proposalWaiting && <p role="status">矿机激活满 3 天后才能发起提案；链上开放时间：{when(proposalOpensAt)}。当前持仓和价格输入已读取，暂不能送交钱包。</p>}<div><label>拟出售整机价（BNB）<input inputMode="decimal" aria-label="拟出售整机价（BNB）" disabled={busy || disabled} value={priceInputValue('sale', salePrice)} title={salePrice ? `精确整机价 ${salePrice} BNB` : undefined} onFocus={() => setEditingPrice('sale')} onChange={event => editPrice('sale', event.target.value)} onBlur={() => setEditingPrice(null)} placeholder="0.00000"/></label><label>日产能价（BNB / (BEM/天)）<input inputMode="decimal" aria-label="日产能价（BNB / (BEM/天)）" value={dailyAtomic ? priceInputValue('capacity', capacityPrice) : ''} title={capacityPrice ? `精确日产能价 ${capacityPrice} BNB / (BEM/天)` : undefined} disabled={!dailyAtomic || busy || disabled} onFocus={() => setEditingPrice('capacity')} onChange={event => editPrice('capacity', event.target.value)} onBlur={() => setEditingPrice(null)} placeholder={dailyAtomic ? '0.00000' : '日产暂不可用'}/></label><button disabled={frozen || proposalWaiting || snapshot.shares === 0n} onClick={() => {
+        : '整机价与日产能价按当前 24H 日产换算。执行挂牌时以运营方届时上链的新鲜 Firsto 市场参考价判断是否需要平台审核。'}</p><p>日产能价表示 1 BEM/天产能的价格，按 Firsto 公式：拟出售整机价 ÷ 当前预计日产出；不含交易手续费。</p>{proposalWaiting && <p role="status">矿机激活满 3 天后才能发起提案；链上开放时间：{when(proposalOpensAt)}。当前持仓和价格输入已读取，暂不能送交钱包。</p>}<div><label>拟出售整机价（BNB）<input inputMode="decimal" aria-label="拟出售整机价（BNB）" disabled={busy || disabled} value={priceInputValue('sale', salePrice)} title={salePrice ? `精确整机价 ${salePrice} BNB` : undefined} onFocus={() => setEditingPrice('sale')} onChange={event => editPrice('sale', event.target.value)} onBlur={() => setEditingPrice(null)} placeholder="0.0000"/></label><label>日产能价（BNB / (BEM/天)）<input inputMode="decimal" aria-label="日产能价（BNB / (BEM/天)）" value={dailyAtomic ? priceInputValue('capacity', capacityPrice) : ''} title={capacityPrice ? `精确日产能价 ${capacityPrice} BNB / (BEM/天)` : undefined} disabled={!dailyAtomic || busy || disabled} onFocus={() => setEditingPrice('capacity')} onChange={event => editPrice('capacity', event.target.value)} onBlur={() => setEditingPrice(null)} placeholder={dailyAtomic ? '0.0000' : '日产暂不可用'}/></label><button disabled={frozen || proposalWaiting || snapshot.shares === 0n} onClick={() => {
         try {
           const price = proposedSalePriceWei({salePrice: salePrice.startsWith('.') ? `0${salePrice}` : salePrice,
             capacityPrice: capacityPrice.startsWith('.') ? `0${capacityPrice}` : capacityPrice, editedField,

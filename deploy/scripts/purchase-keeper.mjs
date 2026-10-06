@@ -5,7 +5,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Contract, Interface, JsonRpcProvider, FetchRequest, Wallet, ZeroAddress, formatEther, getAddress, parseEther, parseUnits, Transaction, keccak256, toQuantity } from 'ethers';
-import { decodeFirstoOrder, parseFirstoSignedAsk, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
+import { decodeFirstoOrder, parseFirstoPurchaseAsk, verifyFirstoPurchaseOrder } from '../src/firsto-purchase.mjs';
 import { MAX_OFFICIAL_SNAPSHOT_AGE_MS, fetchOfficialCandidates, verifyOfficialSnapshotBoundary } from './official-market-discovery.mjs';
 import { readKeeperPrivateKey } from './keeper-credential.mjs';
 
@@ -122,14 +122,14 @@ export function selectFirstoCandidates(rows, constraints, now = Date.now()) {
     const weight = integer(row.mining.verifiedWeight), unverified = integer(row.mining.unverifiedWeight);
     if (weight === null || weight <= 0n || weight < constraints.minVerifiedWeight || unverified !== 0n) continue;
     try {
-      const order = parseFirstoSignedAsk(row.bestAsk, { collection: constraints.circuits,
+      const order = parseFirstoPurchaseAsk(row.bestAsk, { collection: constraints.circuits,
         tokenId: constraints.circuitId.toString(), owner: row.owner, now });
       if (BigInt(order.grossWei) > constraints.priceCap) continue;
       const collection = normalizeAddress(row.collection), key = `${collection.toLowerCase()}:${constraints.circuitId}`;
       candidates.set(key, { key, collection, tokenId: constraints.circuitId, priceWei: BigInt(order.grossWei),
         verifiedWeight: weight, indexerBuyerCostWei: BigInt(order.grossWei), isReference: true,
-        discoverySource: 'Firsto signed original target', discoveryVenue: 'firsto', order });
-    } catch { /* Missing, expired, malformed or batch orders are not executable hints. */ }
+        discoverySource: order.kind === 1 ? 'Firsto batch original target leaf' : 'Firsto signed original target', discoveryVenue: 'firsto', order });
+    } catch { /* Missing, expired or malformed orders are not executable hints. */ }
   }
   return [...candidates.values()];
 }
@@ -246,11 +246,13 @@ export async function readKeeperPool(provider, options) {
     referenceCircuitId: policy.enabled ? policy.referenceCircuitId : params.circuitId };
 }
 
-export async function verifyFirstoCandidate(provider, candidate, constraints) {
+export async function verifyFirstoCandidate(provider, candidate, constraints, options = {}) {
   if (!candidate?.order || !same(candidate.collection, constraints.circuits) || candidate.tokenId !== constraints.circuitId
     || !same(candidate.order.ask.collection, constraints.circuits) || BigInt(candidate.order.ask.tokenId) !== constraints.circuitId) return null;
   const rpc = typeof provider.request === 'function' ? provider : { request: ({ method, params }) => provider.send(method, params) };
-  const order = await verifyFirstoSignedAsk(rpc, candidate.order, { blockTag: toQuantity(constraints.blockNumber) });
+  const order = await verifyFirstoPurchaseOrder(rpc, candidate.order, { blockTag: toQuantity(constraints.blockNumber),
+    reviewedBatchProtocol: options.firstoBatchPurchase?.protocolReviewed === true
+      && options.firstoBatchPurchase?.active === true, versionTarget: options.pool });
   if (BigInt(order.checkedBlock.number) !== BigInt(constraints.blockNumber) || BigInt(order.grossWei) > constraints.priceCap) return null;
   return { ...candidate, order, priceWei: BigInt(order.grossWei), firstoObservedBlock: constraints.blockNumber };
 }
@@ -288,12 +290,12 @@ function referenceFirst(candidates, constraints, sort, limit = 30) {
 
 function orderedCandidates(candidates, constraints, options) {
   return options.venue === 'firsto-signed'
-    ? candidates.filter(candidate => candidate.order?.kind === 0 && candidate.tokenId === constraints.circuitId && same(candidate.collection, constraints.circuits)).slice(0, 1)
+    ? candidates.filter(candidate => [0,1].includes(candidate.order?.kind) && candidate.tokenId === constraints.circuitId && same(candidate.collection, constraints.circuits)).slice(0, 1)
     : referenceFirst(candidates, constraints, options.sort, options.officialSnapshot ? Infinity : 30);
 }
 
 const verifyPurchaseCandidate = (provider, candidate, constraints, options) => options.venue === 'firsto-signed'
-  ? verifyFirstoCandidate(provider, candidate, constraints) : verifyCandidate(provider, candidate, constraints);
+  ? verifyFirstoCandidate(provider, candidate, constraints, options) : verifyCandidate(provider, candidate, constraints);
 
 async function pollPoolState(provider, options, cached) {
   if ((await provider.getNetwork()).chainId !== 56n) throw new Error('Keeper only supports BSC mainnet chainId 56.');
@@ -555,13 +557,17 @@ export function acquireKeeperLock(resourcePath, root = resolve(KEEPER_STATE_ROOT
 }
 
 /** The persistent wallet pointer also blocks a different pool after --once exits or a process crashes. */
-export function acquireWalletLock(address, journalPath, root = resolve(KEEPER_STATE_ROOT, 'wallets')) {
+export function acquireWalletLock(address, journalPath, root = resolve(KEEPER_STATE_ROOT, 'wallets'),
+  { existingJournalOnly = false } = {}) {
   mkdirSync(root, { recursive: true, mode: 0o700 }); chmodSync(root, 0o700);
   const path = resolve(root, `56-${normalizeAddress(address).toLowerCase()}.json`);
   const release = acquireKeeperLock(path, resolve(root, 'locks'));
   try {
     if (existsSync(path)) {
       const owner = readPrivateJson(path);
+      if (existingJournalOnly && (owner.chainId !== 56 || !same(owner.address ?? '', address)
+        || owner.journal !== resolve(journalPath)))
+        throw new Error('Wallet recovery requires its exact existing journal pointer; retain the other journal.');
       // Check even when resuming the same path. Never silently replace a lost
       // pending ledger with a fresh empty file before reserving another nonce.
       if (!existsSync(owner.journal)) throw new Error('Wallet has an unavailable previous journal; preserve the pointer and recover that journal before sending.');
@@ -569,8 +575,11 @@ export function acquireWalletLock(address, journalPath, root = resolve(KEEPER_ST
       readJournal(owner.journal, { factory: previous.factory, pool: previous.pool,
         transactionTarget: previous.transactionTarget ?? previous.pool });
       if (owner.journal !== resolve(journalPath) && previous.transaction && !finalizedRecord(previous.transaction)) throw new Error('Wallet has an unresolved transaction in another pool journal. Reconcile that journal first.');
+    } else if (existingJournalOnly) {
+      throw new Error('Wallet recovery requires its existing journal pointer; no new pointer was created.');
     }
-    writeJournal(path, { chainId: 56, address: normalizeAddress(address), journal: resolve(journalPath) });
+    if (!existingJournalOnly)
+      writeJournal(path, { chainId: 56, address: normalizeAddress(address), journal: resolve(journalPath) });
     return release;
   } catch (error) { release(); throw error; }
 }
@@ -729,9 +738,11 @@ export async function recoverPending(provider, options, signer, journal, diagnos
     if (pending.data.toLowerCase().startsWith(selector.toLowerCase())) {
       try {
         const decoded = abi.parseTransaction({ data: pending.data });
-        if (decoded.args[0] !== 0n || abi.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() !== pending.data.toLowerCase()) throw new Error('Invalid Firsto recovery calldata.');
+        if (![0n,1n].includes(decoded.args[0]) || abi.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() !== pending.data.toLowerCase()) throw new Error('Invalid Firsto recovery calldata.');
         const rpc = typeof provider.request === 'function' ? provider : { request: ({ method, params }) => provider.send(method, params) };
-        await verifyFirstoSignedAsk(rpc, decodeFirstoOrder(decoded.args[1]), { blockTag: 'latest' });
+        await verifyFirstoPurchaseOrder(rpc, decodeFirstoOrder(decoded.args[1], decoded.args[0]), { blockTag: 'latest',
+          reviewedBatchProtocol: options.firstoBatchPurchase?.protocolReviewed === true
+            && options.firstoBatchPurchase?.active === true, versionTarget: options.pool });
       } catch {
         return { status: 'firsto-recovery-order-no-longer-verified', terminal: false, hash: pending.hash,
           message: 'The original signed purchase is still reserved. No resend or new signature; reconcile its receipt or explicitly cancel this nonce.' };
@@ -823,7 +834,7 @@ async function runKeeperCycleSingle(provider, options, signer = null, fetcher = 
     }
     const overrides = !signer && options.from ? { from: options.from } : {};
     const method = firsto ? 'buyFromFirsto' : constraints.enabled ? 'buyAlternativeFromMarket' : 'buyFromMarket';
-    const args = firsto ? [0, candidate.order.encodedOrder] : [candidate.listingId];
+    const args = firsto ? [candidate.order.kind, candidate.order.encodedOrder] : [candidate.listingId];
     let gasLimit;
     try {
       // estimateGas executes the complete atomic purchase path once: this is the
@@ -871,7 +882,7 @@ async function runKeeperCycleSingle(provider, options, signer = null, fetcher = 
   }
   if ((constraints.enabled || firsto) && refreshDue) startCandidateRefresh(provider, options, constraints, runtime, fetcher);
   return { status: firsto ? 'no-executable-firsto-original-target-in-prepared-queue' : 'no-executable-official-candidate-in-prepared-queue', terminal: false, ...queueInfo(), skipped,
-    message: firsto ? 'Only the original target with a currently verified Firsto signed V2 order is executable; batch and alternative targets are disabled.'
+    message: firsto ? 'Only the original target with a currently verified Firsto order is executable; batch leaves additionally require reviewed protocol and upgraded pool proof.'
       : 'Only official listings are executable in this venue; Firsto orders require explicit --venue firsto-signed.' };
 }
 
@@ -949,7 +960,7 @@ export async function runKeeperCycle(provider, options, signer = null, fetcher =
 }
 
 function help() {
-  console.log(`Purchase keeper — BSC official listings before opt-in Firsto signed orders\n\nDefault: read-only, state polls every 2 seconds, candidate prewarming every 30 seconds.\nFunded pools try the original target immediately. --venue auto then scans the independent TapeOut official listing feed and considers Firsto only after a complete, current official check.\n\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --journal /private/path/pool.json --send\n\n--send reads the systemd keeper-private-key credential or KEEPER_PRIVATE_KEY. Never put a key in command arguments.\nOptions: --venue official|firsto-signed|auto (default official), --rpc URL, --sort capacity|price, --pages 1..10 (default 3), --interval seconds (default 2),\n--refresh-interval seconds (default 30), --from ADDRESS (optional dry-run caller),\n--max-gas-bnb 0.01 (cumulative budget including failed transactions), --max-gas-price-gwei 1, --recover-hash 0x...\nAuto mode supports flexible official alternatives, then only an original-target Firsto V2 signed ask; batch and Firsto alternatives are not enabled. An unavailable, incomplete or changed official snapshot blocks Firsto fallback. Each attempt verifies the live listing/order and simulates the complete Pool purchase. Unresolved transactions are recovered by exact journal identity before either route is considered.\nTwo canonical confirmations plus BSC finalized inclusion are required before releasing a nonce. Unsupported finalized RPCs fail closed. Default pending handling never resends.\nRecovery: --send --once --rebroadcast (identical bytes), or --send --once --speed-up (same purchase + nonce, 20% fee bump; a node may require a higher replacement threshold).\n--send --once --cancel-pending replaces this nonce with a zero-value empty self-transfer for an EOA; confirmation stops this journal.\n--max-speed-ups 3 (hard ceiling 5), --pending-seconds 120 (diagnostic threshold, never an expiry).\nWallet locks coordinate this machine only: run one executor per wallet, including across machines.\nAll process locks persist in private 0700 state directories; send mode requires HTTPS RPC (loopback HTTP is for tests).\nSigned raw transactions stay in the private journal; keep it and its wallet lock state until every pending nonce is resolved.\nThe factory address is a user trust input; reciprocal getters do not authenticate an arbitrary deployment.\nNo pool creation, funding, finalization, share trading or service-fee collection is performed.`);
+  console.log(`Purchase keeper — BSC official listings before opt-in Firsto signed orders\n\nDefault: read-only, state polls every 2 seconds, candidate prewarming every 30 seconds.\nFunded pools try the original target immediately. --venue auto then scans the independent TapeOut official listing feed and considers Firsto only after a complete, current official check.\n\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --journal /private/path/pool.json --send\n\n--send reads the systemd keeper-private-key credential or KEEPER_PRIVATE_KEY. Never put a key in command arguments.\nOptions: --venue official|firsto-signed|auto (default official), --rpc URL, --sort capacity|price, --pages 1..10 (default 3), --interval seconds (default 2),\n--refresh-interval seconds (default 30), --from ADDRESS (optional dry-run caller),\n--max-gas-bnb 0.01 (cumulative budget including failed transactions), --max-gas-price-gwei 1, --recover-hash 0x...\nAuto mode supports flexible official alternatives, then an original-target Firsto V2 signed ask. A batch leaf remains disabled unless independent protocol review and the upgraded pool capability are verified. Firsto alternative targets are not enabled. An unavailable, incomplete or changed official snapshot blocks Firsto fallback. Each attempt verifies the live listing/order and simulates the complete Pool purchase. Unresolved transactions are recovered by exact journal identity before either route is considered.\nTwo canonical confirmations plus BSC finalized inclusion are required before releasing a nonce. Unsupported finalized RPCs fail closed. Default pending handling never resends.\nRecovery: --send --once --rebroadcast (identical bytes), or --send --once --speed-up (same purchase + nonce, 20% fee bump; a node may require a higher replacement threshold).\n--send --once --cancel-pending replaces this nonce with a zero-value empty self-transfer for an EOA; confirmation stops this journal.\n--max-speed-ups 3 (hard ceiling 5), --pending-seconds 120 (diagnostic threshold, never an expiry).\nWallet locks coordinate this machine only: run one executor per wallet, including across machines.\nAll process locks persist in private 0700 state directories; send mode requires HTTPS RPC (loopback HTTP is for tests).\nSigned raw transactions stay in the private journal; keep it and its wallet lock state until every pending nonce is resolved.\nThe factory address is a user trust input; reciprocal getters do not authenticate an arbitrary deployment.\nNo pool creation, funding, finalization, share trading or service-fee collection is performed.`);
 }
 
 export async function main(args = process.argv.slice(2)) {
