@@ -7,9 +7,10 @@ import { Contract, FetchRequest, Interface, Wallet, getAddress, keccak256,
   parseEther, parseUnits } from 'ethers';
 import { JournalStore } from './journal-store.mjs';
 import { verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
-import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
+import { productGraphConfiguration, reviewedAuthorityRuntimeMatches, verifyProductGraph } from './product-graph.mjs';
 import { createKeyedLimiter } from './request-limiter.mjs';
-import { prepareAuthorityCall, runAuthorityRelay } from '../scripts/authority-relay.mjs';
+import { archiveFinalizedAuthorityFailure, authorityOperationId, prepareAuthorityCall,
+  runAuthorityRelay } from '../scripts/authority-relay.mjs';
 import { acquireKeeperLock, acquireWalletLock, readJournal,
   reconcilePending, writeJournal } from '../scripts/purchase-keeper.mjs';
 import { readKeeperPrivateKey } from '../scripts/keeper-credential.mjs';
@@ -53,6 +54,15 @@ function relayStatus(status) {
   if (['broadcast', 'signed', 'pending-receipt', 'pending-confirmations', 'pending-finality',
     'pending-not-indexed'].includes(status)) return 'pending';
   return 'uncertain';
+}
+function operationId(tx) {
+  return tx?.to && tx?.data ? authorityOperationId(tx.to, tx.data) : null;
+}
+function lastFailure(journal) {
+  const row = journal.reviewedAuthorityFailures?.at(-1), tx = row?.transaction;
+  return tx ? { status: 'failed', hash: tx.hash, kind: tx.kind, operationId: operationId(tx),
+    blockNumber: tx.blockNumber, gasCostWei: tx.gasCostWei, archived: true, recoveryRequired: false,
+    reason: 'transaction-reverted' } : null;
 }
 const json = (res, status, body) => {
   res.statusCode = status;
@@ -203,8 +213,10 @@ async function checkExactOperation(command, trusted, graph, readReclaimState) {
 
 async function checkAction(command, prepared, graph, trusted, readReclaimState) {
   const authority = trusted.freshAuthority.authority;
-  if (!same(command.authority, authority.address) || !HASH.test(command.expectedCodehash ?? '')
-    || command.expectedCodehash.toLowerCase() !== graph.freshAuthority.codehash.toLowerCase())
+  // Only installed target/ABI checks run before the one current-state read.
+  // Runtime identity is checked below from that read's vetted bytecode; older
+  // activation records do not necessarily contain a saved codehash.
+  if (!same(command.authority, authority.address) || !HASH.test(command.expectedCodehash ?? ''))
     fail(409, 'Authority identity differs from the reviewed deployment.');
   if (!prepared.signer || !Object.hasOwn(GAS_LIMIT, command.kind)) fail(400, 'An administrator signature is required.');
   if (command.kind === 'reviewSale' || command.kind === 'setSaleReference') {
@@ -253,7 +265,14 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   const provider = dependencies.provider ?? createDeferredRuntimeRpcProvider(request, {
     env: { BEMINE_READ_FALLBACK_RPC_URL: config.readFallbackRpcUrl }, network: 56,
     providerOptions: { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 },
+    serializeReads: false,
   });
+  // Background deployment/worker proofs have an independent read lane. A
+  // reference scan or quota backoff must never queue ahead of a signed action.
+  const backgroundProvider = dependencies.backgroundProvider ?? dependencies.provider
+    ?? provider.forkReadLane({
+      providerOptions: { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 },
+    });
   const verifyGraph = dependencies.verifyGraph ?? verifyProductGraph;
   const readReclaimState = dependencies.readReclaimState ?? (async (poolAddress, blockNumber) => {
     const overrides = blockNumber ? { blockTag: blockNumber } : {};
@@ -292,7 +311,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   // Status reconciliation can write the journal. Serialize it with submit in
   // this process so simultaneous polls do not turn the O_EXCL lock into a 503.
   // The filesystem lock still protects against a second process.
-  let journalQueue = Promise.resolve(), statusTask = null;
+  let journalQueue = Promise.resolve(), statusTask = null, failedProofRetry = null;
   function withJournalTurn(work) {
     const turn = journalQueue.then(work);
     journalQueue = turn.catch(() => {});
@@ -301,13 +320,13 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   const allowAccountRequest = createKeyedLimiter({ windowMs: 60_000, perKey: 30, maxKeys: 32 });
 
   async function freshGraph() {
-    if (BigInt(await provider.send('eth_chainId', [])) !== 56n) fail(503, 'RPC is not BSC mainnet.');
-    const block = await provider.getBlock('latest');
+    if (BigInt(await backgroundProvider.send('eth_chainId', [])) !== 56n) fail(503, 'RPC is not BSC mainnet.');
+    const block = await backgroundProvider.getBlock('latest');
     if (!block || !Number.isSafeInteger(block.number) || !HASH.test(block.hash ?? '')
       || !Number.isSafeInteger(block.timestamp)
       || Math.abs(Math.floor(Date.now() / 1000) - block.timestamp) > 90)
       fail(503, 'Current BSC block is unavailable.');
-    const graph = await verifyGraph(provider, trusted.record.addresses.factory, trusted, block);
+    const graph = await verifyGraph(backgroundProvider, trusted.record.addresses.factory, trusted, block);
     if (!graph.freshAuthority || !graph.freshFactoryVerified
       || !same(graph.freshAuthority.address, trusted.freshAuthority.authority.address)
       || graph.freshAuthority.codehash.toLowerCase()
@@ -320,7 +339,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   // Without an explicit pin, readiness still requires this signer's own release.
   const machineReadiness = config.requireMachineReadiness
     ? (dependencies.machineReadiness ?? (dependencies.createMachineReadiness ?? createFreshMachineReadiness)({
-      provider,verifyGraph:freshGraph,sourceHead:workerSourceHead,
+      provider: backgroundProvider,verifyGraph:freshGraph,sourceHead:workerSourceHead,
     })) : null;
 
   function rate(account) {
@@ -337,17 +356,45 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     const task = withJournalTurn(async () => {
       const authority = trusted.freshAuthority.authority.address;
       const release = lockJournal(config.journal);
+      let releaseWallet;
       try {
         const options = { factory: authority, pool: authority, transactionTarget: authority, journal: config.journal };
         const journal = readJournal(config.journal, options);
         const result = await reconcilePending(provider, options, journal);
         const tx = journal.transaction;
+        if (tx?.phase === 'reverted') {
+          try {
+            if (failedProofRetry?.hash === tx.hash && Date.now() < failedProofRetry.after)
+              return { status: 'uncertain', hash: tx.hash, kind: tx.kind, operationId: operationId(tx),
+                archived: false, recoveryRequired: true, reason: 'failure-verification-unavailable' };
+            releaseWallet = lockWallet(config.expectedGasWallet, config.journal, undefined,
+              { existingJournalOnly: true });
+            const archived = await archiveFinalizedAuthorityFailure(provider, {
+              journal: config.journal, authority,
+              expectedCodehash: trusted.freshAuthority.authority.codehash,
+              reviewedRuntimeMatches: code => reviewedAuthorityRuntimeMatches(trusted, code),
+              expectedCoreFactory: trusted.record.addresses.factory,
+              expectedBudgetFactory: trusted.record.addresses.portfolioFactory,
+              expectedGasWallet: config.expectedGasWallet,
+            }, journal);
+            failedProofRetry = null;
+            return { ...archived, status: 'failed', reason: 'transaction-reverted' };
+          } catch (error) {
+            failedProofRetry = { hash: tx.hash, after: Date.now() + 60_000 };
+            dependencies.onError?.(error);
+            return { status: 'uncertain', hash: tx.hash, kind: tx.kind, operationId: operationId(tx),
+              archived: false, recoveryRequired: true, reason: 'failure-verification-unavailable' };
+          }
+        }
+        if (!tx) return lastFailure(journal) ?? { status: 'idle', hash: null, kind: null,
+          operationId: null, blockNumber: null, gasCostWei: null };
         const rawStatus = tx?.phase === 'signed' && result?.status === 'pending-not-indexed'
           ? 'broadcast-result-unknown' : result?.status ?? tx?.phase ?? 'idle';
         return { status: relayStatus(rawStatus), hash: result?.hash ?? tx?.hash ?? null,
+          operationId: operationId(tx), archived: false,
           kind: tx?.kind ?? null, blockNumber: tx?.blockNumber ?? null,
           gasCostWei: tx?.gasCostWei ?? null };
-      } finally { release(); }
+      } finally { releaseWallet?.(); release(); }
     });
     statusTask = task;
     task.finally(() => { if (statusTask === task) statusTask = null; }).catch(() => {});
@@ -355,55 +402,93 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   }
 
   async function submit(command, account) {
-    if (machineReadiness) await machineReadiness();
     if (!command || typeof command !== 'object' || Array.isArray(command)) fail(400, 'Invalid administrator command.');
     let prepared;
     try { prepared = prepareAuthorityCall(command); }
     catch { fail(400, 'Invalid or unsupported administrator action.'); }
     if (!prepared.signer || !same(prepared.signer, account)) fail(403, 'Session wallet did not sign this action.');
-    const graph = await freshGraph();
+    // The exact ABI/target allowlist comes from the installed deployment. The
+    // full historical graph and worker proofs stay off the submission path.
+    const graph = { addresses: trusted.record.addresses, freshFactoryVerified: true };
     const reservation = await checkAction(command, prepared, graph, trusted, readReclaimState);
     const authority = trusted.freshAuthority.authority.address;
-    const { core, budget, first, second, gasWallet, nonce, code } = await readAuthorityState(authority, account);
-    if (!same(core, graph.addresses.factory) || !same(budget, graph.addresses.portfolioFactory)
-      || !same(gasWallet, config.expectedGasWallet) || !same(gasWallet, trusted.freshAuthority.authority.gasWallet)
-      || (!same(account, first) && !same(account, second))
-      || nonce !== prepared.nonce || BigInt(Math.floor(Date.now() / 1000)) > prepared.deadline
-      || keccak256(code).toLowerCase() !== graph.freshAuthority.codehash.toLowerCase())
-      fail(409, 'Administrator nonce, Gas wallet or reviewed Authority graph changed.');
     return withJournalTurn(async () => {
       const releaseJournal = lockJournal(config.journal);
       let releaseWallet;
       try {
         // Check the latest state inside the serialized submit lane: the graph's
         // pinned block may predate a project that was published moments ago.
-        if (reservation) {
-          try { await requireMachineAvailable(provider, { ...reservation, blockTag: 'latest' }); }
-          catch (error) {
+        const [verifiedAuthorityState] = await Promise.all([
+          verifyCurrentAuthorityAdministrator(provider, trusted, account,
+            { readState: readAuthorityState, fast: true }),
+          reservation ? requireMachineAvailable(provider, { ...reservation, blockTag: 'latest' }).catch(error => {
             if (error?.code === 'MachineAlreadyReserved') fail(409, error.message);
             fail(503, 'Current machine reservation could not be verified.');
-          }
-        }
+          }) : null,
+        ]);
+        // verifyCurrentAuthorityAdministrator has already matched the actual
+        // runtime to the reviewed artifact and checked Factory bindings. Never
+        // derive this proof from the browser's expectedCodehash or an optional
+        // field in an activation record.
+        graph.freshAuthority = { address: authority, codehash: keccak256(verifiedAuthorityState.code) };
+        if (command.expectedCodehash.toLowerCase() !== graph.freshAuthority.codehash.toLowerCase())
+          fail(409, 'Authority identity differs from the reviewed deployment.');
+        const { gasWallet, nonce } = verifiedAuthorityState;
+        if (!same(gasWallet, config.expectedGasWallet)
+          || nonce !== prepared.nonce || BigInt(Math.floor(Date.now() / 1000)) > prepared.deadline)
+          fail(409, 'Administrator nonce, Gas wallet or reviewed Authority graph changed.');
         const signer = new Wallet(loadCredential(), provider);
         if (!same(signer.address, gasWallet)) fail(409, 'Configured Gas credential does not match the reviewed wallet.');
         if (!existsSync(config.journal)) writeJournal(config.journal, readJournal(config.journal,
           { factory: authority, pool: authority, transactionTarget: authority }));
-        releaseWallet = lockWallet(signer.address, config.journal);
-        return await relay(provider, { commandObject: command, journal: config.journal, send: true,
+        const journalOptions = { factory: authority, pool: authority, transactionTarget: authority };
+        const journal = readJournal(config.journal, journalOptions);
+        releaseWallet = journal.transaction?.phase === 'reverted'
+          ? lockWallet(signer.address, config.journal, undefined, { existingJournalOnly: true })
+          : lockWallet(signer.address, config.journal);
+        let previousFailure;
+        if (journal.transaction?.phase === 'reverted') {
+          const tx = journal.transaction;
+          try {
+            previousFailure = await archiveFinalizedAuthorityFailure(provider, {
+              journal: config.journal, authority,
+              expectedCodehash: trusted.freshAuthority.authority.codehash,
+              reviewedRuntimeMatches: code => reviewedAuthorityRuntimeMatches(trusted, code),
+              expectedCoreFactory: trusted.record.addresses.factory,
+              expectedBudgetFactory: trusted.record.addresses.portfolioFactory,
+              expectedGasWallet: config.expectedGasWallet,
+            }, journal);
+            failedProofRetry = null;
+          } catch (error) {
+            dependencies.onError?.(error);
+            return { status: 'previous-operation-failed-review-required', hash: tx.hash, kind: tx.kind,
+              operationId: operationId(tx), requestId: authorityOperationId(authority, prepared.data),
+              accepted: false, archived: false, recoveryRequired: true,
+              reason: 'failure-verification-unavailable' };
+          }
+        }
+        const result = await relay(provider, { commandObject: command, journal: config.journal, send: true,
           maxGasWei: config.maxGasWei, maxGasPrice: config.maxGasPrice,
-          gasLimit: GAS_LIMIT[command.kind] }, signer);
+          gasLimit: GAS_LIMIT[command.kind], verifiedAuthorityState, fastSubmission: true }, signer);
+        const current = readJournal(config.journal, journalOptions).transaction;
+        const requestId = authorityOperationId(authority, prepared.data);
+        const currentId = operationId(current);
+        return { ...result, requestId, operationId: currentId,
+          accepted: !!(result.hash && current?.hash?.toLowerCase() === result.hash.toLowerCase()
+            && currentId === requestId && relayStatus(result.status) !== 'failed'),
+          ...(previousFailure ? { previousFailure } : {}) };
       } finally { releaseWallet?.(); releaseJournal(); }
     });
   }
 
   const referencePublisher=config.saleReferencePublisher ? createSaleReferencePublisher({
-    config:config.saleReferencePublisher,provider,signer:new Wallet(loadCredential(),provider),
+    config:config.saleReferencePublisher,provider:backgroundProvider,signer:new Wallet(loadCredential(),backgroundProvider),
     factory:trusted.record.addresses.factory,portfolioFactory:trusted.record.addresses.portfolioFactory,
     market:trusted.record.addresses.shareMarket,
     verifyDeployment:freshGraph,dependencies:dependencies.referencePublisherDependencies,
   }) : null;
   const expiryKeeper = config.firstoExpiryKeeper ? createFirstoListingExpiryKeeper({
-    config: config.firstoExpiryKeeper, provider, signer: new Wallet(loadCredential(), provider),
+    config: config.firstoExpiryKeeper, provider:backgroundProvider, signer: new Wallet(loadCredential(), backgroundProvider),
     factory: trusted.record.addresses.factory, verifyDeployment: freshGraph,
     dependencies: dependencies.firstoExpiryKeeperDependencies,
   }) : null;
@@ -428,8 +513,12 @@ export function createAuthorityRelayService(config, dependencies = {}) {
             !== '/api/journal/authority-relay/status') fail(404, 'Unknown authority relay route.');
           if (req.headers.origin && req.headers.origin !== config.origin) fail(403, 'Request origin is not allowed.');
           const account = getAddress(authenticate(req));
-          await verifyCurrentAuthorityAdministrator(provider, trusted, account,
-            { readState: readAuthorityState });
+          // Status authorizes no new action. Installed role evidence admits
+          // only administrators without spending seven RPC reads every poll.
+          // Every POST still reads current roles and nonce once before send.
+          if (req.method === 'GET' && ![trusted.freshAuthority.authority.administratorOne,
+            trusted.freshAuthority.authority.administratorTwo].some(value => same(account, value)))
+            fail(403, 'Administrator wallet is required.');
           if (!allowAccountRequest(account.toLowerCase())) fail(429, 'Too many authority relay requests.');
           if (req.method === 'GET' && req.url === '/api/journal/authority-relay/status')
             return json(res, 200, await status());
@@ -439,7 +528,12 @@ export function createAuthorityRelayService(config, dependencies = {}) {
           const body = await readBody(req);
           const result = await submit(body.command, account);
           return json(res, 200, { status: relayStatus(result.status), hash: result.hash ?? null,
-            kind: result.kind ?? body.command?.kind ?? null, message: result.message ?? null });
+            kind: result.kind ?? body.command?.kind ?? null, message: result.message ?? null,
+            requestId: result.requestId, operationId: result.operationId, accepted: result.accepted === true,
+            ...(result.previousFailure ? { previousFailure: result.previousFailure } : {}),
+            ...(result.reason ? { reason: result.reason } : {}),
+            ...(result.recoveryRequired !== undefined ? { recoveryRequired: result.recoveryRequired } : {}),
+            ...(result.archived !== undefined ? { archived: result.archived } : {}) });
         } catch (error) {
           dependencies.onError?.(error);
           // Never reflect RPC errors, calldata, signatures or private-key material.
@@ -459,6 +553,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
       await journalQueue;
       store.close();
       if (!dependencies.provider) provider.destroy();
+      if (!dependencies.backgroundProvider && !dependencies.provider) backgroundProvider.destroy();
     },
   };
 }

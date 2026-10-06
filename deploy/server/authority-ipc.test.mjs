@@ -215,12 +215,12 @@ test('local signer proxy accepts only authenticated exact paths, 0750 directory 
       headers:{...headers,'x-pinkuang-account':Wallet.createRandom().address}})).status,409);
     assert.equal((await fetch(`${url}/api/journal/authority-relay`,{method:'POST',
       headers:{...headers,'content-type':'application/json'},body:'x'.repeat(65_537)})).status,413);
-    assert.equal(proofReads,1,'an oversized body is rejected before any chain role read');
+    assert.equal(proofReads,0,'the proxy never repeats the private signer role proof');
     session=Wallet.createRandom().address;
     assert.equal((await fetch(`${url}/api/journal/authority-relay/status`,{
       headers:{...headers,'x-pinkuang-account':session}})).status,403,
     'an ordinary session cannot consume signer quota or reach the private socket');
-    assert.equal(proofReads,1,'an ordinary session is rejected before the full chain role proof');
+    assert.equal(proofReads,0,'an ordinary session is rejected without a full chain role proof');
     const ordinaryPrefilterReads=prefilterReads;
     for(let count=1;count<30;count++)assert.equal((await fetch(
       `${url}/api/journal/authority-relay/status`,{
@@ -230,7 +230,7 @@ test('local signer proxy accepts only authenticated exact paths, 0750 directory 
       headers:{...headers,'x-pinkuang-account':session}})).status,429);
     assert.equal(prefilterReads,ordinaryPrefilterReads+29,
       'the wallet quota rejects repeated non-admin calls before the role prefilter');
-    assert.equal(proofReads,1);
+    assert.equal(proofReads,0);
     assert.equal(seen.length,1);
     session=FRESH_ADMIN_TWO;
     assert.equal((await fetch(`${url}/api/journal/authority-relay/status`,{

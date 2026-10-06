@@ -275,19 +275,18 @@ test('machine IPC uses replay-protected HMAC and never produces a wallet signatu
  }finally{await new Promise(resolve=>server.close(resolve));}
 });
 
-test('fresh public relay POST requires current graph/index readiness; GET recovery remains available',async()=>{
- const key=Buffer.alloc(32,7),account=a(22),origin='https://bemine.example';let forwarded=0,ready=false;
+test('fresh public relay leaves current-state verification to the signer for POST and GET',async()=>{
+ const key=Buffer.alloc(32,7),account=a(22),origin='https://bemine.example';let forwarded=0,readinessChecks=0;
  const signer=createAuthoritySignerServer({handle(req,res){forwarded++;res.end(JSON.stringify({status:'pending'}));}},key);
  await new Promise(resolve=>signer.listen(0,'127.0.0.1',resolve));
  const config={socketPath:'/test/relay.sock',origin,key,freshProductRequired:true};
- assert.throws(()=>createAuthorityRelayProxy(config),/independent graph and index/);
- const proxy=createAuthorityRelayProxy(config,{store:{session:()=>account,close(){}},verifyAdministrator:async()=>{},verifyOperationalReadiness:async()=>{if(!ready)throw Error('index stale');},
+ const proxy=createAuthorityRelayProxy(config,{store:{session:()=>account,close(){}},verifyAdministrator:async()=>{},verifyOperationalReadiness:async()=>{readinessChecks++;throw Error('index stale');},
  transport:(options,callback)=>httpRequest({...options,socketPath:undefined,hostname:'127.0.0.1',port:signer.address().port},callback)});
  const {createServer}=await import('node:http'),server=createServer((req,res)=>proxy.handle(req,res));await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  const base=`http://127.0.0.1:${server.address().port}/api/journal/authority-relay`,headers={origin,cookie:'pinkuang_journal='+'a'.repeat(43),'x-pinkuang-account':account,'content-type':'application/json'};
- try{assert.equal((await fetch(base,{method:'POST',headers,body:'{}'})).status,503);assert.equal(forwarded,0);
- assert.equal((await fetch(base+'/status',{headers})).status,200);assert.equal(forwarded,1);
- ready=true;assert.equal((await fetch(base,{method:'POST',headers,body:'{}'})).status,200);assert.equal(forwarded,2);
+ try{assert.equal((await fetch(base,{method:'POST',headers,body:'{}'})).status,200);assert.equal(forwarded,1);
+ assert.equal((await fetch(base+'/status',{headers})).status,200);assert.equal(forwarded,2);
+ assert.equal(readinessChecks,0);
  }finally{await new Promise(resolve=>server.close(resolve));await new Promise(resolve=>signer.close(resolve));proxy.close();}
 });
 

@@ -54,6 +54,41 @@ const rpc = (id, method = 'eth_call') => ({ jsonrpc: '2.0', id, method,
   params: method === 'eth_call' ? [{ to: '0x' + '1'.repeat(40), data: '0x' }, 'latest'] : ['0x00'] });
 const quota = { code: -32005, message: 'Your account has exceeded its Compute Units Per Second capacity.' };
 
+test('interactive concurrent reads do not wait for a blocked sibling or independent background read lane',async()=>{
+  let release,entered;const waiting=new Promise(resolve=>{release=resolve;});
+  const started=new Promise(resolve=>{entered=resolve;});
+  const calls=[];
+  const server=createServer(async(req,res)=>{
+    const parts=[];for await(const part of req)parts.push(part);
+    const row=JSON.parse(Buffer.concat(parts).toString());calls.push(row.method);
+    if(row.method==='eth_call'&&row.params[0].data==='0x01'){entered();await waiting;}
+    if(row.method==='eth_sendRawTransaction'){res.writeHead(503);res.end('unavailable');return;}
+    res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({jsonrpc:'2.0',id:row.id,result:row.method==='eth_chainId'?'0x38':'0x1234'}));
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const request=new FetchRequest(`http://127.0.0.1:${server.address().port}`);request.timeout=1000;
+  const provider=createDeferredRuntimeRpcProvider(request,{network:56,serializeReads:false,
+    providerOptions:{staticNetwork:true,cacheTimeout:-1,batchMaxCount:1}});
+  const background=provider.forkReadLane({providerOptions:{staticNetwork:true,cacheTimeout:-1,batchMaxCount:1}});
+  try{
+    await Promise.all([provider.ready(),background.ready()]);
+    assert.deepEqual(calls,['eth_chainId'],'read lanes share one sticky startup identity proof');
+    const slow=background.send('eth_call',[{to:'0x'+'1'.repeat(40),data:'0x01'},'latest']);
+    await started;
+    const quick=await Promise.race([
+      provider.send('eth_call',[{to:'0x'+'1'.repeat(40),data:'0x02'},'latest']),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error('interactive read queued behind background')),500)),
+    ]);
+    assert.equal(quick,'0x1234');
+    await assert.rejects(provider.send('eth_sendRawTransaction',['0x00']));
+    assert.equal(calls.filter(method=>method==='eth_sendRawTransaction').length,1,
+      'parallel read mode never retries broadcasts');
+    release();assert.equal(await slow,'0x1234');
+  }finally{release();provider.destroy();background.destroy();server.closeAllConnections();
+    await new Promise(resolve=>server.close(resolve));}
+});
+
 test('HTTP429 read recovery stays on the selected node and has at most three attempts', async () => {
   for (const succeeds of [true, false]) {
     const f = await pair((row, calls) => row.method === 'eth_chainId' ? { result: '0x38' }
