@@ -1,5 +1,6 @@
 import { getAddress, getCreateAddress, keccak256 } from 'ethers';
 import { evidenceDigest } from './firsto-upgrade-proof.mjs';
+import { verifyPortfolioDustScheduleReceipt } from './portfolio-dust-schedule.mjs';
 const hash = /^0x[\da-f]{64}$/i;
 const same = (a,b) => typeof a==='string' && typeof b==='string' && a.toLowerCase()===b.toLowerCase();
 const need = (ok,message) => { if(!ok) throw new Error(message); };
@@ -33,8 +34,9 @@ export async function verifyPortfolioDustReceipt(provider,txHash,expected) {
   const [tx,receipt,finalized]=await Promise.all([provider.getTransaction(txHash),provider.getTransactionReceipt(txHash),provider.getBlock('finalized')]);
   if(!tx || !receipt || !finalized || receipt.blockNumber>finalized.number) return null;
   need(tx.chainId===56n && same(tx.hash,txHash) && same(receipt.hash,txHash) && same(tx.from,expected.from)
-    && tx.nonce===Number(BigInt(expected.nonce)) && tx.value===0n && same(keccak256(tx.data),expected.dataHash)
-    && (expected.to?same(tx.to,expected.to):tx.to===null),'原交易与本次固定部署步骤不符。');
+    && tx.nonce===Number(BigInt(expected.nonce)) && tx.value===0n,'原交易与本次固定部署步骤不符。');
+  if(!expected.to) need(tx.to===null && same(keccak256(tx.data),expected.dataHash),
+    '原交易与本次固定部署步骤不符。');
   need(tx.blockNumber===receipt.blockNumber && same(tx.blockHash,receipt.blockHash),'原交易和回执区块不一致。');
   const block=await provider.getBlock(receipt.blockNumber);
   need(block?.hash && same(block.hash,receipt.blockHash) && Array.isArray(block.transactions)
@@ -42,8 +44,9 @@ export async function verifyPortfolioDustReceipt(provider,txHash,expected) {
   need(receipt.status===0 || receipt.status===1,'原回执状态无效。');
   if(receipt.status===1 && !expected.to) need(same(receipt.contractAddress,getCreateAddress({from:expected.from,nonce:BigInt(expected.nonce)})),
     '新合约地址与原部署 nonce 不一致。');
+  const schedule=expected.to?await verifyPortfolioDustScheduleReceipt(provider,{tx,receipt,expected,finalized}):{};
   return {success:receipt.status===1,txHash,blockNumber:receipt.blockNumber,blockHash:receipt.blockHash,
-    ...(receipt.contractAddress?{address:receipt.contractAddress}:{})};
+    ...(receipt.contractAddress?{address:receipt.contractAddress}:{}),...schedule};
 }
 export function assertPortfolioDustConfirmedState(step,receipt,proof) {
   need(receipt.success===true && Number.isSafeInteger(proof.blockNumber) && proof.blockNumber>=receipt.blockNumber,

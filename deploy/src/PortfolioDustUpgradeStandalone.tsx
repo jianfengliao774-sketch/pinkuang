@@ -9,6 +9,10 @@ import {newPortfolioDustJournal,parsePortfolioDustJournal,portfolioDustJournalKe
 import {readPortfolioDustNonce} from '../shared/portfolio-dust-nonce.mjs';
 // @ts-ignore Shared pacing preserves every proof and RPC error.
 import {pacePortfolioDustRpc} from '../shared/portfolio-dust-rpc.mjs';
+// @ts-ignore Reuse only a proof returned by this run's exact receipt verification.
+import {runPortfolioDustFlow} from '../shared/portfolio-dust-flow.mjs';
+// @ts-ignore Receipts keep their canonical checks when a current graph proof is reused.
+import {portfolioDustProofForReceipt} from '../shared/portfolio-dust-proof-reuse.mjs';
 import {discoverWallets,messageOf,readWallet,switchToBsc,type WalletOption} from './wallet';
 import './portfolio-dust.css';
 type Json=Record<string,any>;
@@ -31,7 +35,7 @@ export function PortfolioDustUpgradeStandalone() {
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('正在读取固定部署产物…');
   const [recoveryHash,setRecoveryHash]=useState(''),[proof,setProof]=useState<Json|null>(null);
   const [nonceProof,setNonceProof]=useState<Json|null>(null);
-  const busyRef=useRef(false),journalRef=useRef<Json|null>(null),configRef=useRef<Json|null>(null);
+  const busyRef=useRef(false),journalRef=useRef<Json|null>(null),configRef=useRef<Json|null>(null),resumedRef=useRef(false);
   useEffect(()=>discoverWallets(setWallets),[]);
   useEffect(()=>{let alive=true;void loadConfig().then(value=>{if(!alive)return;configRef.current=value;setConfig(value);
     const raw=localStorage.getItem(portfolioDustJournalKey(value));const row=raw?parsePortfolioDustJournal(JSON.parse(raw),value):null;
@@ -44,6 +48,13 @@ export function PortfolioDustUpgradeStandalone() {
   useEffect(()=>{if(!config)return;const key=portfolioDustJournalKey(config),update=(event:StorageEvent)=>{if(event.key!==key)return;
     try{const row=event.newValue?parsePortfolioDustJournal(JSON.parse(event.newValue),config):null;journalRef.current=row;setJournal(row);}catch(e){setError(messageOf(e));}};
     window.addEventListener('storage',update);return()=>window.removeEventListener('storage',update);},[config]);
+  useEffect(()=>{if(!config||resumedRef.current)return;resumedRef.current=true;
+    // Resume a saved schedule hash with reads only. Never open another signing request.
+    if(journalRef.current?.transactions.schedule?.txHash)void withRun(async()=>{
+      await withLock(async()=>{finish(await runPortfolioDustFlow({getJournal:()=>journalRef.current,
+        createJournal:()=>{throw new Error('只读恢复需要原部署记录。');},saveJournal:save,
+        checkOriginal:verifyOriginal,inspect,send:()=>{throw new Error('原排程尚未核验，记录保留；不会发送新交易。');}}));});});
+  },[config]);
   function save(row:Json) {const current=configRef.current;if(!current)throw new Error('固定部署配置未加载。');
     const checked=parsePortfolioDustJournal(row,current);localStorage.setItem(portfolioDustJournalKey(current),stringify(checked));journalRef.current=checked;setJournal(checked);}
   async function withRun(action:()=>Promise<void>) {if(busyRef.current)return;busyRef.current=true;setBusy(true);setError('');
@@ -61,22 +72,25 @@ export function PortfolioDustUpgradeStandalone() {
     if(step==='deploy')return {from:config.deployer,data:preparePortfolioDustDeployment(config).data,gas:toQuantity(BigInt(config.deploymentGasLimit))};
     const plan=buildPortfolioDustPlan(config,row.transactions.deploy.address,row.salt,row.delaySeconds);
     return {from:config.proposer,to:plan.to,data:plan.scheduleData,gas:toQuantity(300000)};}
-  async function checkOriginal(step:'deploy'|'schedule',row:Json,hash:string) {if(!config)throw new Error('配置未读取。');
+  async function checkOriginal(step:'deploy'|'schedule',row:Json,hash:string,freshProof?:Json|null) {if(!config)throw new Error('配置未读取。');
     const request=requestFor(step,row),original=row.transactions[step];
     if(!same(original.dataHash,keccak256(request.data)))throw new Error('部署记录与固定操作不一致。');
-    const p=provider();try{const receipt=await verifyPortfolioDustReceipt(p,hash,{...original,to:request.to});if(!receipt)return false;
+    setMessage(step==='schedule'?'正在核对原排程交易及升级进度，不会重复发送…':'正在核对原补丁部署交易及运行代码…');
+    const schedulePlan=step==='schedule'?buildPortfolioDustPlan(config,row.transactions.deploy.address,row.salt,row.delaySeconds):undefined;
+    const p=provider();try{const receipt=await verifyPortfolioDustReceipt(p,hash,{...original,to:request.to,data:request.data,schedulePlan});if(!receipt)return null;
       if(!receipt.success){save({...row,failed:[...row.failed,{step,...receipt}],transactions:Object.fromEntries(Object.entries(row.transactions).filter(([key])=>key!==step))});
         throw new Error('原交易已在链上确认失败，记录已归档。可以再次点击开始。');}
       const next:Json={...row,transactions:{...row.transactions,[step]:{...original,...receipt,status:'confirmed'}}};
       // Never mark deployment complete until its full runtime, immutable and library link are verified.
-      const state=await validatePortfolioDustChain(p,config,{replacement:next.transactions.deploy.address,salt:next.salt,delaySeconds:next.delaySeconds});
+      const currentPlan=buildPortfolioDustPlan(config,next.transactions.deploy.address,next.salt,next.delaySeconds);
+      const state=portfolioDustProofForReceipt(freshProof,next,currentPlan,receipt)
+        ??await validatePortfolioDustChain(p,config,{replacement:next.transactions.deploy.address,salt:next.salt,delaySeconds:next.delaySeconds});
       assertPortfolioDustConfirmedState(step,receipt,state);setProof(state);
-      save(next);return true;
+      save(next);return state;
     }finally{p.destroy();}}
-  async function recoverPending(row:Json) {const step=(['deploy','schedule'] as const).find(name=>row.transactions[name]&&row.transactions[name].status!=='confirmed');
-    if(!step)return true;const original=row.transactions[step],hash=original.txHash||recoveryHash.trim();
+  async function verifyOriginal(step:'deploy'|'schedule',row:Json,freshProof?:Json|null) {const original=row.transactions[step],hash=original.txHash||recoveryHash.trim();
     if(!/^0x[\da-f]{64}$/i.test(hash))throw new Error('钱包尚未返回原哈希。请保留原请求；可在下方填入钱包中的交易哈希进行核对。');
-    const done=await checkOriginal(step,row,hash);if(!done)setMessage('原交易正在等待链上确认。不会重复发送。');return done;}
+    const done=await checkOriginal(step,row,hash,freshProof);if(!done)setMessage('原交易正在等待链上确认。不会重复发送。');return done;}
   async function inspectNonce(selected:WalletOption,row:Json|null,from=config?.deployer) {if(!config)throw new Error('配置未读取。');
     const p=provider();try{return await readPortfolioDustNonce({wallet:selected.provider,rpc:(method:string,params:unknown[])=>p.send(method,params),
       account:from,transactions:row?.transactions??{},onObservation:setNonceProof});}finally{p.destroy();}}
@@ -92,7 +106,7 @@ export function PortfolioDustUpgradeStandalone() {
     if(typeof hash!=='string'||!/^0x[\da-f]{64}$/i.test(hash))throw new Error('钱包没有返回交易哈希，原请求已保留。请使用核对原交易，不要重复部署。');
     const submitted={...row,transactions:{...row.transactions,[step]:{...intent,status:'submitted',txHash:hash}}};save(submitted);
     setMessage('交易已提交，正在核对链上回执…');
-    for(let count=0;count<30;count++){if(await checkOriginal(step,journalRef.current!,hash))return;await new Promise(resolve=>setTimeout(resolve,3000));}
+    for(let count=0;count<30;count++){const live=await checkOriginal(step,journalRef.current!,hash);if(live)return live;await new Promise(resolve=>setTimeout(resolve,3000));}
     throw new Error('交易仍待确认。哈希已保存，稍后点击继续即可核对原交易。');
   }
   async function start() {await withRun(async()=>{if(!config)throw new Error('部署产物未读取。');
@@ -101,20 +115,16 @@ export function PortfolioDustUpgradeStandalone() {
     if(state?.chainId!==56){await switchToBsc(selected.provider);state=await readWallet(selected.provider);}
     setWallet(selected);setAccount(state?.address??'');setChain(state?.chainId??0);
     if(!same(state?.address,config.deployer))throw new Error(`请切换部署账户 ${config.deployer}。`);
-    await withLock(async()=>{let row=journalRef.current;if(row&&!(await recoverPending(row)))return;
-      // Reprove saved confirmations on resume; local storage cannot prove chain finality.
-      for(const step of ['deploy','schedule'] as const){const current=journalRef.current;if(current?.transactions[step]?.status==='confirmed'){
-        if(!(await checkOriginal(step,current,current.transactions[step].txHash)))throw new Error('原确认记录尚不能在当前链上复核，请稍后继续。');}}
-      let live=await inspect(journalRef.current);
-      if(!row){row=newPortfolioDustJournal(config,salt(),Math.max(172800,Number(live.minDelay)));save(row);}
-      row=journalRef.current!;
-      if(!row.transactions.deploy){if(live.implState!=='old')throw new Error('当前合约已变化，请重新核对升级范围。');await send('deploy',row,selected);}
-      row=journalRef.current!;live=await inspect(row);
-      if(!row.transactions.schedule&&live.operation==='unscheduled'){if(live.implState!=='old')throw new Error('此补丁已生效或实现发生变化。');await send('schedule',row,selected);}
-      live=await inspect(journalRef.current);const time=live.readyAt?new Date(Number(live.readyAt)*1000).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}):'';
-      if(!['waiting','ready','done'].includes(live.operation))throw new Error('排程尚未在当前链上确认，原记录已保留。请核对进度。');
-      setMessage(live.operation==='done'?'批量矿池补丁已经链上启用。':`补丁已部署并排程。最早启用时间：${time}（北京时间）。届时完成配套服务核对后启用。`);
+    await withLock(async()=>{const result=await runPortfolioDustFlow({getJournal:()=>journalRef.current,
+      createJournal:(live:Json)=>newPortfolioDustJournal(config,salt(),Math.max(172800,Number(live.minDelay))),saveJournal:save,
+      checkOriginal:verifyOriginal,inspect,send:(step:'deploy'|'schedule',row:Json)=>send(step,row,selected)});
+      finish(result);
     });});}
+  function finish(result:Json) {if(result.pending)return;
+    const live=result.proof,time=live.readyAt?new Date(Number(live.readyAt)*1000).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}):'';
+    if(!['waiting','ready','done'].includes(live.operation))throw new Error('排程尚未在当前链上确认，原记录已保留。请核对进度。');
+    setMessage(live.operation==='done'?'批量矿池补丁已经链上启用。':`补丁已部署并排程。最早启用时间：${time}（北京时间）。届时完成配套服务核对后启用。`);
+  }
   const txs=journal?.transactions??{},pending=(['deploy','schedule'] as const).some(step=>txs[step]&&txs[step].status!=='confirmed');
   return <main><header><a href="https://bemine.cc.cd/">← 返回 BEMine</a><span>BSC 主网 · 独立补丁</span></header>
     <h1>批量矿池合约部署</h1><p>修复最后一台矿机售出后的结算尾差。<strong>你只需在钱包确认部署和排程两笔交易。</strong>现有项目与原升级排程保留。</p>
