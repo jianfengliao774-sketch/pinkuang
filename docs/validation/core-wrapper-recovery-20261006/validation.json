@@ -31,5 +31,15 @@
     "proofBlock": 126057826,
     "otherBatchArchiveCount": 1,
     "chainActionsPerformed": false
+  },
+  "finalPublishedBrowserVerification": {
+    "sourceCommit": "6975fe6441dbf609641894d861be7cffc0647d38",
+    "proofBlock": 126058283,
+    "proofBlockHash": "0x8eb74eb9cd54e739467f842def0e8e7c4e2eddfd344ac86f7434bc1cf9ce05af",
+    "originalOperationId": "0x4f29ead20ca5a72a93712bd2c589f261ad81a33afe09befa1c43626c5a0630f4",
+    "ready": true,
+    "buttonEnabled": true,
+    "otherBatchArchiveCount": 1,
+    "chainActionsPerformed": false
   }
 }
