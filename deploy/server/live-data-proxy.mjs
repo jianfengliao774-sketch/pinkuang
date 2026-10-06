@@ -28,9 +28,11 @@ const rpcErrorKind = value => {
 };
 const BLOCK = value => ['latest', 'safe', 'finalized', 'earliest'].includes(value) || typeof value === 'string' && QUANTITY.test(value);
 
-class ProxyError extends Error { constructor(status, message, { transportFailure = false, upstreamStatus = null, noRpcBody = false } = {}) {
+class ProxyError extends Error { constructor(status, message, { transportFailure = false, upstreamStatus = null, noRpcBody = false,
+  readFallbackTransport = false, readFallbackRefusal = false } = {}) {
   super(message); this.status = status; this.transportFailure = transportFailure;
   this.upstreamStatus = upstreamStatus; this.noRpcBody = noRpcBody;
+  this.readFallbackTransport = readFallbackTransport; this.readFallbackRefusal = readFallbackRefusal;
 } }
 const requireValue = (condition, status, message, options) => { if (!condition) throw new ProxyError(status, message, options); };
 
@@ -206,7 +208,7 @@ async function fetchJson(url, options, { fetcher, timeoutMs, maxResponseBytes })
       const quota = quotaMessage(body);
       const noRpcBody = temporaryStatus && !quota && !/"(?:jsonrpc|id|result|error)"\s*:/.test(body);
       throw new ProxyError(502, 'Upstream returned invalid JSON content.',
-        { transportFailure: !quota, upstreamStatus: response.status, noRpcBody });
+        { transportFailure: !quota, upstreamStatus: response.status, noRpcBody, readFallbackTransport: noRpcBody });
     }
     const text = await readText();
     let value; try { value = JSON.parse(text); } catch { throw new ProxyError(502, 'Upstream returned invalid JSON.',
@@ -216,8 +218,10 @@ async function fetchJson(url, options, { fetcher, timeoutMs, maxResponseBytes })
   };
   try {
     return await Promise.race([work(), new Promise((_, reject) => { timer = setTimeout(() => {
-      controller.abort(); reject(new ProxyError(504, 'Read-only data service timed out.', { transportFailure: true })); }, timeoutMs); })]);
-  } catch (error) { if (error instanceof ProxyError) throw error; throw new ProxyError(502, 'Read-only data service is unavailable.', { transportFailure: true }); }
+      controller.abort(); reject(new ProxyError(504, 'Read-only data service timed out.',
+        { transportFailure: true, readFallbackTransport: true })); }, timeoutMs); })]);
+  } catch (error) { if (error instanceof ProxyError) throw error; throw new ProxyError(502, 'Read-only data service is unavailable.',
+    { transportFailure: true, readFallbackTransport: true }); }
   finally { clearTimeout(timer); controller.abort(); }
 }
 
@@ -318,6 +322,17 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
   let fallbackChainUntil = 0, fallbackChainProof = null, primaryUnavailableUntil = 0;
   let transactionChainUntil = 0, transactionChainProof = null, transactionEpoch = 0;
   let archiveRetryWave = null;
+  // Only the explicitly opted-in upgrade service may use its independently
+  // configured transaction node for a bounded, uncached archive read.
+  const archiveReadFallbackEnabled = retryArchiveRateLimit && !!transactionRpcUrl && transactionRpcUrl !== rpcUrl;
+  const archiveReadFallbackEligible = payload => {
+    if (payload.method === 'eth_chainId') return true;
+    const tag = payload.method === 'eth_getStorageAt' ? payload.params[2]
+      : ['eth_call', 'eth_getCode'].includes(payload.method) ? payload.params[1]
+      : payload.method === 'eth_getBlockByNumber' ? payload.params[0] : null;
+    return typeof tag === 'string' && (QUANTITY.test(tag) || ['safe', 'finalized'].includes(tag));
+  };
+  const canReadFallback = error => error instanceof ProxyError && (error.readFallbackRefusal || error.readFallbackTransport);
   const transactionRead = payload => ['eth_getTransactionByHash', 'eth_getTransactionReceipt'].includes(payload.method);
   const diagnose = (payload, reply, category) => {
     const value = reply?.value;
@@ -341,7 +356,8 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     const rpcReply = Object.hasOwn(reply.value, 'jsonrpc') || Object.hasOwn(reply.value, 'id')
       || Object.hasOwn(reply.value, 'result') || isRecord(reply.value.error) && typeof reply.value.error.code === 'number';
     requireValue(rpcReply || reply.status !== 429 && reply.status < 500, 502,
-      'Read-only RPC upstream is temporarily unavailable.', { transportFailure: true, upstreamStatus: reply.status });
+      'Read-only RPC upstream is temporarily unavailable.',
+      { transportFailure: true, upstreamStatus: reply.status, readFallbackTransport: true });
     return reply;
   };
   // NodeReal also uses -32005 for exhausted monthly credits and other permanent
@@ -356,6 +372,11 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
       && !Object.hasOwn(value, 'result') && isRecord(value.error) && value.error.code === -32005
       && (kind === 'cups' || reply.status === 429 && kind === 'method-rate');
   };
+  const archiveRefusal = (reply, payload) => reply.status === 429
+    && ownKeys(reply.value, ['jsonrpc', 'id', 'error']) && reply.value.jsonrpc === '2.0'
+    && Object.hasOwn(reply.value, 'id') && [payload.id, null].includes(reply.value.id)
+    && ownKeys(reply.value.error, ['code', 'message', 'data']) && reply.value.error.code === -32005
+    && typeof reply.value.error.message === 'string' && !/^\s*execution reverted\b/i.test(reply.value.error.message);
   const remainingArchiveTime = deadline => {
     if (deadline === null) return timeoutMs;
     const remaining = deadline - Date.now();
@@ -433,7 +454,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
       if (!wave.users && archiveRetryWave === wave) archiveRetryWave = null;
     }
   };
-  const fetchArchiveRpcJson = async (payload, deadline = null) => {
+  const fetchArchiveRpcJson = async (payload, deadline = null, { allowReadFallback = false } = {}) => {
     const read = async () => {
       try { return await fetchRpcJson(rpcUrl, payload, deadline === null ? timeoutMs : remainingArchiveTime(deadline)); }
       catch (error) {
@@ -443,8 +464,16 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
       }
     };
     let first, temporary = false, transportStatus = null;
-    try { first = await read(); temporary = retryArchiveRateLimit && transientArchiveThrottle(first, payload); }
+    try {
+      first = await read();
+      if (allowReadFallback && archiveRefusal(first, payload)) {
+        diagnose(payload, first, 'archive-read-fallback-refusal');
+        throw new ProxyError(502, 'Read-only archive RPC refused the read.', { readFallbackRefusal: true });
+      }
+      temporary = retryArchiveRateLimit && transientArchiveThrottle(first, payload);
+    }
     catch (error) {
+      if (allowReadFallback && canReadFallback(error)) throw error;
       transportStatus = error instanceof ProxyError ? error.upstreamStatus : null;
       temporary = retryArchiveRateLimit && error instanceof ProxyError && error.noRpcBody
         && [429, 502, 503, 504].includes(error.upstreamStatus);
@@ -504,8 +533,10 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     }
     return awaitArchiveRetry(transactionChainProof, deadline);
   };
-  const clearReadCaches = () => {
-    pinnedRpc.clear(); headerRpc.clear(); feeLogRpc.clear(); pendingRpc.clear(); observedHeaders.clear(); chainEpoch++;
+  const clearReadCaches = ({ preserveObserved = false } = {}) => {
+    pinnedRpc.clear(); headerRpc.clear(); feeLogRpc.clear(); pendingRpc.clear();
+    if (!preserveObserved) observedHeaders.clear();
+    chainEpoch++;
   };
   const canonicalBlockTag = tag => `0x${BigInt(tag).toString(16)}`;
   const pinnedKey = payload => ['eth_call', 'eth_getCode'].includes(payload.method) && QUANTITY.test(payload.params[1])
@@ -548,6 +579,8 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
   const validHeader = (header, requestedTag) => isRecord(header) && QUANTITY.test(header.number)
     && HASH.test(header.hash ?? '') && QUANTITY.test(header.timestamp)
     && (requestedTag === null || BigInt(header.number) === BigInt(requestedTag));
+  const validArchiveHeader = (header, requestedTag) => isRecord(header)
+    && ['number', 'hash', 'timestamp'].every(key => typeof header[key] === 'string') && validHeader(header, requestedTag);
   const observeHeader = (header, sequence) => {
     if (!validHeader(header, null)) return false;
     const key = canonicalBlockTag(header.number), hash = header.hash.toLowerCase();
@@ -570,9 +603,72 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     if (observedHeaders.size > MAX_HEADER_CACHE_ENTRIES) observedHeaders.delete(observedHeaders.keys().next().value);
     return true;
   };
+  const proveArchiveReadFallback = async deadline => {
+    const request = { jsonrpc: '2.0', id: 0, method: 'eth_chainId', params: [] };
+    const reply = await fetchRpcJson(transactionRpcUrl, request, remainingArchiveTime(deadline)), value = reply.value;
+    const valid = reply.status === 200 && value.jsonrpc === '2.0' && value.id === request.id
+      && value.result === BSC_CHAIN_ID && !Object.hasOwn(value, 'error');
+    if (!valid) diagnose(request, reply, 'archive-read-fallback-chain-failed');
+    requireValue(valid, 502, 'Read-only archive fallback is not BSC mainnet.');
+    remainingArchiveTime(deadline);
+  };
+  const readArchiveFallback = async (payload, deadline, { chainProven = false, knownAnchors } = {}) => {
+    if (!chainProven) await proveArchiveReadFallback(deadline);
+    const epoch = chainEpoch, startedForkEpoch = forkEpoch, sequence = ++headerSequence;
+    const strictRead = async request => {
+      const reply = await fetchRpcJson(transactionRpcUrl, request, remainingArchiveTime(deadline)), value = reply.value;
+      const valid = reply.status === 200 && value.jsonrpc === '2.0' && value.id === request.id
+        && Object.hasOwn(value, 'result') && !Object.hasOwn(value, 'error');
+      if (!valid) diagnose(request, reply, 'archive-read-fallback-envelope-failed');
+      requireValue(valid, 502, 'Archive fallback response did not match the read request.');
+      remainingArchiveTime(deadline);
+      return reply;
+    };
+    const readHeader = async tag => {
+      const reply = await strictRead({ jsonrpc: '2.0', id: 0, method: 'eth_getBlockByNumber', params: [tag, false] });
+      requireValue(validArchiveHeader(reply.value.result, QUANTITY.test(tag) ? tag : null), 502,
+        'Archive fallback returned an invalid canonical block.');
+      return reply.value.result;
+    };
+    let tag = payload.method === 'eth_getStorageAt' ? payload.params[2]
+      : payload.method === 'eth_getBlockByNumber' ? payload.params[0] : payload.params[1];
+    let resolved = null;
+    if (!QUANTITY.test(tag)) {
+      resolved = await readHeader(tag);
+      tag = canonicalBlockTag(resolved.number);
+    } else tag = canonicalBlockTag(tag);
+    invalidateHeaderForPinnedRead(tag);
+    const before = await readHeader(tag), hash = before.hash.toLowerCase();
+    // Preserve this request's prior witnesses even if another failed primary
+    // proof clears the shared map while our alternate chain proof is pending.
+    const knownMatches = () => (!knownAnchors?.has(tag) || knownAnchors.get(tag).hash === hash)
+      && (!observedHeaders.has(tag) || observedHeaders.get(tag).hash === hash);
+    const consistent = condition => {
+      if (!condition) clearReadCaches({ preserveObserved: true });
+      requireValue(condition, 502, 'Archive fallback disagrees with the known canonical block.');
+    };
+    consistent((!resolved || resolved.hash.toLowerCase() === hash) && knownMatches());
+    const numeric = { ...payload, params: [...payload.params] };
+    numeric.params[payload.method === 'eth_getStorageAt' ? 2 : payload.method === 'eth_getBlockByNumber' ? 0 : 1] = tag;
+    const response = payload.method === 'eth_getBlockByNumber'
+      ? { status: 200, value: { jsonrpc: '2.0', id: payload.id, result: before } }
+      : await strictRead(numeric);
+    const validResult = payload.method === 'eth_getBlockByNumber' ? validArchiveHeader(response.value.result, tag)
+      : payload.method === 'eth_getStorageAt' ? typeof response.value.result === 'string' && HASH.test(response.value.result)
+      : typeof response.value.result === 'string' && DATA.test(response.value.result);
+    requireValue(validResult, 502, 'Archive fallback returned invalid read data.');
+    const after = await readHeader(tag);
+    consistent(after.hash.toLowerCase() === hash && knownMatches()
+      && epoch === chainEpoch && startedForkEpoch === forkEpoch);
+    // Unlike observeHeader's primary reorg handling, a backup cannot replace a
+    // known hash. Record only a proven, unchanged anchor; never cache its data.
+    requireValue(observeHeader(after, sequence), 502, 'Archive fallback canonical block changed during request.');
+    invalidateHeaderForPinnedRead(tag);
+    return response;
+  };
   // A fixed BSC URL is still a configuration claim, not chain evidence. Verify
   // it upstream before answering locally, then recheck at most five seconds later.
-  const ensureBscChain = async ({ allowFallback = false, deadline = null } = {}) => {
+  const ensureBscChain = async ({ allowFallback = false, allowReadFallback = false, deadline = null } = {}) => {
     if (now() < verifiedChainUntil) return rpcUrl;
     if (allowFallback && fallbackRpcUrl && now() < primaryUnavailableUntil) {
       await ensureFallbackBscChain(deadline);
@@ -582,17 +678,20 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
       const proof = (async () => {
         try {
           const request = { jsonrpc: '2.0', id: 0, method: 'eth_chainId', params: [] };
-          const { status, value } = await fetchArchiveRpcJson(request, deadline);
+          const reply = await fetchArchiveRpcJson(request, deadline, { allowReadFallback });
+          const { status, value } = reply;
           const valid = status === 200 && value.jsonrpc === '2.0' && value.id === request.id
             && typeof value.result === 'string' && /^0x[\da-f]+$/i.test(value.result)
-            && BigInt(value.result) === 56n && !Object.hasOwn(value, 'error');
+            && BigInt(value.result) === 56n && (!allowReadFallback || value.result === BSC_CHAIN_ID)
+            && !Object.hasOwn(value, 'error');
           if (!valid) diagnose(request, { status, value }, 'archive-chain-proof-failed');
-          requireValue(valid, 502, 'Read-only RPC is not BSC mainnet.');
+          requireValue(valid, 502, 'Read-only RPC is not BSC mainnet.',
+            { readFallbackRefusal: archiveReadFallbackEnabled && archiveRefusal(reply, request) });
           verifiedChainUntil = now() + chainIdTtlMs;
           primaryUnavailableUntil = 0;
         } catch (error) {
           verifiedChainUntil = 0;
-          clearReadCaches();
+          clearReadCaches({ preserveObserved: archiveReadFallbackEnabled && canReadFallback(error) });
           throw error;
         }
       })();
@@ -601,6 +700,10 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     }
     try { await awaitArchiveRetry(chainProof, deadline); return rpcUrl; }
     catch (error) {
+      if (allowReadFallback && canReadFallback(error)) {
+        await proveArchiveReadFallback(deadline);
+        return transactionRpcUrl;
+      }
       if (!allowFallback || !fallbackRpcUrl || !error.transportFailure) throw error;
       await ensureFallbackBscChain(deadline);
       // This remembers a transport outage only. It never establishes the
@@ -610,16 +713,27 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     }
   };
   const readRpc = async (payload, key, { rpcDestination = rpcUrl, allowTransportFallback = false,
-    transactionProofEpoch = null, deadline = null } = {}) => {
-    let entry = key && pendingRpc.get(key);
+    allowReadFallback = false, knownAnchors, transactionProofEpoch = null, deadline = null } = {}) => {
+    let entry = !allowReadFallback && key && pendingRpc.get(key);
     if (!entry) {
       const epoch = chainEpoch, startedForkEpoch = forkEpoch;
       const sequence = ['eth_getBlockByNumber', 'eth_getLogs'].includes(payload.method) ? ++headerSequence : 0;
       const created = { pending: null, epoch, forkEpoch: startedForkEpoch, invalidated: false,
-        isFeeLog: payload.method === 'eth_getLogs' };
+        isFeeLog: payload.method === 'eth_getLogs', usedReadFallback: false };
       created.pending = (async () => {
         const destination = created.isFeeLog ? logsRpcUrl : rpcDestination;
-        const dataRead = created.isFeeLog || !allowTransportFallback
+        const dataRead = allowReadFallback ? (async () => {
+          if (destination === transactionRpcUrl) {
+            created.usedReadFallback = true;
+            return readArchiveFallback(payload, deadline, { chainProven: true, knownAnchors });
+          }
+          try { return await fetchArchiveRpcJson(payload, deadline, { allowReadFallback: true }); }
+          catch (error) {
+            if (!canReadFallback(error)) throw error;
+            created.usedReadFallback = true;
+            return readArchiveFallback(payload, deadline, { knownAnchors });
+          }
+        })() : created.isFeeLog || !allowTransportFallback
           ? retryArchiveRateLimit && !created.isFeeLog && destination === rpcUrl
             ? fetchArchiveRpcJson(payload, deadline)
             : fetchJson(destination, { method: 'POST', body: JSON.stringify(payload) },
@@ -666,6 +780,13 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
         requireValue(validEnvelope, 502, 'RPC response did not match the read request.');
         if (hasError) diagnose(payload, response, 'rpc-error');
         const normalized = hasError ? { error: { code: -32000, message: 'Upstream rejected the read request.' } } : { result: value.result };
+        if (allowReadFallback && !hasError) {
+          const validResult = payload.method === 'eth_getBlockByNumber'
+            ? validArchiveHeader(normalized.result, QUANTITY.test(payload.params[0]) ? payload.params[0] : null)
+            : payload.method === 'eth_getStorageAt' ? typeof normalized.result === 'string' && HASH.test(normalized.result)
+            : typeof normalized.result === 'string' && DATA.test(normalized.result);
+          requireValue(validResult, 502, 'Upstream returned invalid read data.');
+        }
         if (payload.method === 'eth_getTransactionCount' && !hasError)
           requireValue(typeof normalized.result === 'string' && QUANTITY.test(normalized.result)
             && BigInt(normalized.result) <= BigInt(Number.MAX_SAFE_INTEGER),
@@ -677,7 +798,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
         return { value: normalized, canonical };
       })();
       entry = created;
-      if (key) pendingRpc.set(key, entry);
+      if (key && !allowReadFallback) pendingRpc.set(key, entry);
     }
     try {
       const { value, canonical } = await awaitArchiveRetry(entry.pending, deadline);
@@ -690,20 +811,20 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
       requireValue(entry.epoch === chainEpoch, 502, 'Read-only RPC chain changed during request.');
       if (payload.method !== 'eth_getBlockByNumber')
         requireValue(entry.forkEpoch === forkEpoch, 502, 'Read-only RPC fork changed during request.');
-      if (key && canonical && chainEpoch === entry.epoch && entry.forkEpoch === forkEpoch && now() < verifiedChainUntil
+      if (key && !entry.usedReadFallback && canonical && chainEpoch === entry.epoch && entry.forkEpoch === forkEpoch && now() < verifiedChainUntil
         && payload.method === 'eth_getBlockByNumber' && validHeader(value.result, payload.params[0])
         && Buffer.byteLength(JSON.stringify(value.result)) <= MAX_CACHED_HEADER_BYTES) {
         const tag = canonicalBlockTag(payload.params[0]);
         headerRpc.delete(tag);
         headerRpc.set(tag, { value, hash: value.result.hash.toLowerCase(), until: now() + headerTtlMs });
         if (headerRpc.size > MAX_HEADER_CACHE_ENTRIES) headerRpc.delete(headerRpc.keys().next().value);
-      } else if (key && payload.method === 'eth_getLogs' && Array.isArray(value.result)
+      } else if (key && !entry.usedReadFallback && payload.method === 'eth_getLogs' && Array.isArray(value.result)
         && chainEpoch === entry.epoch && entry.forkEpoch === forkEpoch && now() < verifiedChainUntil
         && Buffer.byteLength(JSON.stringify(value.result)) <= MAX_CACHED_FEE_LOG_BYTES) {
         feeLogRpc.delete(key);
         feeLogRpc.set(key, { value, until: now() + FEE_LOG_CACHE_MS });
         if (feeLogRpc.size > MAX_FEE_LOG_CACHE_ENTRIES) feeLogRpc.delete(feeLogRpc.keys().next().value);
-      } else if (key && payload.method !== 'eth_getBlockByNumber' && payload.method !== 'eth_getLogs'
+      } else if (key && !entry.usedReadFallback && payload.method !== 'eth_getBlockByNumber' && payload.method !== 'eth_getLogs'
         && chainEpoch === entry.epoch && entry.forkEpoch === forkEpoch && now() < verifiedChainUntil
         && typeof value.result === 'string' && value.result.length <= 65536) {
         pinnedRpc.delete(key);
@@ -739,15 +860,18 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
           return send(200, { jsonrpc: '2.0', id: payload.id, result: BSC_CHAIN_ID });
         await acquire(client, deadline); acquired = true;
         if (payload.method === 'eth_chainId') {
-          await ensureBscChain({ allowFallback: true, deadline });
+          await ensureBscChain({ allowFallback: true, allowReadFallback: archiveReadFallbackEnabled, deadline });
+          remainingArchiveTime(deadline);
           return send(200, { jsonrpc: '2.0', id: payload.id, result: BSC_CHAIN_ID });
         }
         const pinned = pinnedKey(payload), header = headerKey(payload), feeLog = feeLogKey(payload), key = pinned ?? header ?? feeLog;
         const dedicatedTransactionRead = !!transactionRpcUrl && transactionRead(payload);
+        const allowReadFallback = archiveReadFallbackEnabled && archiveReadFallbackEligible(payload);
+        const knownAnchors = allowReadFallback ? new Map(observedHeaders) : null;
         const allowTransportFallback = !dedicatedTransactionRead && fallbackEligible(payload);
         const transactionProofEpoch = dedicatedTransactionRead ? await ensureTransactionBscChain(deadline) : null;
         const rpcDestination = dedicatedTransactionRead ? transactionRpcUrl
-          : await ensureBscChain({ allowFallback: allowTransportFallback, deadline });
+          : await ensureBscChain({ allowFallback: allowTransportFallback, allowReadFallback, deadline });
         if (feeLog) requireValue(logsRpcUrl, 503, 'Read-only fee history RPC is not configured.');
         // A caller can use the next header as its post-read canonical check.
         // Do not answer that check from a header cached before a pinned read.
@@ -756,10 +880,11 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
         if (feeLog) invalidateHeadersForLogRead();
         const cache = pinned ? pinnedRpc : header ? headerRpc : feeLog ? feeLogRpc : null;
         const cached = cache?.get(key);
-        const hit = cached && now() < cached.until;
+        const hit = !(allowReadFallback && rpcDestination === transactionRpcUrl) && cached && now() < cached.until;
         if (!hit && cached) cache.delete(key);
         const value = hit ? cached.value : await readRpc(payload, key,
-          { rpcDestination, allowTransportFallback, transactionProofEpoch, deadline });
+          { rpcDestination, allowTransportFallback, allowReadFallback, knownAnchors, transactionProofEpoch, deadline });
+        remainingArchiveTime(deadline);
         if (hit) res.setHeader('X-Bemine-Server-Cache', 'hit');
         if (readBlock) invalidateHeaderForPinnedRead(readBlock);
         if (feeLog) invalidateHeadersForLogRead();

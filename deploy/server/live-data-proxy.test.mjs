@@ -50,6 +50,364 @@ const htmlGateway = () => new Response('<html>Bad Gateway</html>', { status: 502
 const latestCall = () => rpc('eth_call', [{ to: address, data: '0xab' }, 'latest']);
 const requestsAt = (f, destination) => f.calls.filter(call => call.url === destination).map(call => JSON.parse(call.init.body));
 
+const archiveFallbackNode = 'https://archive-alternate.test/operator-fixed';
+const pinnedFallbackCall = tag => rpc('eth_call', [{ to: address, data: '0xab' }, tag]);
+const archiveRefusal = (id = null, message = 'Monthly quota exceeded') => json({ jsonrpc: '2.0', id,
+  error: { code: -32005, message } }, 429);
+const alternateAnswer = request => json({ jsonrpc: '2.0', id: request.id,
+  result: request.method === 'eth_chainId' ? '0x38'
+    : request.method === 'eth_getBlockByNumber' ? feeAnchor(['safe', 'finalized'].includes(request.params[0]) ? '0xa' : request.params[0])
+    : request.method === 'eth_getStorageAt' ? transactionHash : '0x6000' });
+
+test('opted-in archive refusals switch once to the fixed node without repeating quota or unknown -32005 requests', async t => {
+  for (const message of ['Monthly quota exceeded', 'limit exceeded', 'CUPS capacity exceeded', 'private unknown refusal']) {
+    for (const id of [null, 1]) {
+      const diagnostics = [];
+      const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+        onRpcDiagnostic: entry => diagnostics.push(entry), upstream: (url, init) => {
+          const request = JSON.parse(init.body);
+          return url === archiveFallbackNode ? alternateAnswer(request)
+            : request.method === 'eth_chainId' ? alternateAnswer(request) : archiveRefusal(id, message);
+        } });
+      const response = await f.post(pinnedFallbackCall('0xa'));
+      assert.equal(response.status, 200); assert.equal((await response.json()).result, '0x6000');
+      assert.deepEqual(requestsAt(f, 'https://operator-rpc.test/key').map(request => request.method), ['eth_chainId', 'eth_call']);
+      assert.deepEqual(requestsAt(f, archiveFallbackNode).map(request => request.method),
+        ['eth_chainId', 'eth_getBlockByNumber', 'eth_call', 'eth_getBlockByNumber']);
+      assert(!diagnostics.some(entry => /retry/.test(entry.category)));
+      assert(!JSON.stringify(diagnostics).includes(message));
+    }
+  }
+});
+
+test('cold archive identity refusal uses independently proven alternate identity without certifying the primary', async t => {
+  const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+    upstream: (url, init) => url === archiveFallbackNode ? alternateAnswer(JSON.parse(init.body)) : archiveRefusal() });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    assert.equal((await f.post(rpc('eth_chainId'))).status, 200);
+    assert.equal((await f.post(pinnedFallbackCall('0xa'))).status, 200);
+  }
+  assert.deepEqual(requestsAt(f, 'https://operator-rpc.test/key').map(request => request.method), Array(4).fill('eth_chainId'));
+  assert.equal(requestsAt(f, archiveFallbackNode).filter(request => request.method === 'eth_chainId').length, 4);
+});
+
+test('alternate safe and finalized state reads resolve once and use only the exact numeric anchor afterward', async t => {
+  for (const method of ['eth_call', 'eth_getCode', 'eth_getStorageAt', 'eth_getBlockByNumber']) for (const tag of ['safe', 'finalized']) {
+    const params = method === 'eth_call' ? [{ to: address, data: '0xab' }, tag]
+      : method === 'eth_getStorageAt' ? [address, '0x0', tag] : method === 'eth_getBlockByNumber' ? [tag, false] : [address, tag];
+    const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+      upstream: (url, init) => {
+        const request = JSON.parse(init.body);
+        return url === archiveFallbackNode ? alternateAnswer(request)
+          : request.method === 'eth_chainId' ? alternateAnswer(request) : archiveRefusal();
+      } });
+    assert.equal((await f.post(rpc(method, params))).status, 200);
+    const reads = requestsAt(f, archiveFallbackNode).slice(1);
+    assert.deepEqual(reads[0].params, [tag, false]);
+    assert.deepEqual(reads[1].params, ['0xa', false]);
+    assert.deepEqual(reads.at(-1).params, ['0xa', false]);
+    if (method !== 'eth_getBlockByNumber') assert.equal(reads[2].params[method === 'eth_getStorageAt' ? 2 : 1], '0xa');
+  }
+});
+
+test('alternate results and identity are never cached or joined to a primary pending read', async t => {
+  let reads = 0;
+  const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+    upstream: (url, init) => {
+      const request = JSON.parse(init.body);
+      if (url !== archiveFallbackNode) return request.method === 'eth_chainId' ? alternateAnswer(request) : archiveRefusal();
+      if (request.method === 'eth_call') return json({ jsonrpc: '2.0', id: request.id, result: `0x${(++reads).toString(16).padStart(2, '0')}` });
+      return alternateAnswer(request);
+    } });
+  for (const responses of [await Promise.all([f.post(pinnedFallbackCall('0xa')), f.post(pinnedFallbackCall('0xa'))]),
+    [await f.post(pinnedFallbackCall('0xa'))]]) for (const response of responses) {
+    assert.equal(response.status, 200); assert.equal(response.headers.get('x-bemine-server-cache'), null);
+  }
+  assert.equal(reads, 3);
+  assert.equal(requestsAt(f, archiveFallbackNode).filter(request => request.method === 'eth_chainId').length, 3);
+});
+
+test('fallback is disabled without the existing opt-in flag or an independent fixed node', async t => {
+  for (const options of [{ transactionRpcUrl: archiveFallbackNode }, { retryArchiveRateLimit: true },
+    { retryArchiveRateLimit: true, transactionRpcUrl: 'https://operator-rpc.test/key' }]) {
+    const f = await fixture(t, { ...options, upstream: (url, init) => {
+      assert.notEqual(url, archiveFallbackNode);
+      const request = JSON.parse(init.body);
+      return request.method === 'eth_chainId' ? alternateAnswer(request) : archiveRefusal();
+    } });
+    assert.equal((await f.post(pinnedFallbackCall('0xa'))).status, 502);
+    assert.equal(requestsAt(f, archiveFallbackNode).length, 0);
+  }
+});
+
+test('malformed primary results, invalid refusal envelopes and business RPC errors never use archive fallback', async t => {
+  const fault = fields => json({ jsonrpc: '2.0', id: 1, ...fields }, 429);
+  const cases = [
+    () => json({ jsonrpc: '2.0', id: 1, result: {} }),
+    () => json({ jsonrpc: '2.0', id: 1, result: '0x1' }),
+    () => json({ jsonrpc: '2.0', id: 1, error: { code: 3, message: 'execution reverted' } }),
+    () => fault({ error: { code: -32000, message: 'execution reverted' } }),
+    () => fault({ error: { code: -32603, message: 'unknown RPC failure' } }),
+    () => fault({ id: 9, error: { code: -32005, message: 'Monthly quota exceeded' } }),
+    () => fault({ id: null, result: '0x6000', error: { code: -32005, message: 'limit exceeded' } }),
+    () => fault({ id: null, error: { code: -32005, message: 1 } }),
+    () => fault({ id: null, error: { code: -32005, message: 'Monthly quota exceeded' }, unexpected: true }),
+    () => new Response('{"jsonrpc":"2.0","result":', { status: 503, headers: { 'content-type': 'application/json' } }),
+    () => new Response('bad json', { status: 502, headers: { 'content-type': 'application/json' } }),
+    () => new Response('bad json', { status: 429, headers: { 'content-type': 'application/json' } }),
+    () => new Response('{"jsonrpc":"2.0","error":{}}', { status: 429, headers: { 'content-type': 'text/plain' } }),
+    () => new Response('Monthly quota exhausted', { status: 429, headers: { 'content-type': 'text/plain' } }),
+  ];
+  for (const failure of cases) {
+    const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+      upstream: (url, init) => {
+        assert.notEqual(url, archiveFallbackNode);
+        const request = JSON.parse(init.body);
+        return request.method === 'eth_chainId' ? alternateAnswer(request) : failure();
+      } });
+    const response = await f.post(pinnedFallbackCall('0xa'));
+    assert([200, 502].includes(response.status));
+    if (response.status === 200) assert((await response.json()).error);
+    assert.equal(requestsAt(f, archiveFallbackNode).length, 0);
+    assert.equal(requestsAt(f, 'https://operator-rpc.test/key').filter(request => request.method === 'eth_call').length, 1);
+  }
+});
+
+test('eligible genuine transport failures use only one alternate attempt', async t => {
+  for (const failure of [() => { throw new Error('network failed'); }, htmlGateway,
+    () => json({ unavailable: true }, 503)]) {
+    const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+      upstream: (url, init) => {
+        const request = JSON.parse(init.body);
+        return url === archiveFallbackNode ? alternateAnswer(request)
+          : request.method === 'eth_chainId' ? alternateAnswer(request) : failure();
+      } });
+    assert.equal((await f.post(pinnedFallbackCall('0xa'))).status, 200);
+    assert.equal(requestsAt(f, 'https://operator-rpc.test/key').filter(request => request.method === 'eth_call').length, 1);
+    assert.equal(requestsAt(f, archiveFallbackNode).filter(request => request.method === 'eth_call').length, 1);
+  }
+});
+
+test('an explicit execution revert is not an archive refusal even with HTTP429 -32005 and a matching or null id', async t => {
+  for (const cold of [false, true]) for (const nullId of [false, true]) {
+    const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+      upstream: (url, init) => {
+        assert.notEqual(url, archiveFallbackNode);
+        const request = JSON.parse(init.body);
+        return request.method === 'eth_chainId' && !cold ? alternateAnswer(request)
+          : archiveRefusal(nullId ? null : request.id, '  Execution reverted: forbidden');
+      } });
+    assert.equal((await f.post(pinnedFallbackCall('0xa'))).status, 502);
+    assert.equal(requestsAt(f, archiveFallbackNode).length, 0);
+    assert.equal(requestsAt(f, 'https://operator-rpc.test/key').length, cold ? 1 : 2);
+  }
+});
+
+test('wrong primary identity never falls back and alternate identity must prove exact BSC chain and request id', async t => {
+  for (const bad of [{ result: '0x1' }, { id: null, result: '0x38' }, { id: 7, result: '0x38' },
+    { result: '0x038' }, { result: '0x38', error: { code: -32000, message: 'bad' } }]) {
+    for (const primaryFails of [false, true]) {
+      const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+        upstream: (url, init) => {
+          const request = JSON.parse(init.body);
+          if (request.method === 'eth_chainId' && (primaryFails || url === archiveFallbackNode))
+            return json({ jsonrpc: '2.0', id: request.id, ...bad });
+          return archiveRefusal();
+        } });
+      assert.equal((await f.post(pinnedFallbackCall('0xa'))).status, 502);
+      assert.equal(requestsAt(f, archiveFallbackNode).filter(request => request.method !== 'eth_chainId').length, 0);
+      if (primaryFails) assert.equal(requestsAt(f, archiveFallbackNode).length, 0);
+    }
+  }
+});
+
+test('alternate canonical headers reject pre/post forks and moving-tag anchor forks without returning data', async t => {
+  for (const tag of ['0xa', 'safe']) {
+    let headers = 0;
+    const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+      upstream: (url, init) => {
+        const request = JSON.parse(init.body);
+        if (url !== archiveFallbackNode) return request.method === 'eth_chainId' ? alternateAnswer(request) : archiveRefusal();
+        if (request.method === 'eth_getBlockByNumber') return json({ jsonrpc: '2.0', id: request.id,
+          result: { ...feeAnchor('0xa'), hash: ++headers === 1 ? transactionHash : `0x${'cd'.repeat(32)}` } });
+        return alternateAnswer(request);
+      } });
+    assert.equal((await f.post(pinnedFallbackCall(tag))).status, 502);
+    assert.equal(requestsAt(f, archiveFallbackNode).filter(request => request.method === 'eth_call').length, tag === 'safe' ? 0 : 1);
+  }
+});
+
+test('known primary anchor survives cold refusal and rejects a stable alternate fork and cached primary data reuse', async t => {
+  let clock = 100000, refusing = false, callReads = 0;
+  const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true, now: () => clock,
+    upstream: (url, init) => {
+      const request = JSON.parse(init.body);
+      if (url === archiveFallbackNode && request.method === 'eth_getBlockByNumber') return json({ jsonrpc: '2.0', id: request.id,
+        result: { ...feeAnchor('0xa'), hash: `0x${'cd'.repeat(32)}` } });
+      if (url !== archiveFallbackNode && refusing) return archiveRefusal();
+      if (request.method === 'eth_call') callReads++;
+      return alternateAnswer(request);
+    } });
+  assert.equal((await f.post(rpc('eth_getBlockByNumber', ['0xa', false]))).status, 200);
+  assert.equal((await f.post(pinnedFallbackCall('0xa'))).status, 200);
+  refusing = true; clock += 6000;
+  assert.equal((await f.post(pinnedFallbackCall('0xa'))).status, 502);
+  assert.equal(callReads, 1);
+  assert.equal(requestsAt(f, archiveFallbackNode).filter(request => request.method === 'eth_call').length, 0);
+  assert.equal((await f.post(rpc('eth_getBlockByNumber', ['0xa', false]))).status, 502);
+});
+
+test('a concurrent excluded identity failure cannot erase an alternate request previous canonical witness', async t => {
+  let clock = 100000, primaryChainReads = 0, releaseProof, proofStarted;
+  const heldProof = new Promise(resolve => { releaseProof = resolve; });
+  const started = new Promise(resolve => { proofStarted = resolve; });
+  const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true, now: () => clock,
+    upstream: async (url, init) => {
+      const request = JSON.parse(init.body);
+      if (url === archiveFallbackNode) {
+        if (request.method === 'eth_chainId') { proofStarted(); await heldProof; }
+        if (request.method === 'eth_getBlockByNumber') return json({ jsonrpc: '2.0', id: request.id,
+          result: { ...feeAnchor('0xa'), hash: `0x${'cd'.repeat(32)}` } });
+        return alternateAnswer(request);
+      }
+      if (request.method === 'eth_chainId') {
+        if (++primaryChainReads === 2) return archiveRefusal();
+        if (primaryChainReads === 3) return json({ jsonrpc: '2.0', id: request.id, result: '0x1' });
+      }
+      return alternateAnswer(request);
+    } });
+  assert.equal((await f.post(rpc('eth_getBlockByNumber', ['0xa', false]))).status, 200);
+  clock += 6000;
+  const candidate = f.post(pinnedFallbackCall('0xa')); await started;
+  assert.equal((await f.post(rpc('eth_getTransactionCount', [address, 'pending']))).status, 502);
+  releaseProof();
+  assert.equal((await candidate).status, 502);
+  assert.equal(requestsAt(f, archiveFallbackNode).filter(request => request.method === 'eth_call').length, 0);
+});
+
+test('alternate invalid data, wrong ids and failed post-read headers do not retry or cache', async t => {
+  for (const failAt of ['data-id', 'data-result', 'post-header']) {
+    let headers = 0, dataReads = 0;
+    const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+      upstream: (url, init) => {
+        const request = JSON.parse(init.body);
+        if (url !== archiveFallbackNode) return request.method === 'eth_chainId' ? alternateAnswer(request) : archiveRefusal();
+        if (request.method === 'eth_getBlockByNumber' && ++headers === 2 && failAt === 'post-header') return archiveRefusal();
+        if (request.method === 'eth_call') {
+          dataReads++;
+          if (failAt === 'data-id') return json({ jsonrpc: '2.0', id: null, result: '0x6000' });
+          if (failAt === 'data-result') return json({ jsonrpc: '2.0', id: request.id, result: {} });
+        }
+        return alternateAnswer(request);
+      } });
+    assert.equal((await f.post(pinnedFallbackCall('0xa'))).status, 502);
+    assert.equal(dataReads, 1);
+  }
+});
+
+test('alternate storage and block results reject coercible arrays, wrong heights and malformed headers', async t => {
+  for (const invalid of [
+    { method: 'eth_getStorageAt', params: [address, '0x0', '0xa'], result: [transactionHash] },
+    { method: 'eth_getStorageAt', params: [address, '0x0', '0xa'], result: '0x00' },
+    { method: 'eth_getBlockByNumber', params: ['0xa', false], result: { ...feeAnchor('0xa'), number: ['0xa'] } },
+    { method: 'eth_getBlockByNumber', params: ['0xa', false], result: feeAnchor('0xb') },
+    { method: 'eth_getBlockByNumber', params: ['0xa', false], result: { ...feeAnchor('0xa'), timestamp: null } },
+  ]) {
+    const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+      upstream: (url, init) => {
+        const request = JSON.parse(init.body);
+        if (url !== archiveFallbackNode) return request.method === 'eth_chainId' ? alternateAnswer(request) : archiveRefusal();
+        return request.method === invalid.method ? json({ jsonrpc: '2.0', id: request.id, result: invalid.result })
+          : alternateAnswer(request);
+      } });
+    assert.equal((await f.post(rpc(invalid.method, invalid.params))).status, 502);
+    assert.equal(requestsAt(f, archiveFallbackNode).filter(request => request.method === invalid.method).length, 1);
+  }
+});
+
+test('archive alternate proofs do not change the dedicated transaction proof or hash lookup path', async t => {
+  const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+    upstream: (url, init) => {
+      const request = JSON.parse(init.body);
+      if (url !== archiveFallbackNode) return archiveRefusal();
+      if (request.method === 'eth_getTransactionReceipt') return json({ jsonrpc: '2.0', id: request.id,
+        result: { transactionHash, status: '0x1' } });
+      return alternateAnswer(request);
+    } });
+  assert.equal((await f.post(pinnedFallbackCall('0xa'))).status, 200);
+  const before = f.calls.length;
+  const response = await f.post(rpc('eth_getTransactionReceipt', [transactionHash]));
+  assert.equal(response.status, 200); assert.equal((await response.json()).result.transactionHash, transactionHash);
+  assert.deepEqual(f.calls.slice(before).map(call => ({ url: call.url, method: JSON.parse(call.init.body).method })),
+    ['eth_chainId', 'eth_getTransactionReceipt'].map(method => ({ url: archiveFallbackNode, method })));
+});
+
+test('nonce and unsupported live labels retain primary-only routing with archive fallback enabled', async t => {
+  for (const payload of [rpc('eth_getTransactionCount', [address, 'pending']), rpc('eth_getTransactionCount', [address, '0xa']),
+    pinnedFallbackCall('latest'), pinnedFallbackCall('earliest'), rpc('eth_blockNumber')]) {
+    const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+      upstream: (url, init) => {
+        assert.notEqual(url, archiveFallbackNode);
+        const request = JSON.parse(init.body);
+        return request.method === 'eth_chainId' ? alternateAnswer(request) : archiveRefusal();
+      } });
+    assert.equal((await f.post(payload)).status, 502);
+    assert.equal(requestsAt(f, archiveFallbackNode).length, 0);
+  }
+});
+
+test('one 14-second deadline includes cold identity, alternate proof and headers without starting late data', async t => {
+  let clock = 100000;
+  t.mock.method(Date, 'now', () => clock);
+  const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+    upstream: (url, init) => {
+      const request = JSON.parse(init.body);
+      if (url !== archiveFallbackNode) { clock += 9000; return archiveRefusal(); }
+      if (request.method === 'eth_chainId') clock += 3000;
+      if (request.method === 'eth_getBlockByNumber') clock += 2000;
+      return alternateAnswer(request);
+    } });
+  assert.equal((await f.post(pinnedFallbackCall('0xa'))).status, 504);
+  assert.deepEqual(requestsAt(f, archiveFallbackNode).map(request => request.method), ['eth_chainId', 'eth_getBlockByNumber']);
+});
+
+test('the original deadline also closes expired identity and primary cache-hit responses', async t => {
+  let clock = 100000;
+  t.mock.method(Date, 'now', () => clock);
+  for (const cacheHit of [false, true]) {
+    let proofs = 0, dataReads = 0;
+    const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true,
+      upstream: (url, init) => {
+        assert.notEqual(url, archiveFallbackNode);
+        const request = JSON.parse(init.body);
+        if (request.method === 'eth_chainId') {
+          if (++proofs === (cacheHit ? 2 : 1)) clock += 14000;
+        } else dataReads++;
+        return alternateAnswer(request);
+      } });
+    const payload = cacheHit ? rpc('eth_getCode', [address, '0xa']) : rpc('eth_chainId');
+    if (cacheHit) { assert.equal((await f.post(payload)).status, 200); clock += 6000; }
+    assert.equal((await f.post(payload)).status, 504);
+    assert.equal(dataReads, cacheHit ? 1 : 0);
+  }
+});
+
+test('alternate timeout aborts the single attempt and cannot return or cache a delayed result', async t => {
+  let aborted = 0;
+  const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode, retryArchiveRateLimit: true, timeoutMs: 20,
+    upstream: (url, init) => {
+      const request = JSON.parse(init.body);
+      if (url !== archiveFallbackNode) return request.method === 'eth_chainId' ? alternateAnswer(request) : archiveRefusal();
+      if (request.method === 'eth_call') return new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => {
+        aborted++; reject(new Error('aborted'));
+      }, { once: true }));
+      return alternateAnswer(request);
+    } });
+  assert.equal((await f.post(pinnedFallbackCall('0xa'))).status, 504);
+  assert.equal(aborted, 1);
+  assert.equal(requestsAt(f, archiveFallbackNode).filter(request => request.method === 'eth_call').length, 1);
+});
+
 test('nonce witnesses accept only an address and a valid single block tag without adding write RPCs', () => {
   for (const tag of ['latest', 'pending', 'safe', 'finalized', 'earliest', '0x0', '0xa']) {
     const request = rpc('eth_getTransactionCount', [address, tag]);
