@@ -22,8 +22,8 @@ const abi = new Interface([
 /** Synthetic successor linker/provider fixture only. No endpoints, credentials, transactions or deployment approval.
  * The protocol runtime bytes exercise the fixed raw pin; source/fill review flags are independently pinned TEST claims.
  */
-export function createFirstoBatchFixture({ phase = 'done', waiting = false, splitMarkets = false } = {}) {
-  const core = createTargetOwnerFixture({ phase: 'done', splitMarkets });
+export function createFirstoBatchFixture({ phase = 'done', waiting = false, splitMarkets = false, predecessorFixture } = {}) {
+  const core = predecessorFixture ?? createTargetOwnerFixture({ phase: 'done', splitMarkets });
   const input = { ...core.input, priorCoreCatalog: structuredClone(core.finalCatalog), priorCoreBundle: structuredClone(core.input.upgradeBundle),
     trustedPriorCoreCatalogDigest: evidenceDigest(core.finalCatalog), salt: hash('firsto-batch-synthetic-review'), delaySeconds: 172800 };
   const prior = firstoBatchPredecessor(input);
