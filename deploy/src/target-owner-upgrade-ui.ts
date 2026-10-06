@@ -3,6 +3,8 @@ import type { WalletProvider } from './wallet';
 import { sendUpgradeTransaction, UncertainUpgradeSubmission } from './upgrade-transactions';
 // @ts-ignore Shared canonical digest has no TypeScript declarations.
 import { evidenceDigest } from '../shared/firsto-upgrade-proof.mjs';
+// @ts-ignore The shared verifier preserves canonical single-call, wallet-envelope and event bindings.
+import { verifyTargetOwnerOperationReceipt } from '../shared/target-owner-upgrade-proof.mjs';
 export type TargetOwnerIntent = { schemaVersion: 1; chainId: 56; nonce: number;
   anchor: { blockNumber: number; blockHash: string } };
 export type UpgradeTransaction = { status: 'submitted' | 'confirmed' | 'uncertain'; from: string;
@@ -82,7 +84,9 @@ export async function assertTargetOwnerIntentCurrent(provider: Provider, from: s
   need(finalized && hash(finalized.hash) && nonceValue(finalized.number) && finalized.number >= intent.anchor.blockNumber,
     '最终确认区块未覆盖发送前锚点。');
 }
-type TargetOwnerRecoveryIdentity = { from: string; to?: string; dataHash: string; intent?: TargetOwnerIntent };
+type TargetOwnerRecoveryIdentity = { from: string; to?: string; dataHash: string; intent?: TargetOwnerIntent;
+  /** Only governance calls may use the reviewed MetaMask wrapper; CREATE remains direct. */
+  data?: string; operation?: 'schedule' | 'execute' };
 
 /** At most 32 nonce bisections and one full block. No mempool absence can authorize a retry. */
 export async function discoverTargetOwnerTransaction(provider: Provider, expected: TargetOwnerRecoveryIdentity): Promise<string | null> {
@@ -125,8 +129,10 @@ export async function discoverTargetOwnerTransaction(provider: Provider, expecte
   need(matches.length === 1, '原 nonce 已消费，但未能找到唯一交易，需人工核对。');
   const tx = matches[0];
   need(hash(tx.hash) && (tx.chainId === undefined || rpcUint(tx.chainId) === 56n) && rpcUint(tx.value) === 0n
-    && typeof tx.input === 'string' && /^0x(?:[\da-f]{2})*$/i.test(tx.input) && keccak256(tx.input).toLowerCase() === expected.dataHash.toLowerCase()
-    && (expected.to ? tx.to && getAddress(tx.to) === getAddress(expected.to) : tx.to === null)
+    && typeof tx.input === 'string' && /^0x(?:[\da-f]{2})*$/i.test(tx.input)
+    && (expected.operation ? !!expected.to && !!expected.data
+      : keccak256(tx.input).toLowerCase() === expected.dataHash.toLowerCase()
+        && (expected.to ? tx.to && getAddress(tx.to) === getAddress(expected.to) : tx.to === null))
     && rpcUint(tx.blockNumber) === BigInt(high) && tx.blockHash?.toLowerCase() === block.hash.toLowerCase(),
   '原 nonce 已被另一笔交易消费；不能把取消或替换交易当成升级成功。');
   await checkSnapshot();
@@ -410,21 +416,35 @@ export async function verifyTargetOwnerRecoveryReceipt(provider: Provider, hashV
   const matchingAddress = (left: string | null, right: string | undefined) => right ? !!left && getAddress(left) === getAddress(right) : left === null;
   need(tx.hash.toLowerCase() === hashValue.toLowerCase() && receipt.hash.toLowerCase() === hashValue.toLowerCase()
     && tx.chainId === 56n && getAddress(tx.from) === getAddress(expected.from) && getAddress(receipt.from) === getAddress(expected.from)
-    && matchingAddress(tx.to, expected.to) && matchingAddress(receipt.to, expected.to) && tx.value === 0n
-    && keccak256(tx.data).toLowerCase() === expected.dataHash.toLowerCase()
+    && (expected.operation ? !!expected.to && !!expected.data
+      : matchingAddress(tx.to, expected.to) && matchingAddress(receipt.to, expected.to)
+        && keccak256(tx.data).toLowerCase() === expected.dataHash.toLowerCase()) && tx.value === 0n
     && (!expected.intent || tx.nonce === expected.intent.nonce && receipt.blockNumber > expected.intent.anchor.blockNumber)
     && tx.blockNumber === receipt.blockNumber && tx.blockHash?.toLowerCase() === receipt.blockHash.toLowerCase()
     && (receipt.status === 0 || receipt.status === 1), '原交易发送者、目标、金额、calldata 或回执不匹配。');
+  if (expected.operation) await verifyTargetOwnerOperationReceipt(provider, { tx, receipt, expected, finalized });
+  const originalTransaction = { hash: tx.hash, from: tx.from, to: tx.to, value: tx.value, data: tx.data, nonce: tx.nonce,
+    chainId: tx.chainId, blockNumber: tx.blockNumber, blockHash: tx.blockHash, index: tx.index, type: tx.type };
+  const logDigest = (value: TransactionReceipt) => evidenceDigest(value.logs.map(log => ({ address: log.address,
+    data: log.data, topics: [...log.topics], transactionHash: log.transactionHash, blockHash: log.blockHash,
+    blockNumber: log.blockNumber, index: log.index, transactionIndex: log.transactionIndex, removed: log.removed })));
+  const originalLogs = expected.operation ? logDigest(receipt) : null;
   const block = await provider.getBlock(receipt.blockNumber);
   need(block?.hash?.toLowerCase() === receipt.blockHash.toLowerCase() && block.number === receipt.blockNumber
     && Number.isSafeInteger(receipt.index) && receipt.index >= 0
     && block.transactions[receipt.index]?.toLowerCase() === hashValue.toLowerCase(), '原回执不属于最终规范链交易。');
-  const [againChain, againFinality, againBlock, againReceipt] = await Promise.all([read.send('eth_chainId', []),
-    provider.getBlock(finalized.number), provider.getBlock(receipt.blockNumber), provider.getTransactionReceipt(hashValue)]);
+  const [againChain, againFinality, againBlock, againReceipt, againTransaction] = await Promise.all([read.send('eth_chainId', []),
+    provider.getBlock(finalized.number), provider.getBlock(receipt.blockNumber), provider.getTransactionReceipt(hashValue),
+    provider.getTransaction(hashValue)]);
   need(BigInt(againChain) === 56n && againFinality?.hash?.toLowerCase() === finalized.hash.toLowerCase()
     && againBlock?.hash?.toLowerCase() === block.hash.toLowerCase() && againReceipt?.status === receipt.status
     && againReceipt.hash.toLowerCase() === receipt.hash.toLowerCase() && againReceipt.blockHash.toLowerCase() === receipt.blockHash.toLowerCase()
-    && againReceipt.blockNumber === receipt.blockNumber && againReceipt.index === receipt.index,
+    && againReceipt.blockNumber === receipt.blockNumber && againReceipt.index === receipt.index
+    && againReceipt.from === receipt.from && againReceipt.to === receipt.to && againReceipt.contractAddress === receipt.contractAddress
+    && againTransaction && Object.entries(originalTransaction).every(([key, value]) =>
+      (againTransaction as unknown as Record<string, unknown>)[key] === value)
+    && (!expected.operation || !againTransaction.authorizationList?.length)
+    && (!expected.operation || logDigest(againReceipt) === originalLogs),
   '恢复期间规范链或原交易回执发生变化。');
   if (expected.intent) {
     await intentAnchor(provider, expected.from, expected.intent);

@@ -36,13 +36,15 @@ const abi = new Interface([
   'function isOperation(bytes32) view returns(bool)', 'function isOperationReady(bytes32) view returns(bool)',
   'function isOperationDone(bytes32) view returns(bool)', 'function getTimestamp(bytes32) view returns(uint256)',
   'event CallScheduled(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data,bytes32 predecessor,uint256 delay)',
+  'event CallSalt(bytes32 indexed id,bytes32 salt)',
   'event CallExecuted(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data)',
   'event Upgraded(address indexed implementation)',
 ]);
 
 /** Self-contained FakeProvider fixture; no RPC endpoints, accounts, signing or deploy operations. */
-export function createTargetOwnerFixture({ phase = 'done', waiting = false, aliases = true, splitMarkets = false } = {}) {
+export function createTargetOwnerFixture({ phase = 'done', waiting = false, aliases = true, splitMarkets = false, proposer } = {}) {
   const record = structuredClone(original), manifest = structuredClone(originalManifest), old = record.addresses;
+  if (proposer) record.input.ownerMultisig = proposer; // Synthetic independently pinned test identity only.
   const authorityCode = '0x60006001'; manifest.freshAuthority.codehash = keccak256(authorityCode);
   const candidate = { schemaVersion: 1, artifacts: Object.fromEntries(targetOwnerUpgradeDeploymentOrder.map(name => [name, artifact(name)])) };
   const a = { ...old };
@@ -102,6 +104,7 @@ export function createTargetOwnerFixture({ phase = 'done', waiting = false, alia
       blockNumber: receipt.blockNumber, index, transactionIndex: receipt.index, removed: false });
   }
   event(scheduleTxHash, old.timelock, 'CallScheduled', [plan.operationId, 0n, plan.target, 0n, plan.data, plan.predecessor, 172800n], 0);
+  event(scheduleTxHash, old.timelock, 'CallSalt', [plan.operationId, plan.salt], 1);
   event(executeTxHash, old.timelock, 'CallExecuted', [plan.operationId, 0n, plan.target, 0n, plan.data], 0);
   event(executeTxHash, old.beacon, 'Upgraded', [replacements.PoolVault], 1);
   const calls = [], state = { phase, chain: '0x38', delay: 172800n, authorityOwner: old.timelock, oldFirstoLinksChanged: false };

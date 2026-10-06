@@ -1,5 +1,7 @@
-import { Interface, ZeroAddress, getCreateAddress, getAddress, keccak256, toUtf8Bytes } from 'ethers';
+import { AbiCoder, Interface, ZeroAddress, ZeroHash, getCreateAddress, getAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { buildDigest, evidenceDigest, settleReads } from './firsto-upgrade-proof.mjs';
+import { decodeFreshSingleCallEnvelope, FRESH_DELEGATION_MANAGER, FRESH_DELEGATOR,
+  FRESH_BALANCE_ENFORCER } from './fresh-activation-execution.mjs';
 import { TARGET_OWNER_UPGRADE_KIND, targetOwnerUpgradeDeploymentOrder, validateTargetOwnerUpgradeReview,
   prepareTargetOwnerUpgradeDeployment, buildTargetOwnerUpgradePlan } from './target-owner-upgrade-plan.mjs';
 
@@ -26,9 +28,10 @@ const actions = new Interface([
   'function schedule(address,uint256,bytes,bytes32,bytes32,uint256)',
   'function execute(address,uint256,bytes,bytes32,bytes32) payable',
   'event CallScheduled(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data,bytes32 predecessor,uint256 delay)',
+  'event CallSalt(bytes32 indexed id,bytes32 salt)',
   'event CallExecuted(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data)',
 ]);
-const beacon = new Interface(['event Upgraded(address indexed implementation)']);
+const beacon = new Interface(['function upgradeTo(address)', 'event Upgraded(address indexed implementation)']);
 const roles = Object.fromEntries(['PROPOSER_ROLE', 'CANCELLER_ROLE', 'EXECUTOR_ROLE'].map(name => [name, keccak256(toUtf8Bytes(name))]));
 const accepted = new WeakSet(), completed = new WeakSet(), completedCache = new WeakMap();
 function freeze(value) { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } return value; }
@@ -59,6 +62,8 @@ async function canonical(p, context, anchor, transactions = []) {
     const again = await transaction(p, original.tx.hash, context);
     need(same(again.tx.data, original.tx.data) && again.tx.nonce === original.tx.nonce
       && same(again.tx.from, original.tx.from) && again.tx.to === original.tx.to && again.tx.value === original.tx.value
+      && again.tx.type === original.tx.type
+      && (same(original.tx.to, FRESH_DELEGATION_MANAGER.address) ? !again.tx.authorizationList?.length : true)
       && again.receipt.blockNumber === original.receipt.blockNumber && again.receipt.index === original.receipt.index
       && same(again.receipt.blockHash, original.receipt.blockHash)
       && same(again.receipt.contractAddress ?? '', original.receipt.contractAddress ?? '')
@@ -100,6 +105,67 @@ function logs(proof, to, abi, name) {
     const parsed = abi.parseLog(log); need(parsed?.name === name, 'Malformed operation event.'); result.push(parsed);
   }
   return result;
+}
+
+function exactOperationEvents(proof, timelock, operation) {
+  const indices = new Set();
+  const event = (to, abi, name, values) => {
+    const found = logs(proof, to, abi, name);
+    need(found.length === 1, `Operation receipt requires one ${name} event.`);
+    const encoded = abi.encodeEventLog(abi.getEvent(name), values);
+    const matching = proof.receipt.logs.filter(log => same(log.address, to)
+      && same(log.topics?.[0], abi.getEvent(name).topicHash));
+    need(!indices.has(matching[0].index), 'Operation receipt repeats a log index.'); indices.add(matching[0].index);
+    need(matching[0].topics.length === encoded.topics.length
+      && matching[0].topics.every((topic, index) => same(topic, encoded.topics[index]))
+      && same(matching[0].data, encoded.data), `${name} event differs from the complete original operation.`);
+  };
+  if (operation.name === 'schedule') {
+    event(timelock, actions, 'CallScheduled', [operation.id, 0n, operation.target, 0n,
+      operation.payload, operation.predecessor, operation.delay]);
+    event(timelock, actions, 'CallSalt', [operation.id, operation.salt]);
+  } else {
+    event(timelock, actions, 'CallExecuted', [operation.id, 0n, operation.target, 0n, operation.payload]);
+    event(operation.target, beacon, 'Upgraded', [operation.replacement]);
+  }
+}
+
+/** The complete fixed single-call intent is required; a calldata digest alone never admits a wallet wrapper. */
+export async function verifyTargetOwnerOperationReceipt(p, { tx, receipt, expected, finalized }) {
+  need(['schedule', 'execute'].includes(expected.operation) && expected.to && HASH.test(expected.dataHash ?? '')
+    && /^0x(?:[\da-f]{2})+$/i.test(expected.data ?? '') && same(keccak256(expected.data), expected.dataHash),
+  'Complete original target-owner operation is required.');
+  const parsed = actions.decodeFunctionData(expected.operation, expected.data);
+  need(same(actions.encodeFunctionData(expected.operation, parsed), expected.data), 'Original operation calldata is not canonical.');
+  const [rawTarget, value, payload, predecessor, salt, delay] = parsed;
+  const target = address(rawTarget), timelock = address(expected.to);
+  need(value === 0n && same(predecessor, ZeroHash) && HASH.test(salt ?? '') && !same(salt, ZeroHash)
+    && (expected.operation !== 'schedule' || delay >= 172800n), 'Original operation value, predecessor, salt or full delay differs.');
+  const upgrade = beacon.decodeFunctionData('upgradeTo', payload), replacement = address(upgrade[0]);
+  need(same(beacon.encodeFunctionData('upgradeTo', [replacement]), payload), 'Original beacon upgrade payload is not canonical.');
+  const id = keccak256(AbiCoder.defaultAbiCoder().encode(['address', 'uint256', 'bytes', 'bytes32', 'bytes32'],
+    [target, value, payload, predecessor, salt]));
+  let runtimeProof;
+  if (!same(tx.to, timelock)) {
+    need(same(tx.to, FRESH_DELEGATION_MANAGER.address), 'Original operation has an unreviewed wallet wrapper.');
+    need(Number.isSafeInteger(finalized?.number) && finalized.number >= receipt.blockNumber && HASH.test(finalized.hash ?? ''),
+      'A canonical finalized wallet runtime anchor is required.');
+    const [managerCode, delegatorCode, enforcerCode] = await settleReads([
+      p.getCode(FRESH_DELEGATION_MANAGER.address, finalized.number), p.getCode(FRESH_DELEGATOR.address, finalized.number),
+      p.getCode(FRESH_BALANCE_ENFORCER.address, finalized.number)]);
+    runtimeProof = { managerCode, delegatorCode, enforcerCode };
+  }
+  const envelope = decodeFreshSingleCallEnvelope({ account: expected.from, target: timelock,
+    data: expected.data, tx, receipt, runtimeProof });
+  if (runtimeProof) {
+    const again = await p.getBlock(finalized.number);
+    need(again?.number === finalized.number && same(again.hash, finalized.hash), 'Wallet runtime anchor changed during verification.');
+  }
+  need(envelope.kind !== 'wrapped' || receipt.status === 1,
+    '原钱包封装交易已回滚，原记录保留；不会自动释放 nonce 或允许重发。');
+  if (receipt.status === 1) exactOperationEvents({ tx, receipt }, timelock,
+    { name: expected.operation, id, target, payload, predecessor, salt, delay, replacement });
+  return { ...envelope, operationId: id };
 }
 async function graph(p, review, context, upgraded = null) {
   const { catalog, addresses: a, runtimes } = review, block = context.block;
@@ -203,9 +269,11 @@ export async function validateTargetOwnerUpgradePreflight(p, input, options = {}
       need(HASH.test(options.scheduleTxHash ?? '') && !usedHashes.has(options.scheduleTxHash.toLowerCase()), 'Distinct schedule receipt is required.');
       usedHashes.add(options.scheduleTxHash.toLowerCase());
       const scheduled = await transaction(p, options.scheduleTxHash, context); transactions.push(scheduled);
-      need(same(scheduled.tx.from, graphInfo.proposer) && same(scheduled.tx.to, a.timelock)
-        && same(scheduled.receipt.to, a.timelock) && scheduled.tx.value === 0n && same(scheduled.tx.data, plan.scheduleData)
-        && names.every(name => before(proofs[name], scheduled)), 'Schedule is not the exact direct reviewed operation after deployment.');
+      need(same(scheduled.tx.from, graphInfo.proposer) && names.every(name => before(proofs[name], scheduled)),
+        'Schedule is not the exact reviewed proposer operation after deployment.');
+      await verifyTargetOwnerOperationReceipt(p, { ...scheduled, finalized: context.finalized,
+        expected: { from: graphInfo.proposer, to: a.timelock, data: plan.scheduleData,
+          dataHash: keccak256(plan.scheduleData), operation: 'schedule' } });
       const scheduledLogs = logs(scheduled, a.timelock, actions, 'CallScheduled');
       need(scheduledLogs.length === 1 && same(scheduledLogs[0].args.id, plan.operationId) && scheduledLogs[0].args.index === 0n
         && same(scheduledLogs[0].args.target, plan.target) && scheduledLogs[0].args.value === 0n && same(scheduledLogs[0].args.data, plan.data)
@@ -215,8 +283,10 @@ export async function validateTargetOwnerUpgradePreflight(p, input, options = {}
       if (phase === 'done') {
         need(HASH.test(options.executeTxHash ?? '') && !usedHashes.has(options.executeTxHash.toLowerCase()), 'Distinct execution receipt is required.');
         const executed = await transaction(p, options.executeTxHash, context); transactions.push(executed);
-        need(same(executed.tx.to, a.timelock) && same(executed.receipt.to, a.timelock) && executed.tx.value === 0n
-          && same(executed.tx.data, plan.executeData) && before(scheduled, executed) && BigInt(executed.block.timestamp) >= readyAt,
+        await verifyTargetOwnerOperationReceipt(p, { ...executed, finalized: context.finalized,
+          expected: { from: executed.tx.from, to: a.timelock, data: plan.executeData,
+            dataHash: keccak256(plan.executeData), operation: 'execute' } });
+        need(before(scheduled, executed) && BigInt(executed.block.timestamp) >= readyAt,
         'Execution calldata, order or full Timelock delay differs.');
         const executedLogs = logs(executed, a.timelock, actions, 'CallExecuted'), upgradedLogs = logs(executed, a.beacon, beacon, 'Upgraded');
         need(executedLogs.length === 1 && same(executedLogs[0].args.id, plan.operationId) && executedLogs[0].args.index === 0n

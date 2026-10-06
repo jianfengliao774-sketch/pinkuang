@@ -7,6 +7,9 @@ import { evidenceDigest } from '../shared/firsto-upgrade-proof.mjs';
 import { TARGET_OWNER_DEPLOYMENTS, newTargetOwnerJournal, parseTargetOwnerJournal, targetOwnerJournalKey,
   targetOwnerPending, targetOwnerNext, confirmedTargetOwnerDeployments, targetOwnerActionReady, submitTargetOwnerUpgrade, targetOwnerReviewedGas,
   verifyTargetOwnerRecoveryReceipt, VerifiedTargetOwnerTransactionFailure, archiveTargetOwnerFailure } from './target-owner-upgrade-ui';
+import { discoverTargetOwnerTransaction } from './target-owner-upgrade-ui';
+// @ts-ignore Public synthetic signed wrapper fixture; no live account material is used.
+import { createWrappedTargetOwnerFixture } from '../shared/target-owner-upgrade-wrapper-test-fixture.mjs';
 const h = (index: number) => `0x${index.toString(16).padStart(64, '0')}`;
 const a = (index: number) => `0x${index.toString(16).padStart(40, '0')}`;
 const context = { factory: a(1), genesisRecordDigest: h(2), genesisManifestDigest: h(3), candidateArtifactDigest: h(4), catalogDigest: h(5) };
@@ -150,4 +153,83 @@ test('unknown, mismatched failed transactions, noncanonical inclusion and reorg 
     (f: ReturnType<typeof failedProvider>) => { f.state.reorg = true; },
   ]) { const f = failedProvider(); mutate(f);
     await assert.rejects(verifyTargetOwnerRecoveryReceipt(f.provider, h(90), expected), problem => !(problem instanceof VerifiedTargetOwnerTransactionFailure)); }
+});
+
+async function recoveryWrapperFixture(options: Record<string, unknown> = {}) {
+  const f = await createWrappedTargetOwnerFixture(options), originalSend = f.provider.send.bind(f.provider);
+  f.expected.intent = { schemaVersion: 1, chainId: 56, nonce: f.tx.nonce,
+    anchor: { blockNumber: f.operation === 'schedule' ? 312 : 379,
+      blockHash: f.blocks.get(f.operation === 'schedule' ? 312 : 379).hash } };
+  f.provider.send = async (method: string, args: any[]) => {
+    if (method === 'eth_getTransactionCount') {
+      const number = Number(BigInt(args[1])); return `0x${(number >= 380 ? 25 : number >= 320 ? 24 : 23).toString(16)}`;
+    }
+    if (method === 'eth_getBlockByNumber') {
+      const number = Number(BigInt(args[0])), block = await f.provider.getBlock(number);
+      return { number: args[0], hash: block.hash, transactions: block.transactions.map((hash: string) => {
+        const tx = f.transactions.get(hash); return { ...tx, chainId: '0x38', nonce: `0x${tx.nonce.toString(16)}`,
+          value: '0x0', input: tx.data, blockNumber: args[0] };
+      }) };
+    }
+    return originalSend(method, args);
+  };
+  return f;
+}
+test('original schedule and execute recovery accept only exact signed wrapper results with the recorded nonce', async () => {
+  for (const operation of ['schedule', 'execute']) {
+    const f = await recoveryWrapperFixture({ operation });
+    const receipt = await verifyTargetOwnerRecoveryReceipt(f.provider as Provider, f.tx.hash, f.expected);
+    assert.equal(receipt?.hash, f.tx.hash); assert.equal(receipt?.status, 1);
+    assert.equal(f.calls.some((call: any[]) => call[0] === 'eth_sendTransaction'), false);
+  }
+});
+test('hashless governance recovery discovers the original wrapped transaction without a resend or changing its intent', async () => {
+  const f = await recoveryWrapperFixture({ operation: 'schedule' }), prior = JSON.stringify(f.expected.intent);
+  assert.equal(await discoverTargetOwnerTransaction(f.provider as Provider, f.expected), f.tx.hash);
+  assert.equal(JSON.stringify(f.expected.intent), prior);
+});
+test('recovery cannot bypass full original data, recorded nonce, reviewed wrappers or successful operation events', async () => {
+  const mutations = [
+    (f: any) => { delete f.expected.data; },
+    (f: any) => { f.expected.dataHash = h(99); },
+    (f: any) => { f.expected.intent.nonce++; },
+    (f: any) => { f.tx.to = f.receipt.to = a(99); },
+    (f: any) => { f.receipt.logs.pop(); },
+  ];
+  for (const mutate of mutations) {
+    const f = await recoveryWrapperFixture(); mutate(f);
+    await assert.rejects(verifyTargetOwnerRecoveryReceipt(f.provider as Provider, f.tx.hash, f.expected),
+      problem => !(problem instanceof VerifiedTargetOwnerTransactionFailure));
+  }
+});
+test('reverted wrapper stays blocked, while exact direct governance failure still retains its archivable evidence', async () => {
+  const wrapped = await recoveryWrapperFixture({ status: 0 });
+  await assert.rejects(verifyTargetOwnerRecoveryReceipt(wrapped.provider as Provider, wrapped.tx.hash, wrapped.expected),
+    problem => !(problem instanceof VerifiedTargetOwnerTransactionFailure) && /记录保留/.test(String(problem)));
+  const direct = await recoveryWrapperFixture({ wrapped: false, status: 0 }); direct.receipt.gasUsed = 21000n;
+  await assert.rejects(verifyTargetOwnerRecoveryReceipt(direct.provider as Provider, direct.tx.hash, direct.expected),
+    problem => problem instanceof VerifiedTargetOwnerTransactionFailure);
+});
+test('canonical recovery rejects changed original envelope or operation logs during the final reread', async () => {
+  for (const changed of ['transaction', 'type', 'authorization', 'receipt', 'logs']) {
+    const f = await recoveryWrapperFixture(); let reads = 0;
+    if (!['receipt', 'logs'].includes(changed)) {
+      const read = f.provider.getTransaction.bind(f.provider);
+      f.provider.getTransaction = async (hash: string) => {
+        const tx = await read(hash); if (++reads > 1) {
+          if (changed === 'transaction') tx.data += '00';
+          else if (changed === 'type') tx.type = 4;
+          else tx.authorizationList = [{}];
+        } return tx;
+      };
+    } else {
+      const read = f.provider.getTransactionReceipt.bind(f.provider);
+      f.provider.getTransactionReceipt = async (hash: string) => {
+        const receipt = await read(hash); if (++reads > 1) {
+          if (changed === 'receipt') receipt.to = a(99); else receipt.logs[0].data += '00';
+        } return receipt;
+      };
+    }
+    await assert.rejects(verifyTargetOwnerRecoveryReceipt(f.provider as Provider, f.tx.hash, f.expected), /恢复期间/);
+  }
 });

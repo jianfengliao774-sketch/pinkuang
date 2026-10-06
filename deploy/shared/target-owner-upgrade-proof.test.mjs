@@ -4,8 +4,11 @@ import { readFileSync } from 'node:fs';
 import { Log, ZeroAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { evidenceDigest } from './firsto-upgrade-proof.mjs';
 import { prepareTargetOwnerUpgradeDeployment } from './target-owner-upgrade-plan.mjs';
-import { validateTargetOwnerUpgradePreflight, validateTargetOwnerUpgradeCatalog, verifyTargetOwnerUpgrade, targetOwnerVerifiedUpgrade } from './target-owner-upgrade-proof.mjs';
+import { validateTargetOwnerUpgradePreflight, validateTargetOwnerUpgradeCatalog, verifyTargetOwnerUpgrade, targetOwnerVerifiedUpgrade,
+  verifyTargetOwnerOperationReceipt } from './target-owner-upgrade-proof.mjs';
 import { createTargetOwnerFixture } from './target-owner-upgrade-test-fixture.mjs';
+import { createWrappedTargetOwnerFixture } from './target-owner-upgrade-wrapper-test-fixture.mjs';
+import { FRESH_DELEGATION_MANAGER, FRESH_DELEGATOR, FRESH_BALANCE_ENFORCER } from './fresh-activation-execution.mjs';
 const original = JSON.parse(readFileSync(new URL('../public/upgrade-genesis/genesis-record.json', import.meta.url), 'utf8'));
 const hash = value => keccak256(toUtf8Bytes(value));
 
@@ -32,6 +35,67 @@ test('unscheduled, waiting, ready and done verify finalized state and all direct
   }
   const f = createTargetOwnerFixture({ phase: 'scheduled', waiting: true });
   assert.equal((await validateTargetOwnerUpgradePreflight(f.provider, f.input, f.options)).ready, false);
+});
+test('the complete core proof accepts exact signed MetaMask schedule and execution envelopes', async () => {
+  for (const operation of ['schedule', 'execute']) {
+    const f = await createWrappedTargetOwnerFixture({ operation });
+    const proof = await validateTargetOwnerUpgradePreflight(f.provider, f.input, f.options);
+    assert.equal(proof.codeUpgradeComplete, true); assert.equal(proof.operation, 'done');
+    const wrapperReads = f.calls.filter(call => call[0] === 'getCode'
+      && [FRESH_DELEGATION_MANAGER, FRESH_DELEGATOR, FRESH_BALANCE_ENFORCER].some(pin => pin.address === call[1]));
+    assert.equal(wrapperReads.length, 3); assert(wrapperReads.every(call => call[2] === 400));
+  }
+});
+for (const operation of ['schedule', 'execute']) {
+  const changes = [
+    ['outer sender', f => { f.tx.from = f.receipt.from = ZeroAddress; }],
+    ['receipt sender', f => { f.receipt.from = ZeroAddress; }],
+    ['outer value', f => { f.tx.value = 1n; }],
+    ['unapproved transaction type', f => { f.tx.type = 4; }],
+    ['extra authorization', f => { f.tx.authorizationList = [{}]; }],
+    ['outer recipient', f => { f.tx.to = f.receipt.to = f.plan.target; }],
+    ['receipt recipient', f => { f.receipt.to = f.plan.target; }],
+    ['inner recipient', f => { f.envelope.executions[0] = `0x${f.plan.target.slice(2)}${'00'.repeat(32)}${f.expected.data.slice(2)}`; f.rebuild(); }],
+    ['inner calldata', f => { f.envelope.executions[0] += '00'; f.rebuild(); }],
+    ['unsigned context change', f => { f.envelope.delegations[0].salt++; f.rebuild(); }],
+    ['second call', f => { f.envelope.executions.push(f.envelope.executions[0]); f.rebuild(); }],
+    ['noncanonical wrapper', f => { f.tx.data += '00'; }],
+    ['receipt hash', f => { f.receipt.hash = hash('other transaction'); }],
+    ['receipt index', f => { f.receipt.index++; }],
+    ['missing result event', f => { f.receipt.logs.shift(); }],
+    ['duplicate result event', f => { f.receipt.logs.push(structuredClone(f.receipt.logs[0])); }],
+    ['wrong result operation', f => { f.receipt.logs[0].topics[1] = hash('another operation'); }],
+    ['result metadata', f => { f.receipt.logs[0].blockHash = hash('other block'); }],
+    ['result trailing data', f => { f.receipt.logs[0].data += '00'; }],
+    ['repeated event index', f => { f.receipt.logs[1].index = f.receipt.logs[0].index; }],
+  ];
+  for (const [name, mutate] of changes) test(`wrapped core ${operation} rejects ${name}`, async () => {
+    const f = await createWrappedTargetOwnerFixture({ operation }); mutate(f);
+    await assert.rejects(validateTargetOwnerUpgradePreflight(f.provider, f.input, f.options));
+  });
+}
+for (const pin of [FRESH_DELEGATION_MANAGER, FRESH_DELEGATOR, FRESH_BALANCE_ENFORCER]) test(`core wrapper requires exact runtime at ${pin.address}`, async () => {
+  const f = await createWrappedTargetOwnerFixture(); f.codes.set(pin.address.toLowerCase(), '0x6000');
+  await assert.rejects(validateTargetOwnerUpgradePreflight(f.provider, f.input, f.options), /runtime/);
+});
+test('core schedule requires the unique original salt and execute requires exact beacon result', async () => {
+  const schedule = await createWrappedTargetOwnerFixture(); schedule.receipt.logs.pop();
+  await assert.rejects(validateTargetOwnerUpgradePreflight(schedule.provider, schedule.input, schedule.options), /CallSalt/);
+  const execute = await createWrappedTargetOwnerFixture({ operation: 'execute' }); execute.receipt.logs.pop();
+  await assert.rejects(validateTargetOwnerUpgradePreflight(execute.provider, execute.input, execute.options), /Upgraded/);
+});
+test('wrapped core rollback cannot become an archivable direct failure or a retry permission', async () => {
+  const f = await createWrappedTargetOwnerFixture({ status: 0 });
+  await assert.rejects(verifyTargetOwnerOperationReceipt(f.provider, { tx: f.tx, receipt: f.receipt,
+    expected: f.expected, finalized: f.blocks.get(400) }), /记录保留.*不会/);
+});
+test('wallet runtime anchor changes fail before an original wrapped operation is accepted', async () => {
+  const f = await createWrappedTargetOwnerFixture(), original = f.provider.getBlock.bind(f.provider);
+  f.provider.getBlock = async tag => {
+    const block = await original(tag); if (tag === 400) block.hash = hash('changed runtime anchor'); return block;
+  };
+  await assert.rejects(verifyTargetOwnerOperationReceipt(f.provider, { tx: f.tx, receipt: f.receipt,
+    expected: f.expected, finalized: f.blocks.get(400) }), /runtime anchor changed/);
 });
 test('old FirstoSale keeps old Funds while new Vault uses new Funds and current native aliases', async () => {
   const f = createTargetOwnerFixture(); const oldFunds = f.input.genesisRecord.addresses.PoolFunds;
