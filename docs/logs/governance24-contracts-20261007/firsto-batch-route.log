@@ -1,0 +1,156 @@
+Compiling 1 files with Solc 0.8.24
+Solc 0.8.24 finished in 23.36s
+Compiler run successful with warnings:
+Warning (2519): This declaration shadows an existing declaration.
+   --> src/libraries/FirstoSale.sol:169:13:
+    |
+169 |             FirstoSaleState.DelistingProposal storage p = a.delistingProposals[id];
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: The shadowed declaration is here:
+   --> src/libraries/FirstoSale.sol:179:9:
+    |
+179 |         FirstoSaleState.DelistingProposal storage p = a.delistingProposals[id];
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning (3628): This contract has a payable fallback function, but no receive ether function. Consider adding a receive ether function.
+ --> src/Governance24Dispatcher.sol:9:1:
+  |
+9 | contract Governance24Dispatcher {
+  | ^ (Relevant source part starts here and spans across multiple lines).
+Note: The payable fallback function is defined here.
+  --> src/Governance24Dispatcher.sol:28:5:
+   |
+28 |     fallback() external payable {
+   |     ^ (Relevant source part starts here and spans across multiple lines).
+
+Warning (5159): "selfdestruct" has been deprecated. Note that, starting from the Cancun hard fork, the underlying opcode no longer deletes the code and data associated with an account and only transfers its Ether to the beneficiary, unless executed in the same transaction in which the contract was created (see EIP-6780). Any use in newly deployed contracts is strongly discouraged even if the new behavior is taken into account. Future changes to the EVM might further reduce the functionality of the opcode.
+   --> test/utils/FirstoMocks.sol:108:9:
+    |
+108 |         selfdestruct(recipient);
+    |         ^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:297:13:
+    |
+297 |             uint256 cancellationId,
+    |             ^^^^^^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:298:13:
+    |
+298 |             address proposer,
+    |             ^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:299:13:
+    |
+299 |             uint256 listedProposalId_,
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:300:13:
+    |
+300 |             uint48 snapshotTs,
+    |             ^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:301:13:
+    |
+301 |             uint64 expiresAt_,
+    |             ^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:302:13:
+    |
+302 |             uint256 snapshotMemberCount,
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:303:13:
+    |
+303 |             uint256 yesCount,
+    |             ^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:304:13:
+    |
+304 |             uint256 yesShares,
+    |             ^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:305:13:
+    |
+305 |             uint256 noCount,
+    |             ^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:306:13:
+    |
+306 |             uint256 noShares,
+    |             ^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:307:13:
+    |
+307 |             bool executed,
+    |             ^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:308:13:
+    |
+308 |             bool voted
+    |             ^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:353:18:
+    |
+353 |         returns (IFirstoSignedAskExchange.SignedAsk memory ask, bytes32 orderHash, bool active)
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:353:65:
+    |
+353 |         returns (IFirstoSignedAskExchange.SignedAsk memory ask, bytes32 orderHash, bool active)
+    |                                                                 ^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:353:84:
+    |
+353 |         returns (IFirstoSignedAskExchange.SignedAsk memory ask, bytes32 orderHash, bool active)
+    |                                                                                    ^^^^^^^^^^^
+
+Warning (2018): Function state mutability can be restricted to pure
+  --> test/unit/FirstoBatchPurchase.t.sol:99:5:
+   |
+99 |     function _initialReferenceOwner() internal override returns (address) {
+   |     ^ (Relevant source part starts here and spans across multiple lines).
+
+
+Ran 24 tests for test/unit/FirstoBatchPurchase.t.sol:FirstoBatchControlledProtocolTest
+[PASS] test_MOCK_PROTOCOL_1271AndBoundsAndCanonicalEncoding() (gas: 1449573)
+[PASS] test_MOCK_PROTOCOL_alreadyConsumedLeafCannotBuy() (gas: 863898)
+[PASS] test_MOCK_PROTOCOL_badProofIndexAndMismatchedLeafReject() (gas: 939749)
+[PASS] test_MOCK_PROTOCOL_batchCapabilityVersionIsSeparateFromNativeSaleAndOwner() (gas: 25623)
+[PASS] test_MOCK_PROTOCOL_batchFailureStillAllowsDeadlinePrincipalRefund() (gas: 878636)
+[PASS] test_MOCK_PROTOCOL_batchSingleLeafAfterGovernance24DispatcherKeepsCustodyAndSettlement() (gas: 8218257)
+[PASS] test_MOCK_PROTOCOL_batchSingleLeafExactCostCustodyAndSellerRewards() (gas: 1331416)
+[PASS] test_MOCK_PROTOCOL_changedTargetOwnerCannotBeBoughtEvenWithNewValidSignature() (gas: 835665)
+[PASS] test_MOCK_PROTOCOL_claimCanInvalidateLeafAndEntirePurchaseRollsBack() (gas: 1421033)
+[PASS] test_MOCK_PROTOCOL_claimFailureAndPostClaimQualityMutationRollback() (gas: 3185076)
+[PASS] test_MOCK_PROTOCOL_expiryWrongSchemaWrongNftAndPayoutRollback() (gas: 1425342)
+[PASS] test_MOCK_PROTOCOL_feeChangesGrossCapAndFloor() (gas: 1528788)
+[PASS] test_MOCK_PROTOCOL_flexibleGrossSurplusAllocatedAndOriginalPriority() (gas: 2301872)
+[PASS] test_MOCK_PROTOCOL_flexibleLockedModelAndWeightGrossCap() (gas: 1600106)
+[PASS] test_MOCK_PROTOCOL_marketFaultsAndNftCallbackFaultsRollback() (gas: 7087299)
+[PASS] test_MOCK_PROTOCOL_multiLeafSortedProofAndSiblingRemainUnspent() (gas: 1354368)
+[PASS] test_MOCK_PROTOCOL_officialPriorityAndReadFailureBlockFallback() (gas: 1086917)
+[PASS] test_MOCK_PROTOCOL_proofDepthAndMaximumCanonicalPayload() (gas: 2430943)
+[PASS] test_MOCK_PROTOCOL_reentryCannotSpendAgain() (gas: 1936164)
+[PASS] test_MOCK_PROTOCOL_runtimeMismatchFailsBeforeRewardsOrPayment() (gas: 2361879)
+[PASS] test_MOCK_PROTOCOL_signatureBatchCancellationConsumedLeafRollback() (gas: 968123)
+[PASS] test_MOCK_PROTOCOL_unconfiguredLegacyTargetCannotBuy() (gas: 833944)
+[PASS] test_MOCK_PROTOCOL_wrongNetworkAndProtocolBindingsFailClosed() (gas: 955714)
+[PASS] test_MOCK_PROTOCOL_wrongStateAndExactPurchaseDeadlineDoNotSpend() (gas: 865073)
+Suite result: ok. 24 passed; 0 failed; 0 skipped; finished in 19.67ms (44.23ms CPU time)
+
+Ran 1 test suite in 20.65ms (19.67ms CPU time): 24 tests passed, 0 failed, 0 skipped (24 total tests)

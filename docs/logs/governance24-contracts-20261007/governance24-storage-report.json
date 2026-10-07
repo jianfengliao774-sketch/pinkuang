@@ -1,0 +1,1162 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-07T00:28:44.959Z",
+  "ok": true,
+  "checks": [
+    {
+      "name": "Governance24Validation",
+      "stateless": true,
+      "externalEntries": [
+        [
+          "requireMigration",
+          "view"
+        ]
+      ],
+      "sourceSha256": "6cee918ae0cc3db868f31767945c0e77f6b693f2a751864c21caa03929f1ec06"
+    },
+    {
+      "name": "Governance24FreshPoolFactory",
+      "reference": "FreshPoolFactory",
+      "compilerJob": "b4f0215503d3c0ce.json",
+      "storageLayoutOk": true,
+      "exactBaseFields": true,
+      "standaloneSafetyOk": true,
+      "retainedBusinessLinks": [
+        "src/libraries/PurchaseValidation.sol:PurchaseValidation"
+      ],
+      "addedGovernanceViewLink": true,
+      "deliveredBaseline": "docs/storage/Integrated-v2-deployed-PoolFactory.json",
+      "deliveredBaselineSha256": "2e70f89c6110a17bcf1debb2bf2c1818feeb813c3e9dc7306e15ddb9b02a34a9",
+      "deliveredStorageOk": true,
+      "fields": {
+        "storage": [],
+        "namespaces": {
+          "erc7201:tapeout.storage.PoolFactory": [
+            {
+              "label": "operator",
+              "type": "address"
+            },
+            {
+              "label": "treasury",
+              "type": "address"
+            },
+            {
+              "label": "timelock",
+              "type": "address"
+            },
+            {
+              "label": "beacon",
+              "type": "address"
+            },
+            {
+              "label": "creationPaused",
+              "type": "bool"
+            },
+            {
+              "label": "isPool",
+              "type": "mapping(address => bool)"
+            },
+            {
+              "label": "allPools",
+              "type": "address[]"
+            },
+            {
+              "label": "shareMarket",
+              "type": "address"
+            },
+            {
+              "label": "lens",
+              "type": "address"
+            }
+          ],
+          "erc7201:tapeout.storage.MachineRegistry": [
+            {
+              "label": "reservedPool",
+              "type": "mapping(bytes32 => address)"
+            },
+            {
+              "label": "cursor",
+              "type": "uint256"
+            },
+            {
+              "label": "cutoff",
+              "type": "uint256"
+            },
+            {
+              "label": "initialized",
+              "type": "bool"
+            },
+            {
+              "label": "ready",
+              "type": "bool"
+            },
+            {
+              "label": "subscriber",
+              "type": "mapping(address => address)"
+            }
+          ],
+          "erc7201:openzeppelin.storage.ReentrancyGuard": [
+            {
+              "label": "_status",
+              "type": "uint256"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Ownable": [
+            {
+              "label": "_owner",
+              "type": "address"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Initializable": [
+            {
+              "label": "_initialized",
+              "type": "uint64"
+            },
+            {
+              "label": "_initializing",
+              "type": "bool"
+            }
+          ]
+        }
+      },
+      "allowedMigrationWrites": [
+        "existing timelock",
+        "existing Ownable owner"
+      ]
+    },
+    {
+      "name": "Governance24BudgetPortfolioFactory",
+      "reference": "BudgetPortfolioFactory",
+      "compilerJob": "b4f0215503d3c0ce.json",
+      "storageLayoutOk": true,
+      "exactBaseFields": true,
+      "standaloneSafetyOk": true,
+      "retainedBusinessLinks": [],
+      "addedGovernanceViewLink": true,
+      "deliveredBaseline": "docs/storage/Integrated-v2-deployed-BudgetPortfolioFactory.json",
+      "deliveredBaselineSha256": "838ad48a345b316f7b8b711d014c989ac0ccf574f98b3580942e5de7018d4c9e",
+      "deliveredStorageOk": true,
+      "fields": {
+        "storage": [
+          {
+            "label": "operator",
+            "slot": "0",
+            "offset": 0,
+            "type": "address"
+          },
+          {
+            "label": "treasury",
+            "slot": "1",
+            "offset": 0,
+            "type": "address"
+          },
+          {
+            "label": "timelock",
+            "slot": "2",
+            "offset": 0,
+            "type": "address"
+          },
+          {
+            "label": "beacon",
+            "slot": "3",
+            "offset": 0,
+            "type": "address"
+          },
+          {
+            "label": "legacyFactory",
+            "slot": "4",
+            "offset": 0,
+            "type": "address"
+          },
+          {
+            "label": "shareMarket",
+            "slot": "5",
+            "offset": 0,
+            "type": "address"
+          },
+          {
+            "label": "creationPaused",
+            "slot": "5",
+            "offset": 20,
+            "type": "bool"
+          },
+          {
+            "label": "isPool",
+            "slot": "6",
+            "offset": 0,
+            "type": "mapping(address => bool)"
+          },
+          {
+            "label": "portfolios",
+            "slot": "7",
+            "offset": 0,
+            "type": "address[]"
+          }
+        ],
+        "namespaces": {
+          "erc7201:openzeppelin.storage.ReentrancyGuard": [
+            {
+              "label": "_status",
+              "type": "uint256"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Ownable": [
+            {
+              "label": "_owner",
+              "type": "address"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Initializable": [
+            {
+              "label": "_initialized",
+              "type": "uint64"
+            },
+            {
+              "label": "_initializing",
+              "type": "bool"
+            }
+          ]
+        }
+      },
+      "allowedMigrationWrites": [
+        "existing timelock",
+        "existing Ownable owner"
+      ]
+    },
+    {
+      "name": "Governance24ShareMarket",
+      "reference": "ShareMarket",
+      "compilerJob": "b4f0215503d3c0ce.json",
+      "storageLayoutOk": true,
+      "exactBaseFields": true,
+      "standaloneSafetyOk": true,
+      "retainedBusinessLinks": [],
+      "addedGovernanceViewLink": true,
+      "deliveredBaseline": "docs/storage/Integrated-v2-deployed-ShareMarket.json",
+      "deliveredBaselineSha256": "8b864dad006a078000ec71fae524a83408278d2d1308aaebf37c5e945de9df1b",
+      "deliveredStorageOk": true,
+      "fields": {
+        "storage": [],
+        "namespaces": {
+          "erc7201:tapeout.storage.ShareMarket": [
+            {
+              "label": "factory",
+              "type": "address"
+            },
+            {
+              "label": "timelock",
+              "type": "address"
+            },
+            {
+              "label": "nextOrderId",
+              "type": "uint256"
+            },
+            {
+              "label": "orders",
+              "type": "mapping(uint256 => struct IShareMarket.Order)"
+            },
+            {
+              "label": "bnbOwed",
+              "type": "mapping(address => uint256)"
+            },
+            {
+              "label": "totalBnbOwed",
+              "type": "uint256"
+            },
+            {
+              "label": "orderExpiries",
+              "type": "mapping(uint256 => uint64)"
+            },
+            {
+              "label": "saleReferences",
+              "type": "mapping(address => struct ShareMarket.SaleReference)"
+            },
+            {
+              "label": "saleReviews",
+              "type": "mapping(address => mapping(uint256 => struct ShareMarket.SaleReview))"
+            },
+            {
+              "label": "saleReviewReferences",
+              "type": "mapping(address => struct ShareMarket.SaleReference)"
+            }
+          ],
+          "erc7201:tapeout.storage.ShareMarket.BudgetFactories": [
+            {
+              "label": "trusted",
+              "type": "mapping(address => bool)"
+            },
+            {
+              "label": "bootstrapComplete",
+              "type": "bool"
+            }
+          ],
+          "erc7201:openzeppelin.storage.ReentrancyGuard": [
+            {
+              "label": "_status",
+              "type": "uint256"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Initializable": [
+            {
+              "label": "_initialized",
+              "type": "uint64"
+            },
+            {
+              "label": "_initializing",
+              "type": "bool"
+            }
+          ]
+        }
+      },
+      "allowedMigrationWrites": [
+        "existing timelock"
+      ]
+    },
+    {
+      "name": "PoolVault",
+      "deliveredBaseline": "docs/storage/Integrated-v2-deployed-PoolVault.json",
+      "deliveredBaselineSha256": "fd3f460f0051ee00398312fbb4da339adf906df4b17e9bbed2d70f1f03d3e967",
+      "deliveredStorageOk": true,
+      "fields": {
+        "storage": [],
+        "namespaces": {
+          "erc7201:tapeout.storage.TargetOwner": [
+            {
+              "label": "originalOwner",
+              "type": "address"
+            },
+            {
+              "label": "configured",
+              "type": "bool"
+            },
+            {
+              "label": "nonce",
+              "type": "uint256"
+            }
+          ],
+          "erc7201:tapeout.storage.FirstoSale": [
+            {
+              "label": "orderHash",
+              "type": "bytes32"
+            },
+            {
+              "label": "expectedProceeds",
+              "type": "uint256"
+            },
+            {
+              "label": "active",
+              "type": "bool"
+            },
+            {
+              "label": "received",
+              "type": "bool"
+            },
+            {
+              "label": "nativeOrderHash",
+              "type": "bytes32"
+            },
+            {
+              "label": "nativeProposalId",
+              "type": "uint256"
+            },
+            {
+              "label": "nativeFeeBps",
+              "type": "uint16"
+            },
+            {
+              "label": "nativeActive",
+              "type": "bool"
+            },
+            {
+              "label": "nativeFeeEpoch",
+              "type": "uint256"
+            },
+            {
+              "label": "nextDelistingId",
+              "type": "uint256"
+            },
+            {
+              "label": "activeDelistingId",
+              "type": "uint256"
+            },
+            {
+              "label": "delistingProposals",
+              "type": "mapping(uint256 => struct FirstoSaleState.DelistingProposal)"
+            },
+            {
+              "label": "delistingVotes",
+              "type": "mapping(uint256 => mapping(address => bool))"
+            },
+            {
+              "label": "reopenEpoch",
+              "type": "uint256"
+            },
+            {
+              "label": "reopenedForEpoch",
+              "type": "mapping(address => uint256)"
+            }
+          ],
+          "erc7201:tapeout.storage.FlexiblePurchase": [
+            {
+              "label": "enabled",
+              "type": "bool"
+            },
+            {
+              "label": "referenceCircuitId",
+              "type": "uint256"
+            },
+            {
+              "label": "config",
+              "type": "struct IPoolVault.FlexiblePurchaseConfig"
+            },
+            {
+              "label": "modelInitialized",
+              "type": "bool"
+            },
+            {
+              "label": "taskId",
+              "type": "uint32"
+            },
+            {
+              "label": "referenceVerifiedWeight",
+              "type": "uint128"
+            }
+          ],
+          "erc7201:tapeout.storage.PoolVault": [
+            {
+              "label": "factory",
+              "type": "address"
+            },
+            {
+              "label": "treasury",
+              "type": "address"
+            },
+            {
+              "label": "params",
+              "type": "struct IPoolVault.PoolParams"
+            },
+            {
+              "label": "state",
+              "type": "enum IPoolVault.State"
+            },
+            {
+              "label": "depositPaused",
+              "type": "bool"
+            },
+            {
+              "label": "refundsRecorded",
+              "type": "bool"
+            },
+            {
+              "label": "unitPriceWei",
+              "type": "uint256"
+            },
+            {
+              "label": "totalRaised",
+              "type": "uint256"
+            },
+            {
+              "label": "totalBnbOwed",
+              "type": "uint256"
+            },
+            {
+              "label": "contributedWei",
+              "type": "mapping(address => uint256)"
+            },
+            {
+              "label": "bnbOwed",
+              "type": "mapping(address => uint256)"
+            },
+            {
+              "label": "activeMembers",
+              "type": "address[]"
+            },
+            {
+              "label": "memberIndexPlusOne",
+              "type": "mapping(address => uint256)"
+            },
+            {
+              "label": "shareHistory",
+              "type": "mapping(address => struct Checkpoints.Trace208)"
+            },
+            {
+              "label": "memberHistory",
+              "type": "struct Checkpoints.Trace208"
+            },
+            {
+              "label": "purchaseCost",
+              "type": "uint256"
+            },
+            {
+              "label": "activatedAt",
+              "type": "uint64"
+            },
+            {
+              "label": "surplusPerShareWei",
+              "type": "uint256"
+            },
+            {
+              "label": "surplusRemainder",
+              "type": "uint256"
+            },
+            {
+              "label": "surplusOutstandingWei",
+              "type": "uint256"
+            },
+            {
+              "label": "surplusSettled",
+              "type": "mapping(address => bool)"
+            },
+            {
+              "label": "expectedNftSeller",
+              "type": "address"
+            },
+            {
+              "label": "expectedNftOperator",
+              "type": "address"
+            },
+            {
+              "label": "nftReceived",
+              "type": "bool"
+            },
+            {
+              "label": "lockedShares",
+              "type": "mapping(address => uint256)"
+            }
+          ],
+          "erc7201:tapeout.storage.PoolSales": [
+            {
+              "label": "nextProposalId",
+              "type": "uint256"
+            },
+            {
+              "label": "activeProposalId",
+              "type": "uint256"
+            },
+            {
+              "label": "lastProposed",
+              "type": "mapping(address => uint64)"
+            },
+            {
+              "label": "proposals",
+              "type": "mapping(uint256 => struct PoolSaleState.Proposal)"
+            },
+            {
+              "label": "hasVoted",
+              "type": "mapping(uint256 => mapping(address => bool))"
+            },
+            {
+              "label": "listedProposalId",
+              "type": "uint256"
+            },
+            {
+              "label": "listedAt",
+              "type": "uint64"
+            },
+            {
+              "label": "expiresAt",
+              "type": "uint64"
+            },
+            {
+              "label": "salePrice",
+              "type": "uint256"
+            },
+            {
+              "label": "saleBuyer",
+              "type": "address"
+            },
+            {
+              "label": "completedAt",
+              "type": "uint64"
+            },
+            {
+              "label": "saleProceeds",
+              "type": "uint256"
+            },
+            {
+              "label": "salePerShareWei",
+              "type": "uint256"
+            },
+            {
+              "label": "saleRemainder",
+              "type": "uint256"
+            },
+            {
+              "label": "saleOutstandingWei",
+              "type": "uint256"
+            },
+            {
+              "label": "saleSettled",
+              "type": "mapping(address => bool)"
+            },
+            {
+              "label": "burnBudget",
+              "type": "uint256"
+            },
+            {
+              "label": "totalBurnBnbSpent",
+              "type": "uint256"
+            },
+            {
+              "label": "totalBurnBem",
+              "type": "uint256"
+            },
+            {
+              "label": "expectedWbnbRefund",
+              "type": "uint256"
+            },
+            {
+              "label": "saleTradeId",
+              "type": "bytes32"
+            },
+            {
+              "label": "saleRoundingRecipient",
+              "type": "address"
+            },
+            {
+              "label": "legacyBurnBudgetReleased",
+              "type": "bool"
+            },
+            {
+              "label": "legacyBonusPerShareWei",
+              "type": "uint256"
+            },
+            {
+              "label": "legacyBonusRemainder",
+              "type": "uint256"
+            },
+            {
+              "label": "legacyBonusOutstandingWei",
+              "type": "uint256"
+            },
+            {
+              "label": "legacyRoundingRecipient",
+              "type": "address"
+            },
+            {
+              "label": "legacyBonusSettled",
+              "type": "mapping(address => bool)"
+            }
+          ],
+          "erc7201:tapeout.storage.PoolRewards": [
+            {
+              "label": "expiryDisabled",
+              "type": "bool"
+            },
+            {
+              "label": "expiryConfigured",
+              "type": "bool"
+            },
+            {
+              "label": "acc",
+              "type": "uint256"
+            },
+            {
+              "label": "bemAccounted",
+              "type": "uint256"
+            },
+            {
+              "label": "accEndOf",
+              "type": "struct Checkpoints.Trace224"
+            },
+            {
+              "label": "epochNet",
+              "type": "mapping(uint256 => uint256)"
+            },
+            {
+              "label": "epochPaid",
+              "type": "mapping(uint256 => uint256)"
+            },
+            {
+              "label": "epochBurned",
+              "type": "mapping(uint256 => uint256)"
+            },
+            {
+              "label": "epochBurnedFlag",
+              "type": "mapping(uint256 => bool)"
+            },
+            {
+              "label": "users",
+              "type": "mapping(address => struct PoolRewardState.RewardUser)"
+            },
+            {
+              "label": "totalGross",
+              "type": "uint256"
+            },
+            {
+              "label": "totalPlatform",
+              "type": "uint256"
+            },
+            {
+              "label": "totalBaseBurned",
+              "type": "uint256"
+            },
+            {
+              "label": "totalMemberNet",
+              "type": "uint256"
+            },
+            {
+              "label": "totalMemberPaid",
+              "type": "uint256"
+            },
+            {
+              "label": "totalExpiredBurned",
+              "type": "uint256"
+            },
+            {
+              "label": "epochRemainderScaled",
+              "type": "mapping(uint256 => uint256)"
+            },
+            {
+              "label": "totalGlobalRemainderScaled",
+              "type": "uint256"
+            },
+            {
+              "label": "legacyMigrationStarted",
+              "type": "bool"
+            },
+            {
+              "label": "legacyCutoverEpoch",
+              "type": "uint32"
+            },
+            {
+              "label": "legacyCutoverAcc",
+              "type": "uint256"
+            },
+            {
+              "label": "legacyUserMigrated",
+              "type": "mapping(address => bool)"
+            }
+          ],
+          "erc7201:openzeppelin.storage.ReentrancyGuard": [
+            {
+              "label": "_status",
+              "type": "uint256"
+            }
+          ],
+          "erc7201:openzeppelin.storage.ERC20": [
+            {
+              "label": "_balances",
+              "type": "mapping(address => uint256)"
+            },
+            {
+              "label": "_allowances",
+              "type": "mapping(address => mapping(address => uint256))"
+            },
+            {
+              "label": "_totalSupply",
+              "type": "uint256"
+            },
+            {
+              "label": "_name",
+              "type": "string"
+            },
+            {
+              "label": "_symbol",
+              "type": "string"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Initializable": [
+            {
+              "label": "_initialized",
+              "type": "uint64"
+            },
+            {
+              "label": "_initializing",
+              "type": "bool"
+            }
+          ]
+        }
+      },
+      "migrationWrites": []
+    },
+    {
+      "name": "BudgetPortfolioVault",
+      "deliveredBaseline": "docs/storage/Integrated-v2-deployed-BudgetPortfolioVault.json",
+      "deliveredBaselineSha256": "43a18670de3688fd0d07b2ec502b77177663afb2b7cb58d040d654d92daafb90",
+      "deliveredStorageOk": true,
+      "fields": {
+        "storage": [
+          {
+            "label": "legacyFactory",
+            "slot": "0",
+            "offset": 0,
+            "type": "address"
+          },
+          {
+            "label": "treasury",
+            "slot": "1",
+            "offset": 0,
+            "type": "address"
+          },
+          {
+            "label": "budgetWei",
+            "slot": "2",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "absoluteCapWei",
+            "slot": "3",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "unitCapWei",
+            "slot": "4",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "fundingDeadline",
+            "slot": "5",
+            "offset": 0,
+            "type": "uint64"
+          },
+          {
+            "label": "purchaseDeadline",
+            "slot": "5",
+            "offset": 8,
+            "type": "uint64"
+          },
+          {
+            "label": "state",
+            "slot": "5",
+            "offset": 16,
+            "type": "enum IPoolVault.State"
+          },
+          {
+            "label": "spentWei",
+            "slot": "6",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "officialSpentWei",
+            "slot": "7",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "purchaseFeeWei",
+            "slot": "8",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "refundPerShareWei",
+            "slot": "9",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "refundRoundingWei",
+            "slot": "10",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "salePerShareWei",
+            "slot": "11",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "saleRemainderWei",
+            "slot": "12",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "totalBnbOwed",
+            "slot": "13",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "memberCount",
+            "slot": "14",
+            "offset": 0,
+            "type": "uint16"
+          },
+          {
+            "label": "fundingFailed",
+            "slot": "14",
+            "offset": 2,
+            "type": "bool"
+          },
+          {
+            "label": "activeChildCount",
+            "slot": "15",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "nextProposalId",
+            "slot": "16",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "activeProposalId",
+            "slot": "17",
+            "offset": 0,
+            "type": "uint256"
+          },
+          {
+            "label": "children",
+            "slot": "18",
+            "offset": 0,
+            "type": "address[]"
+          },
+          {
+            "label": "childInfo",
+            "slot": "19",
+            "offset": 0,
+            "type": "mapping(address => struct BudgetPortfolioVault.Child)"
+          },
+          {
+            "label": "refundSettled",
+            "slot": "20",
+            "offset": 0,
+            "type": "mapping(address => bool)"
+          },
+          {
+            "label": "bnbOwed",
+            "slot": "21",
+            "offset": 0,
+            "type": "mapping(address => uint256)"
+          },
+          {
+            "label": "saleDebt",
+            "slot": "22",
+            "offset": 0,
+            "type": "mapping(address => uint256)"
+          },
+          {
+            "label": "lockedShares",
+            "slot": "23",
+            "offset": 0,
+            "type": "mapping(address => uint256)"
+          },
+          {
+            "label": "proposals",
+            "slot": "24",
+            "offset": 0,
+            "type": "mapping(uint256 => struct BudgetPortfolioVault.SaleProposal)"
+          },
+          {
+            "label": "hasVoted",
+            "slot": "25",
+            "offset": 0,
+            "type": "mapping(uint256 => mapping(address => bool))"
+          },
+          {
+            "label": "rewards",
+            "slot": "26",
+            "offset": 0,
+            "type": "struct TransferableBemRewards.Ledger"
+          }
+        ],
+        "namespaces": {
+          "erc7201:tapeout.storage.BudgetGovernance": [
+            {
+              "label": "nextRoundAt",
+              "type": "uint64"
+            },
+            {
+              "label": "saleReviews",
+              "type": "mapping(uint256 => uint8)"
+            },
+            {
+              "label": "lastProposed",
+              "type": "mapping(address => uint64)"
+            },
+            {
+              "label": "saleReviewPolicies",
+              "type": "mapping(uint256 => uint8)"
+            }
+          ],
+          "erc7201:openzeppelin.storage.ReentrancyGuard": [
+            {
+              "label": "_status",
+              "type": "uint256"
+            }
+          ],
+          "erc7201:openzeppelin.storage.ERC20": [
+            {
+              "label": "_balances",
+              "type": "mapping(address => uint256)"
+            },
+            {
+              "label": "_allowances",
+              "type": "mapping(address => mapping(address => uint256))"
+            },
+            {
+              "label": "_totalSupply",
+              "type": "uint256"
+            },
+            {
+              "label": "_name",
+              "type": "string"
+            },
+            {
+              "label": "_symbol",
+              "type": "string"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Initializable": [
+            {
+              "label": "_initialized",
+              "type": "uint64"
+            },
+            {
+              "label": "_initializing",
+              "type": "bool"
+            }
+          ]
+        }
+      },
+      "migrationWrites": []
+    }
+  ],
+  "artifacts": {
+    "PoolTimelock24": {
+      "runtimeTemplateBytes": 6501,
+      "deployedLinkReferences": {},
+      "immutableBindings": {
+        "67239": {
+          "name": "INITIAL_PROPOSER",
+          "type": "address",
+          "binding": "getter",
+          "getter": "INITIAL_PROPOSER()"
+        }
+      },
+      "runtimeTemplateSha256": "7fa45544f83c5d8b67db9156f28362800b480fa62e006be414da2c2c259f79ad"
+    },
+    "Governance24Beacon": {
+      "runtimeTemplateBytes": 889,
+      "deployedLinkReferences": {},
+      "immutableBindings": {
+        "60024": {
+          "name": "OFFICIAL_FACTORY",
+          "type": "address",
+          "binding": "getter",
+          "getter": "OFFICIAL_FACTORY()"
+        }
+      },
+      "runtimeTemplateSha256": "8773909cd54425a7c32cd8f267b9e86f83f28ed97e8bc70bfafe536e7e57f69f"
+    },
+    "Governance24Dispatcher": {
+      "runtimeTemplateBytes": 503,
+      "deployedLinkReferences": {},
+      "immutableBindings": {
+        "60190": {
+          "name": "OFFICIAL_FACTORY",
+          "type": "address",
+          "binding": "getter",
+          "getter": "OFFICIAL_FACTORY()"
+        },
+        "60192": {
+          "name": "SECONDARY_BEACON",
+          "type": "address",
+          "binding": "getter",
+          "getter": "SECONDARY_BEACON()"
+        },
+        "60194": {
+          "name": "SELF",
+          "type": "address",
+          "binding": "self",
+          "getter": null
+        }
+      },
+      "runtimeTemplateSha256": "10ae82bd9b3ee454b41b4ad01d43077de6b300c7a8a7c0f012a36cbc7498318b"
+    },
+    "Governance24FreshPoolFactory": {
+      "runtimeTemplateBytes": 23711,
+      "deployedLinkReferences": {
+        "src/libraries/Governance24Validation.sol": {
+          "Governance24Validation": [
+            {
+              "start": 2729,
+              "length": 20
+            }
+          ]
+        },
+        "src/libraries/PurchaseValidation.sol": {
+          "PurchaseValidation": [
+            {
+              "start": 4868,
+              "length": 20
+            },
+            {
+              "start": 8898,
+              "length": 20
+            }
+          ]
+        }
+      },
+      "immutableBindings": {
+        "214": {
+          "name": "__self",
+          "type": "address",
+          "binding": "self",
+          "getter": null
+        }
+      },
+      "runtimeTemplateSha256": "075d2fbfaf2992bca0b68b3e2094c2f69ad70ceeb8d951d9296dc1b93e6c1acf"
+    },
+    "Governance24BudgetPortfolioFactory": {
+      "runtimeTemplateBytes": 10041,
+      "deployedLinkReferences": {
+        "src/libraries/Governance24Validation.sol": {
+          "Governance24Validation": [
+            {
+              "start": 2738,
+              "length": 20
+            }
+          ]
+        }
+      },
+      "immutableBindings": {
+        "214": {
+          "name": "__self",
+          "type": "address",
+          "binding": "self",
+          "getter": null
+        }
+      },
+      "runtimeTemplateSha256": "85ea9be3e53e7c6f533b10decf8d64a8acdf68edba9c3a3000c49c844b321e4e"
+    },
+    "Governance24ShareMarket": {
+      "runtimeTemplateBytes": 15513,
+      "deployedLinkReferences": {
+        "src/libraries/Governance24Validation.sol": {
+          "Governance24Validation": [
+            {
+              "start": 3455,
+              "length": 20
+            }
+          ]
+        }
+      },
+      "immutableBindings": {
+        "214": {
+          "name": "__self",
+          "type": "address",
+          "binding": "self",
+          "getter": null
+        }
+      },
+      "runtimeTemplateSha256": "27369bee3b7e7009a4d57a58b627218c0dc20877324a25562421a41a14bbc3a1"
+    },
+    "Governance24Validation": {
+      "runtimeTemplateBytes": 2320,
+      "deployedLinkReferences": {},
+      "immutableBindings": {},
+      "runtimeTemplateSha256": "cd12f27f18248e639a17522cd9894766fe5188591b6d11136f36cb38b35562b8"
+    }
+  },
+  "productionActions": 0,
+  "note": "Storage safety and template checks are local evidence; mainnet activation additionally requires pinned live preconditions and exact batch proof."
+}
