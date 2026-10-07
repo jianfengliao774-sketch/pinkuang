@@ -1,0 +1,104 @@
+{
+  "kind": "governance24-published-http-and-actual-ui-provider-review-v1",
+  "checkedAt": "2026-10-07T01:00:07.749Z",
+  "sourceCommit": "1daeb59b4c28691059e35a2bc94e161ecfa584c8",
+  "staticFileCount": 8,
+  "headers": {
+    "assets/governance24-upgrade-B0G5ebXi.css": {
+      "status": 200,
+      "contentType": "text/css",
+      "cacheControl": "no-store"
+    },
+    "assets/governance24-upgrade-BRcTIVBq.js": {
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "cacheControl": "no-store"
+    },
+    "data/gasEvidence.json": {
+      "status": 200,
+      "contentType": "application/json",
+      "cacheControl": "no-store"
+    },
+    "data/liveReview.json": {
+      "status": 200,
+      "contentType": "application/json",
+      "cacheControl": "no-store"
+    },
+    "data/predecessorInput.json": {
+      "status": 200,
+      "contentType": "application/json",
+      "cacheControl": "no-store"
+    },
+    "data/reviewCatalog.json": {
+      "status": 200,
+      "contentType": "application/json",
+      "cacheControl": "no-store"
+    },
+    "data/upgradeBundle.json": {
+      "status": 200,
+      "contentType": "application/json",
+      "cacheControl": "no-store"
+    },
+    "index.html": {
+      "status": 200,
+      "contentType": "text/html; charset=utf-8",
+      "cacheControl": "no-store"
+    }
+  },
+  "calls": {
+    "eth_chainId": 8,
+    "eth_getBlockByNumber": 37,
+    "eth_call": 137,
+    "eth_getCode": 100,
+    "eth_getStorageAt": 23,
+    "eth_getTransactionByHash": 10,
+    "eth_getTransactionReceipt": 10,
+    "eth_getLogs": 2
+  },
+  "elapsedMs": 74085,
+  "refusals": [
+    {
+      "method": "eth_sendRawTransaction",
+      "status": 403
+    },
+    {
+      "method": "eth_sendTransaction",
+      "status": 403
+    },
+    {
+      "method": "eth_getLogs",
+      "status": 400
+    }
+  ],
+  "readOnly": true,
+  "chainActionsPerformed": false,
+  "walletRequests": 0,
+  "finalReadSourceCommit": "d6298f74e1bab7cd21b8ab859b63b72967dd8908",
+  "proof": {
+    "phase": "prepared",
+    "blockNumber": 126160120,
+    "blockHash": "0x21386c6dd76b3bf6c1de28cc92284685cb9d77f736660b95fb1b1995aaa0eadf",
+    "baselineVerified": true,
+    "codeUpgradeComplete": false,
+    "replacementDeploymentVerified": false,
+    "legacyScheduleWindow": {
+      "fromBlock": 126156768,
+      "throughBlock": 126160120,
+      "newScheduleEvents": 0
+    }
+  },
+  "corePoolCount": 11,
+  "portfolioPoolCount": 0,
+  "publishedManifestSha256": "0876c90d2df32c6ee02bbc7b0f560a3466df05aff41b9bbf0260a8dba8fdfb26",
+  "protectedFullPublicReviewSha256": "283c3567e90dc1058708f6ec443edd39f3661cf772ff014fafd75f80a837db9f",
+  "pins": {
+    "trustedGenesisRecordDigest": "0x4aeef3a06351f9dc6b18a85c4a8e34899792bebb38886e0d050bbf3695e41d00",
+    "trustedGenesisManifestDigest": "0x3870f0f8c06092b6418c2bd2ab522414ee4091bb937215b6ea97f4283bd25196",
+    "trustedPredecessorInputDigest": "0x1beb7d9dd6c51d40737da3f51ba32c84ef0d38e54c2d17654eeda76ab5323929",
+    "trustedUpgradeArtifactDigest": "0x1bbf8ff3198a692937c1ea0450417c1c49dd91e3c5d1c59a108bac43e3774a0c",
+    "trustedReviewCatalogDigest": "0x69789aa6e4fbe63a7c86b4ff166bf60718417762231db3ef147bdcd37bd4e0ad"
+  },
+  "originalHomepageSha256": "2e7857526eb5094a56c81f5b57fe7503c2291f393af36cea6e256b67b91b77ff",
+  "existingUpgradeEntriesPreserved": true,
+  "originalServicePidsPreservedDuringPublication": true
+}

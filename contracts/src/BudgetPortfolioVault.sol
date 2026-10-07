@@ -533,7 +533,12 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         childInfo[child].sold = true;
         activeChildCount -= 1;
         activeProposalId = 0;
-        if (activeChildCount == 0) state = IPoolVault.State.Closed;
+        if (activeChildCount == 0) {
+            // No later sale can carry the remainder; acquisition also assigns dust to treasury.
+            _creditBnb(treasury, saleRemainderWei);
+            saleRemainderWei = 0;
+            state = IPoolVault.State.Closed;
+        }
         emit ChildSaleSettled(child, net);
     }
 

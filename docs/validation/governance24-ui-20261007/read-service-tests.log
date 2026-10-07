@@ -1,0 +1,24 @@
+✔ fixed five public inputs and exactly referenced assets pass, including the published renamed entry (35.962125ms)
+✔ both HTML entries and an unreferenced asset containing dummy secret text are rejected (136.576041ms)
+✔ nonlocal module or style, inline script, event handler and embedded execution are rejected (41.765208ms)
+✔ private files, allowed-name symlinks, tampered pinned JSON, missing pins and unreviewed sender fail (34.311417ms)
+✔ missing, extra or redirected public inputs and incomplete review roots are rejected (51.987791ms)
+✔ candidate self-approval cannot create a public governance release without independent roots (1.495125ms)
+✔ publication roots are source-owned literals, and all five public inputs are an exact whitelist (44.902125ms)
+✔ isolated configuration binds loopback4230, separate operator destinations and an explicit reviewed anchor (4.585958ms)
+✔ exact CallScheduled signature and indexed topics accept only canonical bounded incremental filters (9.191583ms)
+✔ other contracts/events, OR filters, wildcards, noncanonical bounds and ranges over2048 never reach the archive (0.270833ms)
+✔ canonical log response fails closed on every unrelated, removed, duplicate or malformed row (1.001125ms)
+✔ one service route preserves ordinary guarded reads and rejects writes, batches, index, assets and destination injection (142.457416ms)
+✔ scoped logs use protected archive only, check finalized/canonical anchors and are never cached (20.529917ms)
+✔ log requests beyond finalized or malformed upstream scope, identity or chain are refused without fallback (49.383292ms)
+✔ log redirect, transport, timeout and oversized streaming responses fail closed (66.240292ms)
+✔ scoped log concurrency has a fixed bound and does not queue unbounded archive work (24.640834ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 539.902292

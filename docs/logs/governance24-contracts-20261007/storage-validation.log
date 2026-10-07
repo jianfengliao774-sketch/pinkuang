@@ -1,0 +1,19 @@
+Upgrade build-info prepared: 6 file(s), 234 metadata-verified input aliases; compiler output unchanged.
+Preparation audit: /private/tmp/bemine-gov24-contracts-20261007/contracts/out/upgrade-build-info-audit.json
+PASS: PoolFactory and FreshPoolFactory link only the two audited PurchaseValidation view helpers; PoolVault links 8 direct and 9 total reviewed libraries; source hashes, templates and scoped AST gates recorded.
+Warning: Potentially unsafe deployment of src/Governance24FreshPoolFactory.sol:Governance24FreshPoolFactory
+
+    You are using the `unsafeAllow.external-library-linking` flag to include external libraries.
+    Make sure you have manually checked that the linked libraries are upgrade safe.
+
+Warning: Potentially unsafe deployment of src/Governance24FreshPoolFactory.sol:Governance24FreshPoolFactory
+
+    You are using the `unsafeAllow.missing-initializer` flag.
+    Make sure you have manually checked that the contract has an initializer and that it correctly calls all parent initializers.
+
+Governance24FreshPoolFactory: exact base linear/ERC-7201 fields, upgrade safety and deployed baseline compatible.
+Governance24BudgetPortfolioFactory: exact base linear/ERC-7201 fields, upgrade safety and deployed baseline compatible.
+Governance24ShareMarket: exact base linear/ERC-7201 fields, upgrade safety and deployed baseline compatible.
+PoolVault: delivered business pool storage compatible.
+BudgetPortfolioVault: delivered business pool storage compatible.
+Governance24 validation passed: 6 checks; report /private/tmp/bemine-gov24-contracts-20261007/docs/logs/governance24-contracts-20261007/governance24-storage-report.json

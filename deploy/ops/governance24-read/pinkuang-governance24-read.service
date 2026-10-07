@@ -1,0 +1,27 @@
+[Unit]
+Description=BEMine isolated governance24 read-only RPC
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/pinkuang-governance24-read/current
+EnvironmentFile=/etc/pinkuang-governance24-read.env
+ExecStart=/usr/bin/node /srv/pinkuang-governance24-read/current/deploy/server/governance24-read/governance24-read-server.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

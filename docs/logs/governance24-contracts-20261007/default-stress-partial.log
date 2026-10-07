@@ -1,0 +1,4034 @@
+Compiling 6 files with Solc 0.8.24
+Solc 0.8.24 finished in 11.25s
+Compiler run successful with warnings:
+Warning (2519): This declaration shadows an existing declaration.
+   --> src/libraries/FirstoSale.sol:169:13:
+    |
+169 |             FirstoSaleState.DelistingProposal storage p = a.delistingProposals[id];
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: The shadowed declaration is here:
+   --> src/libraries/FirstoSale.sol:179:9:
+    |
+179 |         FirstoSaleState.DelistingProposal storage p = a.delistingProposals[id];
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:297:13:
+    |
+297 |             uint256 cancellationId,
+    |             ^^^^^^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:298:13:
+    |
+298 |             address proposer,
+    |             ^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:299:13:
+    |
+299 |             uint256 listedProposalId_,
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:300:13:
+    |
+300 |             uint48 snapshotTs,
+    |             ^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:301:13:
+    |
+301 |             uint64 expiresAt_,
+    |             ^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:302:13:
+    |
+302 |             uint256 snapshotMemberCount,
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:303:13:
+    |
+303 |             uint256 yesCount,
+    |             ^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:304:13:
+    |
+304 |             uint256 yesShares,
+    |             ^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:305:13:
+    |
+305 |             uint256 noCount,
+    |             ^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:306:13:
+    |
+306 |             uint256 noShares,
+    |             ^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:307:13:
+    |
+307 |             bool executed,
+    |             ^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:308:13:
+    |
+308 |             bool voted
+    |             ^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:353:18:
+    |
+353 |         returns (IFirstoSignedAskExchange.SignedAsk memory ask, bytes32 orderHash, bool active)
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:353:65:
+    |
+353 |         returns (IFirstoSignedAskExchange.SignedAsk memory ask, bytes32 orderHash, bool active)
+    |                                                                 ^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> src/PoolVault.sol:353:84:
+    |
+353 |         returns (IFirstoSignedAskExchange.SignedAsk memory ask, bytes32 orderHash, bool active)
+    |                                                                                    ^^^^^^^^^^^
+
+
+Ran 2 tests for test/unit/BudgetWrapperCompatibility.t.sol:BudgetWrapperCompatibilityTest
+[PASS] test_failedSecondPurchaseRollsBackItsFundingWithoutAffectingFirst() (gas: 2452101)
+[PASS] test_twoChildrenCanBeBoughtByOneContractAndSurplusCollected() (gas: 2993100)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 4.49ms (1.34ms CPU time)
+
+Ran 12 tests for test/unit/PoolGovernance.t.sol:PoolGovernanceTest
+[PASS] test_BeaconOwnershipCannotMigrateEvenThroughTimelock() (gas: 99856)
+[PASS] test_BeaconUpgradeChangesAllPoolsOnlyAfter48Hours() (gas: 7031806)
+[PASS] test_CreateBothWhitelistedCircuitTypesAndDirectSale() (gas: 1230353)
+[PASS] test_CreatePoolRegistryAndTreasurySnapshot() (gas: 1201750)
+[PASS] test_CreateRejectsInvalidEconomicAndTimingParameters() (gas: 259486)
+[PASS] test_DailyAdminDoesNotGiveOperatorOwnerPowers() (gas: 691932)
+[PASS] test_FactoryUpgradeRequiresRealTimelockQueueAndPreservesRegistry() (gas: 5657762)
+[PASS] test_GovernanceRolesAndNoDeployerAdmin() (gas: 84007)
+[PASS] test_InitializationRejectsMissingRolesAndUnprotectedGovernance() (gas: 2225873)
+[PASS] test_InitializeIsAtomicAndCannotBeRepeated() (gas: 40875)
+[PASS] test_TimelockDelayCannotBeReducedBelow48Hours() (gas: 64600)
+[PASS] test_TimelockProposeCancelAndPublicExecuteBoundaries() (gas: 60121)
+Suite result: ok. 12 passed; 0 failed; 0 skipped; finished in 4.81ms (2.26ms CPU time)
+
+Ran 3 tests for test/audit/AuditGovernance.t.sol:AuditGovernance
+[PASS] test_oldFormatListedProposalCannotCompleteAfterUpgradeAndCanExpire() (gas: 11134498)
+[PASS] test_oldFormatOpenProposalCannotBeVotedOrExecuted() (gas: 5510550)
+[PASS] test_sameTimestampBuyersVoteAndFormerHoldersCannotForceSale() (gas: 7003004)
+Logs:
+  former holders' current shares: 1
+  former holders' effective proposal votes: 26
+  buyers' payment in wei: 7400000000000000000
+
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 5.89ms (2.13ms CPU time)
+
+Ran 12 tests for test/unit/AutomaticSaleReference.t.sol:AutomaticSaleReferenceTest
+[PASS] test_automaticDisplayQuoteCannotAutoApproveOrRewriteProposalReviewSnapshot() (gas: 470748)
+[PASS] test_gasCannotApproveSaleCreatePoolRedirectTreasuryOrUpgrade() (gas: 3260135)
+[PASS] test_gasCannotBuyProjectOrClaimFeesWithoutAdminSignature() (gas: 73023)
+[PASS] test_gasDisplayQuoteCannotReplaceAdministratorAttestedReviewQuote() (gas: 149548)
+[PASS] test_gasRotationRevokesOldPublisherImmediately() (gas: 117498)
+[PASS] test_gasWalletPublishesOnlyReferenceWithoutAdminNonceOrSignature() (gas: 112669)
+[PASS] test_olderEvidenceCannotReplaceNewerAutomaticReference() (gas: 110034)
+[PASS] test_onlyCoreRegisteredPoolsAcceptAutomaticReference() (gas: 101594)
+[PASS] test_priceDigestAndObservationTimeAreValidated() (gas: 221239)
+[PASS] test_uint128MaximumIsAcceptedAndOversizedAbiValueCannotWrite() (gas: 93580)
+[PASS] test_unrelatedWalletsIncludingAdministratorsCannotUsePublisherEntry() (gas: 144946)
+[PASS] test_wrongFactoryAuthorityOrEoaOperatorDisablesPublisher() (gas: 137328)
+Suite result: ok. 12 passed; 0 failed; 0 skipped; finished in 7.80ms (1.67ms CPU time)
+
+Ran 10 tests for test/unit/FactoryLensCreation.t.sol:FactoryLensCreationTest
+[PASS] test_changedTaskRevertsEntireCreationAndRegistry() (gas: 856388)
+[PASS] test_changedWeightRevertsEvenWhenMinimumStillMet() (gas: 861084)
+[PASS] test_checkedCreateRegistersMatchingReferenceAndEmitsRealPool() (gas: 855859)
+[PASS] test_checkedCreateRetainsOperatorAndCreationPauseRequirements() (gas: 92650)
+[PASS] test_failedFlexibleConfigurationAlsoRollsBackRegistration() (gas: 667132)
+[PASS] test_initializationCreatesBoundLensAndPermissionlessEnsureIsIdempotent() (gas: 39301)
+[PASS] test_legacyFlexibleEntryRemainsOperatorOnlyAndCompatible() (gas: 851437)
+[PASS] test_legacyZeroLensCreatesOnceWithoutChangingPoolsOrRolesEvenWhenPaused() (gas: 2066036)
+[PASS] test_uninitializedProxyAndImplementationCannotCreateLens() (gas: 5095650)
+[PASS] test_zeroExpectedWeightCannotDisableReferenceCheck() (gas: 849017)
+Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 8.09ms (3.73ms CPU time)
+
+Ran 15 tests for test/unit/AtomicDeployment.t.sol:AtomicDeploymentTest
+[PASS] test_AtomicGraphIsInitializedWithCorrectRolesAndNoDeployerAuthority() (gas: 5260500)
+[PASS] test_AtomicMarketUpgradeStillRequiresFull48HourTimelock() (gas: 7493204)
+[PASS] test_BeaconAcceptsBoundUpgradeOnlyAfter48Hours() (gas: 9888871)
+[PASS] test_BeaconRejectsWrongFactoryOrMissingBindingEvenAfterTimelock() (gas: 9339107)
+[PASS] test_BootstrapMarketCannotBeReplacedByOwnerOperatorOrLaterTimelock() (gas: 4374757)
+[PASS] test_DeploymentAndBothInitializersCannotBeReplayedOrTakenOver() (gas: 4344710)
+[PASS] test_ImplementationsCannotBeInitializedBeforeDeployment() (gas: 31320)
+[PASS] test_NoPublicProxySurvivesFailedBootstrapAndSamePredictionCanRetry() (gas: 8410815)
+[PASS] test_OnlyBoundOfficialFactoryCanInitializeOfficialBeaconPool() (gas: 5167450)
+[PASS] test_ProductionCoordinatorAndImplementationsFitProtocolCodeLimits() (gas: 56092)
+[PASS] test_RejectsForeignFactoryBindingAndEmptyImplementation() (gas: 5065332)
+[PASS] test_RejectsInvalidOwnerMultisigConfiguration() (gas: 929728)
+[PASS] test_RejectsInvalidTreasuryMultisigThreshold() (gas: 483863)
+[PASS] test_RejectsUnseparatedOrMissingProductionRoles() (gas: 76794)
+[PASS] test_SeparateTreasuryMultisigCanUseDifferentValidThreshold() (gas: 4598410)
+Suite result: ok. 15 passed; 0 failed; 0 skipped; finished in 9.15ms (5.19ms CPU time)
+
+Ran 2 tests for test/unit/DeploymentScript.t.sol:DeploymentScriptTest
+[PASS] test_scriptRejectsWrongChainBeforeDeployment() (gas: 17967223)
+[PASS] test_scriptSimulatesAtomicDeploymentWithoutPrivateKey() (gas: 39762931)
+Logs:
+  chainId 56
+  coordinator 0xa8Aad1e3ba125Dd2Ac2749B0f059823e4E8C15CE
+  deployer 0x000000000000000000000000000000000000D310
+  ownerMultisig 0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+  operator 0x0000000000000000000000000000000000000123
+  treasury 0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+  timelock 0x10f79912D89Eb45A9Df871917507f2494df6EC99
+  beacon 0x04DF9CeE8dCbf3FA682284AdB7CC7e5d76CE9b29
+  factory 0xF396E8E0c79F3a226De10b272D88f5dab805B526
+  shareMarket 0x25c61d2f10c2F032C14baE88b99b9D49b9cd8c3E
+  vaultImplementation 0x074d190812BBdEeF161Ac61E12F0856F39093a5a
+  0x9debc1d7ec966e00da5381d1691e7637f0c6fa482e91175513321ba4629d8700
+  factoryImplementation 0x744B4E42FF9b6A72bE4B54414F79e972766A1a56
+  0x3d87040e33f62ece1fa3e3f1a99df15c763653789d51acacf6e2dab8d8c73a7e
+  marketImplementation 0xBe54712881c6957580f8e2C4575a8511cc7ffAC8
+  0x954a056d164a5893ad8b5ff0f7c913fec730f5c6027a18200af084e662b51c57
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 4.54ms (3.11ms CPU time)
+
+Ran 12 tests for test/unit/AuditMiningSettlement.t.sol:AuditMiningSettlementTest
+[PASS] test_activeClaimCannotLeavePendingDebt() (gas: 231438)
+[PASS] test_activeClaimFailureStillRejectsEvenWithZeroPending() (gas: 1220878)
+[PASS] test_activeClaimStillRequiresPendingPaidToCurrentVault() (gas: 253560)
+[PASS] test_mockClaimRejectsEveryNonMiningStatusWithRealSelector() (gas: 31642)
+[PASS] test_nonMiningOutstandingPendingFailsClosedForTransferAndSale() (gas: 1168814)
+[PASS] test_ordinaryInactiveHarvestEmitsFailureAndOldRewardsRemainClaimable() (gas: 471838)
+[PASS] test_status0ZeroSettlementAllowsTransfersMarketFillAndCompleteSale() (gas: 2670303)
+[PASS] test_status2ZeroSettlementAllowsTransfersMarketFillAndCompleteSale() (gas: 2675192)
+[PASS] test_status3ZeroSettlementAllowsTransfersMarketFillAndCompleteSale() (gas: 2675258)
+[PASS] test_unknownPostClaimStatusAlsoFailsClosed() (gas: 179849)
+[PASS] test_unknownStatusesWithZeroPendingFailClosed() (gas: 1285568)
+[PASS] test_zeroSettlementStillChecksIdentityAndActualNftOwner() (gas: 219236)
+Suite result: ok. 12 passed; 0 failed; 0 skipped; finished in 12.41ms (5.89ms CPU time)
+
+Ran 1 test for test/unit/PoolTreasuryMigration.t.sol:PoolTreasuryMigrationTest
+[PASS] test_timelockMigrationSettlesOldRewardsAndPreservesPreviouslyBookedFees() (gas: 1655302)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 6.84ms (1.36ms CPU time)
+
+Ran 6 tests for test/unit/NativeDelisting.t.sol:NativeDelistingTest
+[PASS] test_exactHalfAddressesCannotPassEvenWithShareMajority() (gas: 1461559)
+[PASS] test_exactHalfSharesCannotPassEvenWithAddressMajorityAndVotesAreSingleUse() (gas: 1691284)
+[PASS] test_expiredListingImmediatelyReopensAndOldRoundCannotAct() (gas: 1875801)
+[PASS] test_nativeOrControlledFillWinsAgainstOpenDelistingRound() (gas: 1683801)
+[PASS] test_onlyCurrentListedRoundMembersCanStartOrVoteAndArgumentsAreBound() (gas: 1281379)
+[PASS] test_votedDelistRevokesNonceAndImmediatelyOpensDistinctSaleRound() (gas: 2105164)
+Suite result: ok. 6 passed; 0 failed; 0 skipped; finished in 7.80ms (4.88ms CPU time)
+
+Ran 23 tests for test/unit/FirstoBatchPurchase.t.sol:FirstoBatchControlledProtocolTest
+[PASS] test_MOCK_PROTOCOL_1271AndBoundsAndCanonicalEncoding() (gas: 1449551)
+[PASS] test_MOCK_PROTOCOL_alreadyConsumedLeafCannotBuy() (gas: 863876)
+[PASS] test_MOCK_PROTOCOL_badProofIndexAndMismatchedLeafReject() (gas: 939727)
+[PASS] test_MOCK_PROTOCOL_batchCapabilityVersionIsSeparateFromNativeSaleAndOwner() (gas: 25601)
+[PASS] test_MOCK_PROTOCOL_batchFailureStillAllowsDeadlinePrincipalRefund() (gas: 878614)
+[PASS] test_MOCK_PROTOCOL_batchSingleLeafExactCostCustodyAndSellerRewards() (gas: 1331394)
+[PASS] test_MOCK_PROTOCOL_changedTargetOwnerCannotBeBoughtEvenWithNewValidSignature() (gas: 835643)
+[PASS] test_MOCK_PROTOCOL_claimCanInvalidateLeafAndEntirePurchaseRollsBack() (gas: 1421011)
+[PASS] test_MOCK_PROTOCOL_claimFailureAndPostClaimQualityMutationRollback() (gas: 3185076)
+[PASS] test_MOCK_PROTOCOL_expiryWrongSchemaWrongNftAndPayoutRollback() (gas: 1425320)
+[PASS] test_MOCK_PROTOCOL_feeChangesGrossCapAndFloor() (gas: 1528766)
+[PASS] test_MOCK_PROTOCOL_flexibleGrossSurplusAllocatedAndOriginalPriority() (gas: 2301850)
+[PASS] test_MOCK_PROTOCOL_flexibleLockedModelAndWeightGrossCap() (gas: 1600084)
+[PASS] test_MOCK_PROTOCOL_marketFaultsAndNftCallbackFaultsRollback() (gas: 7087299)
+[PASS] test_MOCK_PROTOCOL_multiLeafSortedProofAndSiblingRemainUnspent() (gas: 1354346)
+[PASS] test_MOCK_PROTOCOL_officialPriorityAndReadFailureBlockFallback() (gas: 1086895)
+[PASS] test_MOCK_PROTOCOL_proofDepthAndMaximumCanonicalPayload() (gas: 2430925)
+[PASS] test_MOCK_PROTOCOL_reentryCannotSpendAgain() (gas: 1936142)
+[PASS] test_MOCK_PROTOCOL_runtimeMismatchFailsBeforeRewardsOrPayment() (gas: 2361857)
+[PASS] test_MOCK_PROTOCOL_signatureBatchCancellationConsumedLeafRollback() (gas: 968101)
+[PASS] test_MOCK_PROTOCOL_unconfiguredLegacyTargetCannotBuy() (gas: 833922)
+[PASS] test_MOCK_PROTOCOL_wrongNetworkAndProtocolBindingsFailClosed() (gas: 955692)
+[PASS] test_MOCK_PROTOCOL_wrongStateAndExactPurchaseDeadlineDoNotSpend() (gas: 865051)
+Suite result: ok. 23 passed; 0 failed; 0 skipped; finished in 22.16ms (19.88ms CPU time)
+
+Ran 22 tests for test/unit/PoolLens.t.sol:PoolLensTest
+[PASS] test_atCostMajorityThresholdAndVotingDeadlineBoundary() (gas: 1166962)
+[PASS] test_badAbiShortEmptyLongAndInvalidBoolDoNotRevertWholeRead() (gas: 680344)
+[PASS] test_badParamsNarrowIntegerIsRejectedBeforeDecode() (gas: 200283)
+[PASS] test_badRegistryEntryFailsLocallyAndDoesNotSkipCursor() (gas: 204339)
+[PASS] test_closedAndRefundingRowsAreNotFiltered() (gas: 570046)
+[PASS] test_constructorOnlyRejectsZeroAndHasNoPayableEntry() (gas: 1929686)
+[PASS] test_failedClaimableIsUnknownNotZeroAndOtherFieldsStillValid() (gas: 178515)
+[PASS] test_getterCannotWriteAndExhaustedGasDoesNotBlockFollowingPool() (gas: 2559742)
+[PASS] test_governanceMalformedProposalAndFailedVoteLookupRemainIsolated() (gas: 596563)
+[PASS] test_governanceUsesActualCostAndSnapshotVotingThenExpiry() (gas: 1656451)
+[PASS] test_inconsistentAvailableSharesNotAccepted() (gas: 191014)
+[PASS] test_legacyDuplicateNftViewsRemainSeparateAndParamsAreCurrent() (gas: 1040734)
+[PASS] test_oldProposalFormatIsNeverShownAsExecutable() (gas: 550071)
+[PASS] test_realVaultFieldsMatchDirectReadsAndPreserveAtomicUnits() (gas: 556217)
+[PASS] test_referenceIndependentAndNarrowTypesValidated() (gas: 95264)
+[PASS] test_registrationAndBothFactoryBindingsRequired() (gas: 285714)
+[PASS] test_registryCountFailureDoesNotHideExplicitPositions() (gas: 198190)
+[PASS] test_sameSecondBuyerReceivesLensVoteAndFormerHolderDoesNot() (gas: 916695)
+[PASS] test_snapshotPagesBoundedAndEndCursorSafeIncludingHugeOffset() (gas: 333201)
+[PASS] test_twentyDistinctColdPoolsStayWithinMeasuredReadBudget() (gas: 14342801)
+Logs:
+  20 distinct cold Funding-pool positions execution gas: 2835950
+
+[PASS] test_twentyRealRowsBoundedGasAndNeverMutateAccounting() (gas: 2200111)
+Logs:
+  20 warm repeated actual-vault positions execution gas: 1846517
+
+[PASS] test_zeroShareFormerHolderKeepsRewardsAndBnbRightsVisible() (gas: 859279)
+Suite result: ok. 22 passed; 0 failed; 0 skipped; finished in 25.78ms (20.11ms CPU time)
+
+Ran 36 tests for test/unit/BudgetPortfolio.t.sol:BudgetPortfolioTest
+[PASS] test_atOrAboveReferenceCannotBeReviewedAndListsAfterDoubleMajority() (gas: 2763601)
+[PASS] test_belowEightyPercentSaleNeedsPlatformReviewAfterDoubleMajority() (gas: 6904478)
+[PASS] test_budgetFactoryTreasuryChangeAffectsFutureProjectsOnly() (gas: 498907)
+[PASS] test_childAtEightyPercentListsWithoutAnyPlatformReview() (gas: 2736325)
+[PASS] test_childFractionalWeiReferenceDoesNotTruncateReviewBoundary() (gas: 2754968)
+[PASS] test_childOneWeiBelowEightyPercentRequiresAndPropagatesReview() (gas: 2762492)
+[PASS] test_childSalePriceMustFitFirstoAskBeforeOpeningRound() (gas: 2717706)
+[PASS] test_closedChildClaimFailureDoesNotBlockSaleProceedsAndCanRetry() (gas: 3769151)
+[PASS] test_competingWalletsForLastShareCannotOverfundProject() (gas: 184136)
+[PASS] test_discountedChildSaleUsesTimelockTrustedFactoryAfterCoreOperatorRotation() (gas: 3284752)
+[PASS] test_exactCostFirstoChildIncludingBuyerFeeNeedsNoSurplusWithdrawal() (gas: 1903020)
+[PASS] test_exactCostOfficialChildPurchaseNeedsNoSurplusWithdrawal() (gas: 1961662)
+[PASS] test_executedChildSaleCannotBeOverwrittenAfterRoundCooldown() (gas: 4171001)
+[PASS] test_executedChildSaleStaysFrozenPastVotingDeadline() (gas: 2602029)
+[PASS] test_existingChildBemCanBeCollectedWhenNextHarvestFails() (gas: 1990969)
+[PASS] test_externalChildCancellationCannotFreezePortfolioForever() (gas: 2654638)
+[PASS] test_factoryTreasuryChangeDoesNotBlockFundedPortfolioPurchase() (gas: 2022543)
+[PASS] test_failedSecondPurchaseLeavesBudgetAndEarlierMachineUntouched() (gas: 2862714)
+[PASS] test_finalChildSaleRemainderIsWithdrawableAndConservesProceeds() (gas: 3364745)
+[PASS] test_finalSaleCreditsRemainderEvenAfterTreasuryAlreadyClaimedAcquisitionFee() (gas: 3377005)
+[PASS] test_manuallyClaimedBemStaysWithSellerAndOnlyLaterIncomeFollowsShares() (gas: 2244342)
+[PASS] test_memberVoteControlsChildSaleAndProceedsAreBookedOnce() (gas: 3356882)
+[PASS] test_minorityOpenerCannotBlockCompetingCandidateInSameRound() (gas: 2863072)
+[PASS] test_oddOfficialPriceReturnsEveryWeiToSoleProjectHolder() (gas: 2003682)
+[PASS] test_oneClaimCombinesTwoMinerRewardsAndUnclaimedBemMovesWithShares() (gas: 4012018)
+[PASS] test_oneShareCannotProposeAndExpiredRoundsCannotFreezeAgain() (gas: 2472987)
+[PASS] test_onlyPortfolioCanSubscribeToReservedChildAcrossTransactions() (gas: 1495423)
+[PASS] test_operatorOnlyAndPerWeightCapIsCheckedBeforeFundingChild() (gas: 1566897)
+[PASS] test_portfolioDeadlinesMustBeBounded() (gas: 248769)
+[PASS] test_rejectedDiscountedSaleStaysBlockedAfterReferenceFalls() (gas: 2077559)
+[PASS] test_sellerCanClaimBemAfterCancellingShareOrder() (gas: 2098408)
+[PASS] test_shareMarketChargesBothSidesAndMovesUnclaimedBemToBuyer() (gas: 2386178)
+[PASS] test_soldChildDelayedBemFollowsTransferredSharesWithAnotherChildActive() (gas: 5638372)
+[PASS] test_twoApprovedCandidatesForSameChildDoNotOverwriteEachOther() (gas: 7040839)
+[PASS] test_twoMachinesOneHundredSharesAndExactRefunds() (gas: 3338086)
+[PASS] test_zeroMachinesRefundsBudgetOnceAndCannotBurnForSecondRefund() (gas: 239829)
+Suite result: ok. 36 passed; 0 failed; 0 skipped; finished in 30.76ms (47.90ms CPU time)
+
+Ran 17 tests for test/unit/PoolMining.t.sol:PoolMiningTest
+[PASS] test_armAndStartRejectOtherCollectionOrToken() (gas: 1205333)
+[PASS] test_armForwardsExactDataFromVaultToFixedMining() (gas: 1287239)
+[PASS] test_externalCallCannotReenterMineEvenWhenMiningIsOperator() (gas: 1503175)
+[PASS] test_mineRejectsMemberOwnerAndStranger() (gas: 1146024)
+[PASS] test_mineRequiresActiveInFundingFundedAndRefunding() (gas: 830287)
+[PASS] test_minerIdentityChangeDuringMiningCallRollsBack() (gas: 1316326)
+[PASS] test_missingOwnershipRejectsBeforeCallingMining() (gas: 1130820)
+[PASS] test_operatorRotationRevokesOldAuthorityOnExistingPool() (gas: 1303054)
+[PASS] test_ownerLossDuringMiningCallRollsBackProtocolMutation() (gas: 1323365)
+[PASS] test_protocolCustomErrorBubblesWithoutChangingAssets() (gas: 1234241)
+[PASS] test_reclaimOnlyForCurrentProjectKey() (gas: 1283161)
+[PASS] test_shortPayloadAndWrongFixedLengthsRejected() (gas: 1261608)
+[PASS] test_startDecodesCompleteDynamicArgumentsAndPreservesReturnData() (gas: 1672384)
+[PASS] test_startMalformedDynamicOffsetsCannotReachMining() (gas: 1127189)
+[PASS] test_startRejectsNoncanonicalTrailingData() (gas: 1134912)
+[PASS] test_stopClaimApprovalAndArbitrarySelectorRejectedBeforeExternalCall() (gas: 1211389)
+[PASS] test_wrongMinerIdentityRejectsBeforeCallingMining() (gas: 1137242)
+Suite result: ok. 17 passed; 0 failed; 0 skipped; finished in 13.32ms (11.58ms CPU time)
+
+Ran 24 tests for test/unit/FirstoPurchase.t.sol:FirstoPurchaseTest
+[PASS] test_allNftCallbackFaultsRevertAtomicPurchase() (gas: 3459769)
+[PASS] test_claimFailureWrongOwnerAndInactiveMinerRollback() (gas: 2182819)
+[PASS] test_delistedOfficialTargetAllowsFirstoPurchase() (gas: 1380280)
+[PASS] test_failedMarketCannotBlockDeadlinePrincipalRefund() (gas: 801961)
+[PASS] test_failedOfficialLookupCannotBeTreatedAsNoListing() (gas: 819793)
+[PASS] test_feeEpochOrFeeChangeFailsClosedEvenWhenOldEpochAcceptedByExchange() (gas: 914748)
+[PASS] test_feeRoundsDownWithoutOverpayingOneWei() (gas: 1268264)
+[PASS] test_firstoAlternativeCannotBypassReference() (gas: 956142)
+[PASS] test_fixedPoolFirstoCannotBypassEligibleOfficialListing() (gas: 988677)
+[PASS] test_flexibleGrossSurplusAllocatedToPurchaseTime37And63Shares() (gas: 2049092)
+[PASS] test_flexibleLockedReferenceWeightCapAppliesToGross() (gas: 1449635)
+[PASS] test_flexiblePoolFirstoCannotBypassEligibleOfficialListing() (gas: 1554097)
+[PASS] test_grossAboveCapRejectedEvenWhenSellerPriceAtCap() (gas: 855520)
+[PASS] test_invalidSignatureRevertsSellerSettlementAndEveryBalance() (gas: 1110065)
+[PASS] test_long1271SignatureBoundAndCanonicalEncoding() (gas: 1382079)
+[PASS] test_malformedEncodingWrongChainExpiredAndCancelledFailClosed() (gas: 925526)
+[PASS] test_marketRevertMissingNftWrongRecipientRefundFeeMutationAndOwnerMutationRollback() (gas: 3501819)
+[PASS] test_overCapOfficialTargetDoesNotBlockFirstoPurchase() (gas: 1381783)
+[PASS] test_pausedWrongProtocolFactoryAndSchemaFailClosed() (gas: 909279)
+[PASS] test_reentrantPurchaseCannotSpendAgain() (gas: 1669312)
+[PASS] test_rejectingPayoutCannotConsumeOrderOrSellerRewards() (gas: 1270004)
+[PASS] test_short1271SignatureUsesExchangeValidation() (gas: 1329918)
+[PASS] test_signedOriginalPaysGrossReceivesExactNftAndSettlesStaleZeroPending() (gas: 1285865)
+[PASS] test_unknownRoutesStayDisabled() (gas: 828879)
+Suite result: ok. 24 passed; 0 failed; 0 skipped; finished in 21.40ms (19.84ms CPU time)
+
+Ran 4 tests for test/unit/PoolMultiShareLifecycle.t.sol:PoolMultiShareLifecycleTest
+[PASS] test_marketPurchasesCanConsolidateAllHundredWithoutMovingOldRights() (gas: 4505845)
+[PASS] test_soleSubscriberCanPurchaseClaimRewardsAndCompleteWholeSale() (gas: 3311116)
+[PASS] test_splitSubscriptionRefundsExactlyOncePerWallet() (gas: 1582679)
+[PASS] test_splitSubscriptionsPurchaseRewardAndWholeSaleUseAggregatedShares() (gas: 4294140)
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 11.59ms (4.86ms CPU time)
+
+Ran 7 tests for test/unit/FirstoSale.t.sol:FirstoSaleTest
+[PASS] test_claimFailureCannotLeaveSignatureApprovalOrSpendBuyerFunds() (gas: 1176568)
+[PASS] test_confirmationPriceProposalFeeAndEpochAreBinding() (gas: 1342522)
+[PASS] test_controlledSaleClaimsBeforeTransferPaysExactGrossAndClearsAuthorization() (gas: 1770726)
+[PASS] test_eachExchangeFaultRollsBackNftMiningAccountingValueAndPermit() (gas: 8728579)
+[PASS] test_exchangeCannotReenterAnySecondSale() (gas: 1656979)
+[PASS] test_externalNativeFillUsesApprovedAskButLegacyDirectEntryRemainsDisabled() (gas: 1435472)
+[PASS] test_prefundedPredictableExecutorCannotBlockTheSale() (gas: 1500467)
+Suite result: ok. 7 passed; 0 failed; 0 skipped; finished in 14.38ms (6.32ms CPU time)
+
+Ran 30 tests for test/unit/ShareMarket.t.sol:ShareMarketTest
+[PASS] testFuzz_listedOrClosedCannotFillButCancelOnlyUnlocks(bool) (runs: 256, μ: 255502, ~: 255124)
+[PASS] test_bothFeesRemainPositivePerPartialFillAtMinimumPrice() (gas: 807967)
+[PASS] test_cancelOnlySellerAndCannotRepeatOrFillCancelledOrder() (gas: 231702)
+[PASS] test_failedFinalMiningClaimRollsBackFillBnbCreditAndLocks() (gas: 493144)
+[PASS] test_feeRecipientUsesPoolSnapshotWhenFactoryTreasuryChanges() (gas: 704172)
+[PASS] test_fullFillCreditsCanBeWithdrawnOnlyOnceByRecipients() (gas: 711858)
+[PASS] test_fundingPoolCannotListShares() (gas: 679527)
+[PASS] test_legacyOrderWithoutExpiryCanOnlyBeCancelledOrExpired() (gas: 226756)
+[PASS] test_listingAndCancelDoNotTransferSharesOrCreateMemberCheckpoints() (gas: 260172)
+[PASS] test_lockedSharesRemainOwnedWhileBuyerAccumulatesPastFortyNine() (gas: 1123099)
+[PASS] test_marketInitializeLockedAndRejectsWrongGovernance() (gas: 4743059)
+[PASS] test_minimumPriceChargesEachSidePerFillAndPreservesLegacyEvent() (gas: 1183859)
+[PASS] test_miningCallbackCannotReenterFillDuringLockedTransfer() (gas: 1172264)
+[PASS] test_multipleOrdersCannotLockMoreThanSellerOwnsAndCancelFreesOnlyRemainder() (gas: 1055620)
+[PASS] test_orderExpiryRejectsLateFillButAnyoneCanUnlockOnlyToOriginalSeller() (gas: 792591)
+[PASS] test_partialFillsPreserveLocksAndChargeEachSideExactlyOnePercent() (gas: 1004653)
+[PASS] test_preUpgradeSubMinimumPriceOrderCanExpireWithoutBeingFilled() (gas: 219767)
+[PASS] test_preUpgradeSubMinimumPriceOrderCannotBeFilledButCanBeCancelled() (gas: 281288)
+[PASS] test_quoteOverflowRejectsWithoutChangingOrderOrCredits() (gas: 270810)
+[PASS] test_registrationChecksCodeFactoryAndTimelockIdentityEvenThroughQueue() (gas: 7429128)
+[PASS] test_registrationRequiresActual48HourQueueAndCannotInstantlyReplace() (gas: 13892937)
+[PASS] test_rejectingSellerCannotBlockFillAndFailedWithdrawalKeepsCredit() (gas: 1264309)
+[PASS] test_sellerAndTreasurySameAddressAccumulateRatherThanOverwrite() (gas: 824544)
+[PASS] test_subMinimumPriceOrderCannotBeListed() (gas: 229973)
+[PASS] test_treasuryBuyerPaysOwnFeeAndBothCreditsAreConserved() (gas: 707062)
+[PASS] test_unregisteredMarketAndUnknownPoolCannotCreateOrders() (gas: 3403911)
+[PASS] test_uupsUpgradeRequiresActual48HourQueueAndPreservesOrderAndCredit() (gas: 4368232)
+[PASS] test_votingBlocksOldOrderFillAndNewOrdersButPreservesCancellation() (gas: 742487)
+[PASS] test_withdrawBnbCallbackCannotReenterAndGetPaidTwice() (gas: 1334715)
+[PASS] test_wrongAmountWrongPaymentAndUnknownOrderAreAtomic() (gas: 381642)
+Suite result: ok. 30 passed; 0 failed; 0 skipped; finished in 158.50ms (152.77ms CPU time)
+
+Ran 9 tests for test/unit/NativeFirstoSale.t.sol:NativeFirstoSaleTest
+[PASS] testFuzz_nativeAndControlledSitesConsumeOneNonceOnly(bool) (runs: 256, μ: 1510268, ~: 1553609)
+[PASS] test_expiryDisablesSignatureImmediatelyAndCleanupRevokesOnlyTokenApproval() (gas: 1771805)
+[PASS] test_feeChangeAndPauseDisableNativeAskWithoutPretendingItWasSold() (gas: 1217645)
+[PASS] test_listingClaimFailureRollsBackGovernanceAndApproval() (gas: 929847)
+[PASS] test_nativeFillBooksOnlyReceivedBemAndLeavesPostListingMiningToBuyer() (gas: 1882966)
+[PASS] test_nativeReceiverCannotChangeSharesOrReenterControlledSale() (gas: 1982982)
+[PASS] test_nativeWrongPayoutAndMissingNonceRevertEntireNftTransfer() (gas: 1778692)
+[PASS] test_openHarvestsExistingBemAndPublishesOnlyTheExactGovernanceAsk() (gas: 1353129)
+[PASS] test_unrelatedOrPrematurePaymentCannotCloseTheListing() (gas: 1114894)
+Suite result: ok. 9 passed; 0 failed; 0 skipped; finished in 403.49ms (398.19ms CPU time)
+
+Ran 16 tests for test/unit/PlatformAuthority.t.sol:PlatformAuthorityTest
+[PASS] testAdministratorCanInvalidateOwnNonceAndSubmitWithoutRelayer() (gas: 257839)
+[PASS] testAdministratorCannotInvalidateFromNearMaximumToOverflowingNonce() (gas: 171398)
+[PASS] testAdministratorCannotJumpNonceToMaximumAndBrickSigner() (gas: 51539)
+[PASS] testAllCreateVariantsAndPauseUseVisibleTypedFields() (gas: 565484)
+[PASS] testBudgetPurchasesRequireExactSingleAdminSignatureAndCostCeiling() (gas: 531537)
+[PASS] testEitherAdminCanReviewButRelayerCannotForgeOrReplay() (gas: 399748)
+[PASS] testExpiredCrossChainAndWrongContractSignaturesFail() (gas: 392230)
+[PASS] testFirstAdminCanTakeAllFeesButRelayerCannotRedirect() (gas: 363957)
+[PASS] testGasWalletMayOnlyRelayWhitelistedOperations() (gas: 489529)
+[PASS] testIncorrectSaleApprovalPriceCanBeCorrectedBeforeExecution() (gas: 355545)
+[PASS] testOldOpaqueActionSignatureCannotAuthorizeReview() (gas: 47223)
+[PASS] testOnlyTimelockCanRotateAdminsAndGasWallet() (gas: 90279)
+[PASS] testReclaimRequiresAdministratorSignature() (gas: 108072)
+[PASS] testReferenceNeedsAdminSignatureAndCannotBeChanged() (gas: 111333)
+[PASS] testRemovedAdministratorCannotReturnWithOutstandingSignature() (gas: 260848)
+[PASS] testTypedStructHashesMatchIndependentEthersVectors() (gas: 17268)
+Suite result: ok. 16 passed; 0 failed; 0 skipped; finished in 6.34ms (5.33ms CPU time)
+
+Ran 2 tests for test/unit/PoolBurn.t.sol:PoolBurnTest
+[PASS] test_allBurnEntrypointsDisabledForOperatorAndMemberBeforeAndAfterSale() (gas: 1979839)
+[PASS] test_plainBnbAndWbnbRefundAreRejected() (gas: 67524)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 3.67ms (749.92µs CPU time)
+
+Ran 9 tests for test/unit/PoolFundingConcurrency.t.sol:PoolFundingConcurrencyTest
+[PASS] test_aliceWinsLastShareInSameBlock() (gas: 619642)
+[PASS] test_atFundingDeadlineNeitherWalletCanTakeLastShare() (gas: 492912)
+[PASS] test_bobWinsLastShareInSameBlock() (gas: 619884)
+[PASS] test_lastDepositBeforeWithdrawalWinsAndPreventsBurningFundedShares() (gas: 578394)
+[PASS] test_lastSecondWinnerAndDeadlineLosersNeverChangeFunding() (gas: 618840)
+[PASS] test_oneWalletHundredFirstLeavesNoCapacityForAnotherWallet() (gas: 411099)
+[PASS] test_otherWalletFirstMakesHundredShareOrderAllOrNothing() (gas: 595667)
+[PASS] test_withdrawalBeforeCompetingDepositsKeepsRefundSeparate() (gas: 770549)
+[PASS] test_wrongPaymentAndExcessSharesCannotReserveTheLastTwoShares() (gas: 645530)
+Suite result: ok. 9 passed; 0 failed; 0 skipped; finished in 5.78ms (3.80ms CPU time)
+
+Ran 43 tests for test/unit/PoolVoting.t.sol:PoolVotingTest
+[PASS] testFuzz_fiftyOneThroughFiftyNineSharesPassDoubleMajority(uint8) (runs: 256, μ: 1094424, ~: 1094571)
+Logs:
+  Bound result 54
+
+[PASS] testFuzz_referenceAndPriceAreRecordedWithoutOracleValidation(uint256,uint256,uint64) (runs: 256, μ: 383902, ~: 384014)
+Logs:
+  Bound result 482
+
+[PASS] test_acquisitionThreeDayBoundaryAndProposalSnapshot() (gas: 548906)
+[PASS] test_belowEightyPercentFreshReferenceRequiresPlatformApproval() (gas: 1020364)
+[PASS] test_closedLifecycleFixtureCannotVoteOrProposeButRetainsHistory() (gas: 641814)
+[PASS] test_competingCandidatesShareOneFrozenSnapshotAndRoundDeadline() (gas: 861874)
+[PASS] test_currentNewMemberCanProposeAndVoteAfterSameSecondTransfer() (gas: 1029351)
+[PASS] test_discountBelowActualCostUsesDoubleMajority() (gas: 1078019)
+[PASS] test_discountedAlternativeNeedsDoubleMajority() (gas: 1315961)
+[PASS] test_eightyPercentBoundaryExecutesWithoutReview() (gas: 912050)
+[PASS] test_exactlyHalfMembersFailEvenWithShareMajority() (gas: 991088)
+[PASS] test_exactlyHalfSharesFailEvenWithMemberMajority() (gas: 1247242)
+[PASS] test_falseVoteConsumesVoteAndCannotBeChanged() (gas: 569170)
+[PASS] test_fortyNineSharesAloneDoNotPass() (gas: 562037)
+[PASS] test_fundingFundedAndRefundingPoolsCannotProposeOrVote() (gas: 1405344)
+[PASS] test_futureReviewCannotRejectOrPreApproveAnOrdinaryPool() (gas: 472443)
+[PASS] test_listedLifecycleFixtureRejectsProposalsAndVotesWithoutChangingHistory() (gas: 636921)
+[PASS] test_lockedSharesRetainBeneficialOwnerVoteAndCancellationDoesNotResetVote() (gas: 784307)
+[PASS] test_miningCallbackCannotProposeDuringShareTransfer() (gas: 1343092)
+[PASS] test_miningCallbackCannotVoteDuringHarvest() (gas: 1107264)
+[PASS] test_minorityCannotMonopolizeRoundPriceOrOpenAnotherRound() (gas: 6870150)
+[PASS] test_nonMembersHaveNoPrivilegedProposalOrVoteAccess() (gas: 651264)
+[PASS] test_oneWeiBelowEightyPercentNeedsReviewButBoundaryNeedsNone() (gas: 965981)
+[PASS] test_openVotePreventsAcquiringAdditionalVotingShares() (gas: 636898)
+[PASS] test_openVotePreventsExitingAndKeepsSnapshotVotingRights() (gas: 602152)
+[PASS] test_platformCanFinallyRejectBelowEightyPercentProposal() (gas: 639095)
+[PASS] test_rejectedDiscountedSaleStaysBlockedAfterReferenceFalls() (gas: 637263)
+[PASS] test_replacementProposalRefreshesSnapshotAndDoesNotInheritOldVotes() (gas: 1500884)
+[PASS] test_reviewMustNameCurrentUnexecutedProposalAtItsActualPrice() (gas: 474125)
+[PASS] test_saleAtActualCostUsesDoubleMajority() (gas: 958324)
+[PASS] test_salePriceAboveFirstoLimitRejectedWithoutConsumingProposalOrCooldown() (gas: 72914)
+[PASS] test_salePriceAtFirstoLimitCanBeApprovedAndListed() (gas: 924105)
+[PASS] test_sameProposerThreeDayBoundarySurvivesExitAndReentry() (gas: 1218282)
+[PASS] test_sameSecondDirectTransferCannotDuplicateSnapshotVotes() (gas: 656953)
+[PASS] test_sameSecondMarketFillCannotDuplicateSnapshotVotes() (gas: 858387)
+[PASS] test_sameSecondMemberExitUpdatesSnapshotMajorityThreshold() (gas: 1068072)
+[PASS] test_sameSecondTransferFromCannotDuplicateSnapshotVotes() (gas: 688551)
+[PASS] test_singleOwnerCannotBypassBelowEightyPercentPlatformReview() (gas: 891094)
+[PASS] test_twentyFourHourVotingBoundaryAndExpiredProposalReplacement() (gas: 1035975)
+[PASS] test_twoOfThreeMembersWithFiftyOneSharesPass() (gas: 607096)
+[PASS] test_twoPassedCandidatesCannotExecuteTwice() (gas: 1291786)
+[PASS] test_unknownProposalViewsAndVotesRejectWithoutWritingVotes() (gas: 545865)
+[PASS] test_zeroSalePriceRejectedWithoutConsumingProposalOrCooldown() (gas: 67817)
+Suite result: ok. 43 passed; 0 failed; 0 skipped; finished in 492.34ms (483.86ms CPU time)
+
+Ran 1 test for test/audit/AuditFunds.t.sol:AuditFundsSaleTest
+[PASS] testFuzz_legacyBudgetReleasePreservesAllPriorPaymentsAndPrincipal(uint96,uint8,uint96) (runs: 256, μ: 7320388, ~: 7336219)
+Logs:
+  Bound result 13750
+  Bound result 250
+
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 546.37ms (538.68ms CPU time)
+
+Ran 6 tests for test/unit/SoldMachineReuse.t.sol:SoldMachineReuseTest
+[PASS] testFuzz_completedNativeOrControlledSaleAllowsNewProjectWithoutMovingOldClaims(bool) (runs: 256, μ: 2873265, ~: 2908085)
+[PASS] test_activeListedAndExpiredListingCannotCreateOverlappingProjects() (gas: 1136213)
+[PASS] test_budgetChildUsesTheSameReservationAndPreservesTheOldRegisteredPool() (gas: 2303275)
+[PASS] test_closedPoolThatRegainsNftCustodyCannotReserveItInAnotherProject() (gas: 1642832)
+[PASS] test_failedNativePayoutDoesNotReleaseMachineForASecondProject() (gas: 1284223)
+[PASS] test_reuseCapabilityIsInheritedByFreshFactory() (gas: 4747840)
+Suite result: ok. 6 passed; 0 failed; 0 skipped; finished in 563.42ms (558.71ms CPU time)
+
+Ran 30 tests for test/unit/TargetOwner.t.sol:TargetOwnerTest
+[PASS] testAllPostFundingStatesCannotBeCancelledOrConfigured() (gas: 255724)
+[PASS] testAuthorityChangeInvalidatesPreviousAuthorization() (gas: 226323)
+[PASS] testBothDistinctCurrentAdminsRequired() (gas: 176826)
+[PASS] testCannotOverwriteNewPoolBaseline() (gas: 60582)
+[PASS] testDepositPauseSignaturesCannotInitializeOwner() (gas: 85760)
+[PASS] testExternalBuyerRelistingCannotReviveFixedPurchase() (gas: 1904548)
+[PASS] testFlexibleAndPostPurchaseStatesCannotMigrate() (gas: 15879289)
+[PASS] testFlexiblePoolReferenceOwnerChangeDoesNotBlockSubscriptionOrCancel() (gas: 16200419)
+[PASS] testFundedExternalBuyerCanRefundBeforeDeadline() (gas: 847683)
+[PASS] testFundingExternalBuyerBlocksDepositAndCreditsExistingMembers() (gas: 714854)
+[PASS] testInitializeLocksActualOwnerAndIndependentVersion() (gas: 26560)
+[PASS] testLegacyFundedNoBaselineRetainsDeadlineRefund() (gas: 800855)
+[PASS] testLegacyMigrationNeverLazilyUsesCurrentOwner() (gas: 164155)
+[PASS] testLegacyMissingBaselineBlocksDepositButPreservesWithdrawalAndFailure() (gas: 456082)
+[PASS] testLegacyTwoAdminMigrationKeepsAllDeliveredStateAndRefundsHistoricalOwnerChange() (gas: 944842)
+[PASS] testLegacyUnconfiguredFundedCannotBuyBeforeMigration() (gas: 837240)
+[PASS] testMalformedOwnerResponseIsUnknownNotSale() (gas: 376999)
+[PASS] testMigrationReplayAndSecondConfigurationRejected() (gas: 137490)
+[PASS] testMigrationRequiresCanonicalEnvelopeAndFullSignatures() (gas: 129219)
+[PASS] testMissingTokenCannotCreatePool() (gas: 14100094)
+[PASS] testNonceExpiredAndTamperedOwnerRejected() (gas: 160481)
+[PASS] testOwnSuccessfulPurchaseNeverRefundsAndCallbackCannotCancel() (gas: 3884569)
+[PASS] testRefundPreservesExistingWithdrawalCreditAndDoesNotRecreditIt() (gas: 634483)
+[PASS] testRepeatedSyncCannotDoubleCredit() (gas: 837794)
+[PASS] testRotatingCurrentAdminsInvalidatesPreviousAuthorization() (gas: 86649)
+[PASS] testUnchangedOwnerAndCancelledListingDoNotRefund() (gas: 373850)
+[PASS] testUnknownRevertingOwnerReadNeverCreditsRefund() (gas: 400671)
+[PASS] testUnsolicitedPoolCustodyIsNotExternalSale() (gas: 785586)
+[PASS] testWrongChainAndPoolSignaturesRejected() (gas: 140716)
+[PASS] testZeroOwnerResponseIsUnknownNotSale() (gas: 377672)
+Suite result: ok. 30 passed; 0 failed; 0 skipped; finished in 24.13ms (22.63ms CPU time)
+
+Ran 4 tests for test/unit/AuditShareRecipient.t.sol:AuditShareRecipientTest
+[PASS] testFuzz_marketFillRejectsPoolAndFactoryAndPreservesOrderAndPayment(bool) (runs: 256, μ: 431527, ~: 430567)
+[PASS] testFuzz_subscriptionCannotMintToPoolOrFactory(bool) (runs: 256, μ: 747267, ~: 747152)
+[PASS] testFuzz_transferFromRejectsPoolAndFactoryAndPreservesAllowance(bool) (runs: 256, μ: 130077, ~: 128218)
+[PASS] testFuzz_transferRejectsPoolAndFactoryWithoutConsumingOldRewards(bool) (runs: 256, μ: 776331, ~: 774472)
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 622.28ms (617.06ms CPU time)
+
+Ran 7 tests for test/unit/PoolClaimOwnership.t.sol:PoolClaimOwnershipTest
+[PASS] testFuzz_claimAndHarvestShareTheReentrancyGuard(bool,bool) (runs: 256, μ: 500812, ~: 445547)
+[PASS] test_emptyClaimPreservesDebtFractionsAndLastSuccessfulTime() (gas: 581634)
+[PASS] test_failedPersonalPaymentRollsBackSettlementAndFractions() (gas: 653134)
+[PASS] test_removedClaimForSelectorRejectsWithoutChangingAccounting() (gas: 373570)
+[PASS] test_selfCanClaimNewIncomeAgainInTheSameTimestamp() (gas: 548744)
+[PASS] test_strangerHarvestsToPoolButOnlyMembersCanClaimTheirOwnIncome() (gas: 550017)
+[PASS] test_zeroShareFormerHolderPersonallyClaimsOldIncomeAfterRealTransfer() (gas: 4408417)
+Suite result: ok. 7 passed; 0 failed; 0 skipped; finished in 195.71ms (193.60ms CPU time)
+
+Ran 31 tests for test/unit/PoolFunding.t.sol:PoolFundingTest
+[PASS] testFuzz_paymentMustMatchExactIntegerShares(uint8,uint96) (runs: 256, μ: 91149, ~: 91401)
+Logs:
+  Bound result 9
+  Bound result 4258
+
+[PASS] test_assetOwedExposesOnlyNativeBnbLiability() (gas: 391468)
+[PASS] test_bnbCallbackCannotWithdrawTwice() (gas: 484211)
+[PASS] test_checkpointTracksMembershipAndSameTimestampFinalState() (gas: 797328)
+[PASS] test_cumulativeOneHundredSharesCountAsOneMember() (gas: 484572)
+[PASS] test_currentAndFutureCheckpointLookupsReject() (gas: 39721)
+[PASS] test_depositBeforeDeadlineButRejectAtDeadlineAndAfter() (gas: 386415)
+[PASS] test_depositOneAndFortyNineShares() (gas: 537462)
+[PASS] test_erc20TransfersAndApprovalsCannotReplaceBnbSubscription() (gas: 615226)
+[PASS] test_failedBnbTransferRestoresPullCredit() (gas: 420357)
+[PASS] test_finalizeBeforeFundingDeadlineAndRepeatedFinalizeRejected() (gas: 415628)
+[PASS] test_fundingTimeoutCreditsActualContributionsOnly() (gas: 611092)
+[PASS] test_initialStateAndAssetBindings() (gas: 94093)
+[PASS] test_nonCanonicalUint8AbiCannotMintFractionalShares() (gas: 40022)
+[PASS] test_oneHundredMemberFailureHasBoundedGasAndConservesBnb() (gas: 19226004)
+Logs:
+  finalizeFailure 100 members gas: 2360077
+
+[PASS] test_operatorReplacementRevokesOldAuthorityInExistingPool() (gas: 81380)
+[PASS] test_overRemainingSharesRejectedThenLastShareCompletes() (gas: 922949)
+[PASS] test_pauseOnlyDepositsAndDoesNotBlockWithdrawalOrFailure() (gas: 617295)
+[PASS] test_pauseRequiresOperatorAndResumeRestoresDeposits() (gas: 398674)
+[PASS] test_plainBnbTransferCannotSubscribe() (gas: 51521)
+[PASS] test_purchaseTimeoutAndExactDeadline() (gas: 793513)
+[PASS] test_redepositDoesNotOverwritePriorPullCreditOrDuplicateRefund() (gas: 559352)
+[PASS] test_refundHasNoBemClaimIntervalOrExpiry() (gas: 796005)
+[PASS] test_repeatedWithdrawAndNonMemberCannotTakeOthersBnb() (gas: 403120)
+[PASS] test_secondWalletCannotExceedRemainingPoolSupply() (gas: 434408)
+[PASS] test_shareTransferAndTransferFromRejectedBeforeActive() (gas: 392447)
+[PASS] test_singleWalletMayFundAllHundredSharesAtOnce() (gas: 412637)
+[PASS] test_threeMembersFortyNineFortyNineTwoFundExactly() (gas: 741405)
+[PASS] test_withdrawDepositAfterDeadlineBeforeFinalizationRemainsAvailable() (gas: 406088)
+[PASS] test_withdrawDepositIsPullAndRemovesCurrentMember() (gas: 544983)
+[PASS] test_zeroAndOneHundredOneSharesRejected() (gas: 123622)
+Suite result: ok. 31 passed; 0 failed; 0 skipped; finished in 106.69ms (104.38ms CPU time)
+
+Ran 7 tests for test/unit/TransferableBemRewards.t.sol:TransferableBemRewardsTest
+[PASS] testFuzz_receiptsClaimsAndTransfersConserveEveryAtomicBem(uint256) (runs: 256, μ: 880166, ~: 880792)
+[PASS] test_manualClaimBeforeTransferDoesNotPayBuyerTwice() (gas: 213022)
+[PASS] test_mixedClaimedAndUnclaimedSharesMoveOnlyTheirRemainingEntitlement() (gas: 219216)
+[PASS] test_oneWalletCombinesRewardsFromMultipleReceivedShareLots() (gas: 217927)
+[PASS] test_roundingStaysInProjectUntilEnoughNewBemArrives() (gas: 216766)
+[PASS] test_selfTransferPreservesEntitlement() (gas: 150788)
+[PASS] test_unclaimedIncomeFollowsAllTransferredShares() (gas: 197384)
+Suite result: ok. 7 passed; 0 failed; 0 skipped; finished in 421.15ms (420.26ms CPU time)
+
+Ran 41 tests for test/unit/PoolPurchase.t.sol:PoolPurchaseTest
+[PASS] testFuzz_badClaimPostconditionsRollback(uint8) (runs: 256, μ: 1138262, ~: 1128369)
+Logs:
+  Bound result 3
+
+[PASS] testFuzz_badPostPurchaseOwnershipOrMiningRollsBack(uint8) (runs: 256, μ: 1295929, ~: 1293549)
+Logs:
+  Bound result 3
+
+[PASS] testFuzz_directBadCallbackRollsBackSellerCreditAndReward(uint8) (runs: 256, μ: 15453832, ~: 15437447)
+Logs:
+  Bound result 3
+
+[PASS] testFuzz_wrongOrDuplicateCallbackRollsBack(uint8) (runs: 256, μ: 1276587, ~: 1255516)
+Logs:
+  Bound result 3
+
+[PASS] test_callbackCannotReenterAnotherPurchase() (gas: 1403371)
+[PASS] test_claimCallbackCannotReenterAnotherPurchase() (gas: 1453292)
+[PASS] test_claimCallbackCannotWithdrawExistingCredit() (gas: 1593874)
+[PASS] test_claimFailureDoesNotGetSwallowedEvenWhenPendingZero() (gas: 1012376)
+[PASS] test_directDeadlineRejectsAtDeadline() (gas: 15120466)
+[PASS] test_directOnlyConfiguredSellerAndRequiresApproval() (gas: 15375972)
+[PASS] test_directPurchasedEventIdentifiesPathAndPrice() (gas: 15448147)
+[PASS] test_directRepeatPurchaseCannotCreditSellerTwice() (gas: 15475658)
+[PASS] test_directSellerMayBeAMemberWithoutMixingSellerPriceAndSurplus() (gas: 15503945)
+[PASS] test_directSellerReceivesPullCreditAndHistoricalBem() (gas: 15532385)
+[PASS] test_existingSellerBemCannotMaskMissingSettlementReceipt() (gas: 1129043)
+[PASS] test_fixedDirectRejectsUnverifiedMixedAndOptimalBeforePaying() (gas: 15315208)
+[PASS] test_fixedMarketRejectsUnverifiedMixedAndOptimalBeforePaying() (gas: 1165651)
+[PASS] test_inactiveMinerCannotBePurchased() (gas: 981172)
+[PASS] test_marketDeadlineRejectsAtDeadlineAndLeavesRefundAvailable() (gas: 986706)
+[PASS] test_marketFailureRollsBackPreviouslyMintedSellerReward() (gas: 1257182)
+[PASS] test_marketPriceCapInclusiveAndOneWeiExcessRejected() (gas: 1481778)
+[PASS] test_marketPurchaseOneSecondBeforeDeadlineSucceedsDespiteDepositPause() (gas: 1318905)
+[PASS] test_marketPurchasePaysOnlyListedPriceAndCreditsOriginalSurplus() (gas: 1352426)
+[PASS] test_marketRejectsInvalidListingWrongNftAndWrongTokenId() (gas: 1290673)
+[PASS] test_marketRejectsSellerWhoseOwnershipChanged() (gas: 921461)
+[PASS] test_marketSettlementEventPrecedesNftTransferAndPurchase() (gas: 1294245)
+[PASS] test_minerBecomingInactiveDuringClaimRollsBackEverything() (gas: 1341650)
+[PASS] test_miningRecordMustMatchRequestedNft() (gas: 982091)
+[PASS] test_noSurplusWhenPurchaseUsesEntireRaise() (gas: 15611605)
+[PASS] test_previousWithdrawalCreditAndForcedBnbDoNotInflateSurplus() (gas: 1420154)
+[PASS] test_purchaseRequiresFundedAndCannotRepeat() (gas: 1305573)
+[PASS] test_qualityChangesDuringClaimOrMarketTransferRollbackEntirePurchase() (gas: 3284906)
+[PASS] test_rejectingDirectSellerDoesNotBlockPurchaseAndKeepsPullCredit() (gas: 15702472)
+[PASS] test_surplusDoesNotPermitOrdinaryTransfersBeforeT1d() (gas: 1309892)
+[PASS] test_surplusRemainderReservedSeparatelyAndAllMembersConserveBnb() (gas: 1532091)
+[PASS] test_surplusWithdrawImmediatelyAtPurchaseTimestampAndOnlyOnce() (gas: 1384690)
+[PASS] test_totalBnbOwedIncludesClaimableSoleHolderRemainder() (gas: 1019459)
+[PASS] test_unconfiguredDirectPathRejected() (gas: 778738)
+[PASS] test_unsolicitedTargetNftTransferRejectedOutsidePurchaseContext() (gas: 768329)
+[PASS] test_zeroStoredPendingStillClaimsUnreportedRewards() (gas: 1313506)
+[PASS] test_zeroTotalRewardCanStillBeSettledAndPurchased() (gas: 1266686)
+Suite result: ok. 41 passed; 0 failed; 0 skipped; finished in 1.07s (1.07s CPU time)
+
+Ran 17 tests for test/unit/PoolRewards.t.sol:PoolRewardsTest
+[PASS] testFuzz_harnessStrictHarvestRejectsFailedOrUnsettledClaimWithoutCharging(uint8) (runs: 256, μ: 263683, ~: 270191)
+Logs:
+  Bound result 3
+
+[PASS] test_bemTransferCannotReenterHarvest() (gas: 421422)
+[PASS] test_claimDoesNotHarvestEvenWhenPendingMiningExists() (gas: 511563)
+[PASS] test_emptyClaimDoesNotChangeLastSuccessfulTimeOrAccounting() (gas: 490814)
+[PASS] test_failedMemberTransferPreservesDebtAndClaimTime() (gas: 558986)
+[PASS] test_feeFailureRollsBackAndDeadRejectionHasNoEffect() (gas: 591142)
+[PASS] test_harnessClosedStatePaysNewBookedRewardImmediatelyWithoutMining() (gas: 581180)
+[PASS] test_harnessClosedWithExpiryDisabledKeepsRewardsForYears() (gas: 2346846)
+[PASS] test_harnessStrictHarvestSuccessfullyAccountsActualReceipt() (gas: 353902)
+[PASS] test_legacyExpiryParameterCannotEnableForfeitureInNewPool() (gas: 660787)
+[PASS] test_miningClaimCannotReenterHarvest() (gas: 415511)
+[PASS] test_miningClaimChangingOwnerRollsBackEntireHarvest() (gas: 266369)
+[PASS] test_newBookedRewardsCanBeClaimedAgainInTheSameSecond() (gas: 509999)
+[PASS] test_onePercentFeeAndNinetyNinePercentMembersWithNoBurn() (gas: 615847)
+[PASS] test_ordinaryClaimFailureStillAccountsIndependentDirectReceipt() (gas: 453364)
+[PASS] test_permanentRewardsAndFractionsSurviveThirtyThousandDays() (gas: 781418)
+[PASS] test_unbookedRewardIsNotPayableUntilExplicitHarvest() (gas: 466336)
+Suite result: ok. 17 passed; 0 failed; 0 skipped; finished in 100.66ms (96.70ms CPU time)
+
+Ran 3 tests for test/unit/WholeMinerConcurrency.t.sol:WholeMinerConcurrencyTest
+[PASS] testFuzz_twoBuyersCannotBothCompleteTheSameWholeMinerSale(bool) (runs: 256, μ: 1724170, ~: 1724179)
+[PASS] testFuzz_twoIndependentFactoriesCannotBuyTheSameOfficialListing(bool) (runs: 256, μ: 16130719, ~: 16130956)
+[PASS] testFuzz_twoWalletsCannotPurchaseTheSamePoolTwice(bool) (runs: 256, μ: 1471025, ~: 1471034)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 1.10s (1.10s CPU time)
+
+Ran 7 tests for test/unit/ShareMarketConcurrency.t.sol:ShareMarketConcurrencyTest
+[PASS] testFuzz_competingBuyersSeeUpdatedRemainingAndLosingPaymentIsNotCharged(bool) (runs: 256, μ: 1267790, ~: 1267799)
+[PASS] testFuzz_competingForFinalTwoSharesCannotBothReachOneHundred(bool) (runs: 256, μ: 1424036, ~: 1480342)
+[PASS] testFuzz_expiryBoundaryAndBuyerFillFollowTheFirstValidTransaction(bool) (runs: 256, μ: 477129, ~: 242204)
+[PASS] testFuzz_independentOrdersSettleRegardlessOfBuyerTransactionOrder(bool) (runs: 256, μ: 1357154, ~: 1357150)
+[PASS] testFuzz_sellerCancellationAndBuyerFillFollowTheFirstMinedTransaction(bool) (runs: 256, μ: 456421, ~: 239716)
+[PASS] test_cancelAndRelistAtNewPriceRejectsBothStaleOrderIdAndStalePayment() (gas: 873317)
+[PASS] test_sameBlockCompetingBuysAllocateQueuedRewardsToPreFillOwners() (gas: 1745607)
+Suite result: ok. 7 passed; 0 failed; 0 skipped; finished in 1.62s (1.62s CPU time)
+
+Ran 46 tests for test/unit/FlexiblePurchase.t.sol:FlexiblePurchaseTest
+[PASS] testFuzz_alternativeRejectsLowWeightUnverifiedOptimalOrInactive(uint8) (runs: 256, μ: 969869, ~: 965475)
+Logs:
+  Bound result 4
+
+[PASS] testFuzz_configureRejectsInvalidOnchainReferenceAtomically(uint8) (runs: 256, μ: 14439410, ~: 14434129)
+Logs:
+  Bound result 3
+
+[PASS] testFuzz_invalidNftCallbackRollsBackSelectionAndSellerSettlement(uint8) (runs: 256, μ: 1358096, ~: 1336545)
+Logs:
+  Bound result 3
+
+[PASS] testFuzz_marketFaultRollsBackSelectionAndFunds(uint8) (runs: 256, μ: 1295719, ~: 1271059)
+Logs:
+  Bound result 1
+
+[PASS] testFuzz_modelChangedDuringClaimOrMarketTransferRollsBack(bool) (runs: 256, μ: 1421907, ~: 1558532)
+[PASS] testFuzz_modelIsReadFromChainIncludingTaskZero(uint32) (runs: 256, μ: 14645375, ~: 14645419)
+[PASS] testFuzz_originalUnavailableOrUnqualifiedAllowsReplacement(uint8) (runs: 256, μ: 1582888, ~: 1589146)
+Logs:
+  Bound result 1
+
+[PASS] testFuzz_qualityChangedDuringRewardClaimRollsBack(uint8) (runs: 256, μ: 1144938, ~: 1150049)
+Logs:
+  Bound result 3
+
+[PASS] testFuzz_rejectingBnbHolderCannotBlockPurchaseOrOtherRefunds(bool) (runs: 256, μ: 1271294, ~: 1582738)
+[PASS] testFuzz_twoFundedPoolsCannotBuyTheSameAlternativeListing(bool) (runs: 256, μ: 2705850, ~: 2754020)
+[PASS] testFuzz_weightDropsDuringClaimOrMarketTransferRevertsEntirePurchase(bool) (runs: 256, μ: 15935873, ~: 16071392)
+[PASS] testFuzz_wrongMinerIdentityRollsBackAllFunds(bool) (runs: 256, μ: 959722, ~: 959803)
+[PASS] testFuzz_zeroPriceOrSellerOriginalIsNotPurchasable(bool) (runs: 256, μ: 1540103, ~: 1549064)
+[PASS] test_alternativeReservedAsAnotherProjectsReferenceCannotBePurchased() (gas: 1594757)
+[PASS] test_callbacksCannotReenterAndPurchaseCannotRepeat() (gas: 1660168)
+[PASS] test_configRejectsDirectRouteAndZeroOrFutureTerms() (gas: 15602647)
+[PASS] test_configureIsAtomicFactoryOnlyAndImmutable() (gas: 96948)
+[PASS] test_configureRejectsPostFundingEvenWhenFactoryCalls() (gas: 14679579)
+[PASS] test_extraAdjustableAndTargetRoundsUpToHundredWei() (gas: 29169720)
+[PASS] test_extraFundraisingCannotRaiseOriginalPurchaseCap() (gas: 15335719)
+[PASS] test_factoryCreationRejectsUnauthorizedAndInvalidReferenceRaise() (gas: 14416070)
+[PASS] test_failedOriginalLookupCannotBeTreatedAsUnavailable() (gas: 1006527)
+[PASS] test_failureWith100HoldersStaysWithinLocalGasBudgetAndReturnsEveryWei() (gas: 23316860)
+Logs:
+  100-holder failure local execution gas (setup excluded): 3052877
+
+[PASS] test_fixedPoolCannotUseAlternativeAndKeepsOriginalName() (gas: 15196078)
+[PASS] test_flexiblePoolCannotUseDirectSellerBypass() (gas: 783396)
+[PASS] test_fullSurplusUses49_26_25AndRoundingNoDustRemains() (gas: 1535698)
+[PASS] test_higherWeightStillCannotExceedConservativeTotalCap() (gas: 1622984)
+[PASS] test_legacyFlexibleWithoutModelCannotPurchaseOrBackfillButCanRefund() (gas: 1208847)
+[PASS] test_lowerMinimumDoesNotLowerReferenceDenominatorOrAllowLowWeightTopPrice() (gas: 16167180)
+[PASS] test_missingTransferApprovalRollsBackSelectionPaymentAndSellerRewards() (gas: 1270615)
+[PASS] test_oldModelWithoutReferenceWeightCannotPurchaseButCanRefund() (gas: 1136332)
+[PASS] test_originalAffordableListingPreventsThirdPartyAlternativeFrontRun() (gas: 1657228)
+[PASS] test_originalDelistedDoesNotPermitSameWeightAlternativeAt110Percent() (gas: 1724982)
+[PASS] test_originalEntryCannotBypassVerifiedQuality() (gas: 973259)
+[PASS] test_originalSimulationFailureDoesNotAuthorizeAlternativeButDeadlineRefundWorks() (gas: 1440920)
+[PASS] test_originalSoldThenQualifiedAlternativeActivatesAndSettlesSellerOldRewards() (gas: 1770554)
+[PASS] test_priceCapRejectsOneWeiExcessAndAllowsBoundary() (gas: 16220786)
+[PASS] test_purchaseRequiresFullFundingAndStopsExactlyAtDeadline() (gas: 1047630)
+[PASS] test_purchaseWith100HoldersStaysWithinLocalGasBudgetAndAllocatesEveryWei() (gas: 24308007)
+Logs:
+  100-holder purchase local execution gas (setup excluded): 6044833
+
+[PASS] test_referenceWeightDropAfterLockCannotRebaseUnitPrice() (gas: 16172464)
+[PASS] test_referenceWeightIncreaseAfterLockDoesNotChangeCandidateDenominator() (gas: 1465504)
+[PASS] test_sameWeightWrongTaskRejectedOnBothPurchaseEntries() (gas: 1141627)
+[PASS] test_transferAfterPurchaseKeepsRefundWithOriginalShareholders() (gas: 5077477)
+[PASS] test_unitPriceLimitFloorsFractionalWeiInsteadOfRoundingUp() (gas: 16173544)
+[PASS] test_withdrawnSubscriptionCreditAndDonationsExcludedFromNewSurplus() (gas: 1532127)
+[PASS] test_wrongCollectionEvenAnotherOfficialCollectionRejected() (gas: 925715)
+Suite result: ok. 46 passed; 0 failed; 0 skipped; finished in 3.44s (3.44s CPU time)
+
+Ran 3 tests for test/unit/FreshPoolFactory.t.sol:FreshPoolFactoryTest
+[PASS] test_newDeploymentDoesNotReadPreviousFactories() (gas: 613539)
+[PASS] test_newFactoryCannotBeginHistoricalBackfill() (gas: 20142)
+[PASS] test_newFactoryStillRejectsDuplicateMachineWithinItsRegistry() (gas: 618267)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 2.09ms (266.54µs CPU time)
+
+Ran 9 tests for test/unit/Governance24Migration.t.sol:Governance24MigrationTest
+[PASS] test_AllFourUupsBothVaultRoutesAndAuthorityRemainGovernableAfter24Hours() (gas: 10823001)
+[PASS] test_AtomicMigrationPreservesExistingAssetsClaimsSharesOrdersRegistriesAndRoles() (gas: 1477063)
+[PASS] test_FirstMigrationCannotScheduleBelow48HoursAndExecutesOnlyAfter48() (gas: 464021)
+[PASS] test_FutureBusinessUpgradesAndAdministrationUse24HoursAndPreserveDelegateContext() (gas: 629933)
+[PASS] test_Hard24HourFloorCannotBeRemovedAndBeaconBindingOwnershipStayFixed() (gas: 283354)
+[PASS] test_LastActionFailureRollsBackBothRoutesAllFourUupsAndFactoryOwners() (gas: 1217373)
+[PASS] test_LegacyBeaconRecoveryStillRequires48HoursAndPreservesPoolStorage() (gas: 754791)
+[PASS] test_NewPoolsKeepLegacyBeaconAddressAndUse24HourBusinessRoute() (gas: 1900337)
+[PASS] test_UnauthorizedAndInvalidMigrationRevertWithoutChangingProxy() (gas: 1551418)
+Suite result: ok. 9 passed; 0 failed; 0 skipped; finished in 16.65ms (10.67ms CPU time)
+
+Ran 4 tests for test/unit/IntegratedDeployment.t.sol:IntegratedDeploymentTest
+[PASS] test_BothGraphsShareGovernanceWithSeparateFactoryBindingsAndMarkets() (gas: 7288862)
+[PASS] test_BudgetFactoryTrustChangeRequiresTheFortyEightHourTimelock() (gas: 5272454)
+[PASS] test_BudgetInitializationFailureRollsBackCoreAndAllowsSameAddressRetry() (gas: 10005389)
+[PASS] test_WrongPortfolioBindingAndUnauthorizedCallerCannotCreateEitherGraph() (gas: 5038620)
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 3.68ms (1.81ms CPU time)
+
+Ran 6 tests for test/unit/MachineRegistry.t.sol:MachineRegistryMigrationTest
+[PASS] test_emptyLegacyFactoryUpgradeImmediatelyReadyWithoutInventedPoolList() (gas: 18760727)
+[PASS] test_legacyDuplicateConflictStopsMigrationWithoutOverwritingEarlierPool() (gas: 5777324)
+[PASS] test_legacyFundedBalancesSurviveUpgradeAndCreationWaitsForFullBackfill() (gas: 6827512)
+[PASS] test_migrationBatchBoundsAndOneTimeInitialization() (gas: 5208383)
+[PASS] test_migrationKeepsBothOriginalAndHistoricalAcquiredAlternative() (gas: 5243059)
+[PASS] test_uninitializedMigrationFailsClosedButDoesNotBlockRefund() (gas: 5415167)
+Suite result: ok. 6 passed; 0 failed; 0 skipped; finished in 3.29ms (1.90ms CPU time)
+
+Ran 5 tests for test/unit/MachineRegistry.t.sol:MachineRegistryTest
+[PASS] test_allFourCreateEntriesAtomicallyRejectSameMachine() (gas: 246759)
+[PASS] test_invalidConfigurationRevertsReservationAndRegistration() (gas: 1200732)
+[PASS] test_onlyRegisteredFundedPoolCanClaimAndCannotTakeAnotherReservation() (gas: 1511655)
+[PASS] test_permanentReservationSurvivesRefundAndDeniesReinitialization() (gas: 461337)
+[PASS] test_sameTokenIdDifferentCollectionsAndDistinctIdsDoNotCollide() (gas: 1163924)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 2.54ms (1.33ms CPU time)
+
+Ran 5 tests for test/unit/MultiShareMarket.t.sol:MultiShareMarketTest
+[PASS] test_buyerWithLockedListingsCannotListMoreThanActualUnencumberedBalance() (gas: 2238538)
+[PASS] test_multipleBuysProduceOneCombinedVotingWeightAndVoteFreezesFills() (gas: 1739493)
+[PASS] test_oneOrderCanListAndFillAllOneHundredShares() (gas: 1006800)
+[PASS] test_repeatedBuysSettleEachRewardPeriodToTheActualOwners() (gas: 1986338)
+[PASS] test_sameWalletMayBuyRepeatedlyFromSeveralPartialOrdersUpToOneHundred() (gas: 1728628)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 17.31ms (11.91ms CPU time)
+
+Ran 6 tests for test/unit/RewardMigration.t.sol:RewardMigrationTest
+[PASS] test_burnedHistoricalEpochCannotBeRecreatedAsNewDebt() (gas: 1134911)
+[PASS] test_expiredUnpaidEpochFailsClosedWithoutMovingOrForfeitingFunds() (gas: 741214)
+[PASS] test_fixedCutoverPreservesFormerHolderAndInactiveRecipientForYears() (gas: 1425612)
+[PASS] test_moreThanSixtyFourCheckpointsRequiresReviewedMigration() (gas: 8638128)
+[PASS] test_paidOldSlotsMixedFractionsAndNewIncomeAreNotClaimedTwice() (gas: 1511311)
+[PASS] test_sixtyFourCheckpointBoundaryAndAllLiveRightsReconstruct() (gas: 9355414)
+Suite result: ok. 6 passed; 0 failed; 0 skipped; finished in 19.53ms (16.40ms CPU time)
+
+Ran 3 tests for test/unit/SaleBudgetMigration.t.sol:LegacyListedSaleMigrationTest
+[PASS] test_discountRequiresBothShareAndAddressMajority() (gas: 720488)
+[PASS] test_legacyDiscountListingWithFiftyOneSharesAndAddressMajorityCanComplete() (gas: 552347)
+[PASS] test_legacyZeroPriceListingCannotCompleteAndCanExpire() (gas: 212621)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 6.58ms (730.67µs CPU time)
+
+Ran 2 tests for test/unit/SaleBudgetMigration.t.sol:SaleBudgetMigrationTest
+[PASS] test_oldPaidHolderReceivesOnlyIndependentBonusAndNoDoublePayment() (gas: 666150)
+[PASS] test_onlyRemainingBudgetReleasedAlreadySpentValueNeverRecreated() (gas: 642942)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 4.72ms (401.50µs CPU time)
+
+Ran 4 tests for test/unit/SaleReviewPolicy.t.sol:SaleReviewPolicyTest
+[PASS] testFuzz_matchesExactCrossMultiplication(uint128,uint128) (runs: 256, μ: 3844, ~: 3844)
+[PASS] test_exactlyEightyPercentNeedsNoReview() (gas: 4461)
+[PASS] test_fractionalWeiBoundaryIsNotRoundedDown() (gas: 4931)
+[PASS] test_largeHistoricalValuesDoNotOverflow() (gas: 5412)
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 33.29ms (32.65ms CPU time)
+
+Ran 17 tests for test/unit/PoolTransfers.t.sol:PoolTransfersTest
+[PASS] testFuzz_failedStrictClaimRollsBackTransferAndAllowance(uint8) (runs: 256, μ: 286375, ~: 252339)
+Logs:
+  Bound result 3
+
+[PASS] testFuzz_pendingRewardsBelongToOldSharesBeforeTransfer(uint8) (runs: 256, μ: 1043784, ~: 1043755)
+Logs:
+  Bound result 9
+
+[PASS] test_allSharesCanConcentrateInOneWalletAndTransferAgain() (gas: 711426)
+[PASS] test_disabledExpiryPreservesFractionsAcrossDaysAndOwnershipChanges() (gas: 2973708)
+[PASS] test_listedAndClosedOrdinaryTransfersFailWithoutMovingShares() (gas: 103389)
+[PASS] test_lockedOwnerCanReceiveAndHoldAllOneHundredShares() (gas: 1031742)
+[PASS] test_lockedSharesRemainSellerPropertyAndCannotBeTransferredOrdinarily() (gas: 1130674)
+[PASS] test_memberCheckpointsRecordExitEntryAndNewMemberCount() (gas: 833182)
+[PASS] test_miningClaimCannotReenterApprovedTransferFrom() (gas: 936631)
+[PASS] test_onlyRegisteredMarketCanChangeLocksOrTransferLockedShares() (gas: 93967)
+[PASS] test_purchaseTimestampTransferCannotCarryOldBnbSurplus() (gas: 693118)
+[PASS] test_sameEpochFractionStaysWithOriginalOwnerAcrossTransfers() (gas: 1167440)
+[PASS] test_selfTransferRespectsUnlockedBalance() (gas: 736787)
+[PASS] test_transferFromConsumesAllowanceAndPreservesBalances() (gas: 570054)
+[PASS] test_transferPreservesPermanentFormerHolderIncome() (gas: 1085868)
+[PASS] test_zeroBalanceFormerMemberStillClaimsOldRewards() (gas: 864722)
+[PASS] test_zeroOversizedAndMarketDestinationRejected() (gas: 198567)
+Suite result: ok. 17 passed; 0 failed; 0 skipped; finished in 591.55ms (586.92ms CPU time)
+
+Ran 2 tests for test/invariant/PoolRewardsInvariant.t.sol:PoolRewardsNoExpiryInvariantTest
+[PASS] invariant_accumulatorAndHistoricalEpochLiabilitiesMatchOracle() (runs: 256, calls: 128000, reverts: 0)
+
+╭----------------+---------------------+-------+---------+----------╮
+| Contract       | Selector            | Calls | Reverts | Discards |
++===================================================================+
+| RewardsHandler | advanceTime         | 16022 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | burn                | 15964 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | claim               | 16043 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | donate              | 15996 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | externalMiningClaim | 15913 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | harvest             | 16134 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | queueMining         | 15966 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | settle              | 15962 | 0       | 0        |
+╰----------------+---------------------+-------+---------+----------╯
+
+Logs:
+  Bound result 905386764175
+  Bound result 9043
+  Bound result 5628
+  Bound result 1159768
+  Bound result 468116988045
+  Bound result 2061321
+  Bound result 339587260027
+  Bound result 892597215188
+  Bound result 145
+  Bound result 2560084
+  Bound result 0
+  Bound result 431
+  Bound result 6164963
+  Bound result 9660
+  Bound result 2166523
+  Bound result 2118
+  Bound result 18772
+  Bound result 136929075
+  Bound result 635509034141
+  Bound result 2346970
+  Bound result 13393
+  Bound result 2343
+  Bound result 313829
+  Bound result 3163
+  Bound result 545070392237
+  Bound result 12660
+  Bound result 520379875477
+  Bound result 2273928
+  Bound result 298271
+  Bound result 2454
+  Bound result 857876
+  Bound result 656436
+  Bound result 11300
+  Bound result 6466678
+  Bound result 224812242283
+  Bound result 21220
+  Bound result 8004
+  Bound result 1
+  Bound result 360078
+  Bound result 17652
+  Bound result 1737
+  Bound result 17248
+  Bound result 907338
+  Bound result 4154
+  Bound result 1392696
+  Bound result 10252
+  Bound result 2446411859
+  Bound result 854461213752
+  Bound result 1587448
+  Bound result 886151014904
+  Bound result 67657719395
+  Bound result 23663
+  Bound result 2737
+  Bound result 5689
+  Bound result 3
+  Bound result 288
+  Bound result 6356
+  Bound result 318
+  Bound result 505423411467
+  Bound result 2253260299
+  Bound result 649115964150
+  Bound result 917995
+  Bound result 174102750
+  Bound result 2358425
+  Bound result 2142205
+  Bound result 91
+  Bound result 4598
+  Bound result 300744
+  Bound result 851478422359
+  Bound result 612
+  Bound result 14710668
+  Bound result 15964
+  Bound result 74479
+  Bound result 1037
+  Bound result 3924
+  Bound result 29452666
+  Bound result 794286930598
+  Bound result 2480055
+  Bound result 1341277400
+  Bound result 16975
+  Bound result 307581718904
+  Bound result 725315
+  Bound result 833574448844
+  Bound result 2449090
+  Bound result 381704
+  Bound result 1265795049
+  Bound result 2
+  Bound result 22479
+  Bound result 273909110681
+  Bound result 4350
+  Bound result 605694428533
+  Bound result 2229023
+  Bound result 652408
+  Bound result 32028
+  Bound result 7021
+  Bound result 895
+  Bound result 45
+  Bound result 560036893900
+  Bound result 528161850902
+  Bound result 1815909
+  Bound result 2501
+  Bound result 846001
+  Bound result 1970347
+  Bound result 0
+  Bound result 943942
+  Bound result 881836296971
+  Bound result 2067332
+  Bound result 17753
+  Bound result 1505870
+  Bound result 17552
+  Bound result 707436634380
+  Bound result 204032427
+  Bound result 238656
+  Bound result 629524176400
+  Bound result 4529
+  Bound result 938214
+  Bound result 567292
+  Bound result 943099883808
+  Bound result 734355512988
+  Bound result 913508575378
+  Bound result 4289
+  Bound result 16234
+  Bound result 1248688
+  Bound result 149843258493
+  Bound result 851868616490
+  Bound result 447123641589
+  Bound result 1
+  Bound result 898639199214
+  Bound result 407650027220
+  Bound result 33463549043
+  Bound result 5186
+  Bound result 685808563322
+  Bound result 1243005
+  Bound result 767922
+  Bound result 12699
+  Bound result 11939
+  Bound result 302890
+  Bound result 14693
+  Bound result 1
+  Bound result 0
+  Bound result 805802983
+  Bound result 333443
+  Bound result 155785665821
+  Bound result 1999
+  Bound result 320197806060
+  Bound result 443035904931
+  Bound result 131751539012
+  Bound result 3
+  Bound result 931087193431
+  Bound result 951281
+  Bound result 1807010337
+  Bound result 3502
+  Bound result 1
+  Bound result 2362
+  Bound result 236664523963
+  Bound result 16023
+  Bound result 588881058
+  Bound result 395267451464
+  Bound result 497
+  Bound result 629524176401
+  Bound result 8336
+  Bound result 8740
+  Bound result 105825708
+  Bound result 506
+  Bound result 35499840086
+  Bound result 3990
+  Bound result 5579
+  Bound result 304963089753
+  Bound result 0
+  Bound result 20029
+  Bound result 897231114
+  Bound result 696697851651
+  Bound result 3248329722
+  Bound result 764110149484
+  Bound result 59427
+  Bound result 524089
+  Bound result 13240
+  Bound result 13223829360
+  Bound result 255719293
+  Bound result 586227
+  Bound result 19248
+  Bound result 524637
+  Bound result 23966466
+  Bound result 512604049962
+  Bound result 17757
+  Bound result 3755841
+  Bound result 38215
+  Bound result 850918523562
+  Bound result 990131376132
+  Bound result 16182394627
+  Bound result 2321401
+  Bound result 833870
+  Bound result 5224
+  Bound result 1922508
+  Bound result 298697904
+  Bound result 300
+  Bound result 1773
+  Bound result 551686
+  Bound result 674997174973
+  Bound result 144732421028
+
+[PASS] invariant_actualBalancesMatchIndependentGrossNetAndLiabilities() (runs: 256, calls: 128000, reverts: 0)
+
+╭----------------+---------------------+-------+---------+----------╮
+| Contract       | Selector            | Calls | Reverts | Discards |
++===================================================================+
+| RewardsHandler | advanceTime         | 16022 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | burn                | 15964 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | claim               | 16043 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | donate              | 15996 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | externalMiningClaim | 15913 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | harvest             | 16134 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | queueMining         | 15966 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | settle              | 15962 | 0       | 0        |
+╰----------------+---------------------+-------+---------+----------╯
+
+Logs:
+  Bound result 905386764175
+  Bound result 9043
+  Bound result 5628
+  Bound result 8963
+  Bound result 1291075853
+  Bound result 2061321
+  Bound result 339587260027
+  Bound result 892597215188
+  Bound result 145
+  Bound result 2560084
+  Bound result 0
+  Bound result 4353
+  Bound result 99619265342
+  Bound result 18747
+  Bound result 2166523
+  Bound result 2118
+  Bound result 18817
+  Bound result 136929075
+  Bound result 635509034141
+  Bound result 2346970
+  Bound result 13395
+  Bound result 2343
+  Bound result 313829
+  Bound result 3162
+  Bound result 545070392237
+  Bound result 12623
+  Bound result 520379875477
+  Bound result 125038
+  Bound result 298271
+  Bound result 5960
+  Bound result 857876
+  Bound result 656436
+  Bound result 11349
+  Bound result 6466678
+  Bound result 224812242283
+  Bound result 18921
+  Bound result 8059
+  Bound result 1
+  Bound result 360078
+  Bound result 17779
+  Bound result 1737
+  Bound result 17311
+  Bound result 907338
+  Bound result 2425280256
+  Bound result 1440304
+  Bound result 1419
+  Bound result 2962117056
+  Bound result 854461213752
+  Bound result 1587448
+  Bound result 886151014904
+  Bound result 67657719395
+  Bound result 5216
+  Bound result 2967
+  Bound result 1256750
+  Bound result 3
+  Bound result 5457
+  Bound result 788971143214
+  Bound result 2039
+  Bound result 505423411467
+  Bound result 2253260299
+  Bound result 649115964150
+  Bound result 9585
+  Bound result 6280
+  Bound result 2358409
+  Bound result 2142205
+  Bound result 91
+  Bound result 8379
+  Bound result 300744
+  Bound result 851478422359
+  Bound result 795
+  Bound result 14710668
+  Bound result 5379
+  Bound result 74479
+  Bound result 1037
+  Bound result 1073535
+  Bound result 29452666
+  Bound result 794286930598
+  Bound result 3858
+  Bound result 1744328139
+  Bound result 7475
+  Bound result 307581718904
+  Bound result 725315
+  Bound result 833574448844
+  Bound result 33368
+  Bound result 1087542
+  Bound result 1265795049
+  Bound result 2
+  Bound result 22331
+  Bound result 273909110681
+  Bound result 4632
+  Bound result 136942471
+  Bound result 2229023
+  Bound result 1415054
+  Bound result 32028
+  Bound result 7331
+  Bound result 895
+  Bound result 45
+  Bound result 560036893900
+  Bound result 528161850902
+  Bound result 1815909
+  Bound result 2511
+  Bound result 846001
+  Bound result 1970347
+  Bound result 0
+  Bound result 943942
+  Bound result 1415054
+  Bound result 2067332
+  Bound result 384
+  Bound result 1505870
+  Bound result 17699
+  Bound result 707436634380
+  Bound result 204032427
+  Bound result 334952
+  Bound result 473931738873
+  Bound result 1346
+  Bound result 1997612
+  Bound result 567292
+  Bound result 943099883808
+  Bound result 734355512988
+  Bound result 913508575378
+  Bound result 1833108
+  Bound result 6936
+  Bound result 1248688
+  Bound result 149843258493
+  Bound result 851868616490
+  Bound result 447123641589
+  Bound result 1
+  Bound result 898639199214
+  Bound result 407650027220
+  Bound result 33463549043
+  Bound result 23663
+  Bound result 685808563322
+  Bound result 1243005
+  Bound result 767922
+  Bound result 18188
+  Bound result 4070
+  Bound result 302890
+  Bound result 14928
+  Bound result 1
+  Bound result 0
+  Bound result 805802983
+  Bound result 333443
+  Bound result 155785665821
+  Bound result 6498
+  Bound result 320197806060
+  Bound result 443035904931
+  Bound result 131751539012
+  Bound result 3
+  Bound result 931087193431
+  Bound result 1205241
+  Bound result 1807010337
+  Bound result 3502
+  Bound result 1
+  Bound result 2361
+  Bound result 236664523963
+  Bound result 16023
+  Bound result 588881058
+  Bound result 395267451464
+  Bound result 497
+  Bound result 473931738873
+  Bound result 9271
+  Bound result 9554
+  Bound result 105825708
+  Bound result 506
+  Bound result 35499840086
+  Bound result 5440
+  Bound result 9301
+  Bound result 304963089753
+  Bound result 0
+  Bound result 21653
+  Bound result 897231114
+  Bound result 696697851651
+  Bound result 3250214709
+  Bound result 764110149484
+  Bound result 59427
+  Bound result 524089
+  Bound result 13240
+  Bound result 13223829360
+  Bound result 10343
+  Bound result 586227
+  Bound result 19402
+  Bound result 524637
+  Bound result 23966466
+  Bound result 512604049962
+  Bound result 18451
+  Bound result 3755841
+  Bound result 1958715
+  Bound result 850918523562
+  Bound result 990131376132
+  Bound result 16182394627
+  Bound result 2321401
+  Bound result 833870
+  Bound result 706520891
+  Bound result 179159
+  Bound result 298697904
+  Bound result 300
+  Bound result 3483
+  Bound result 551686
+  Bound result 674997174973
+  Bound result 144732421028
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 137.06s (137.05s CPU time)
+
+Ran 27 tests for test/unit/PoolSale.t.sol:PoolSaleTest
+[PASS] testFuzz_buyerRejectingNftOrMovingItAwayRollsBackWholeSale(uint8) (runs: 256, μ: 2738485, ~: 2723138)
+Logs:
+  Bound result 3
+
+[PASS] testFuzz_finalClaimFaultsRollbackAllAssetsAndLiabilities(uint8) (runs: 256, μ: 1310739, ~: 1326838)
+Logs:
+  Bound result 1
+
+[PASS] testFuzz_onePercentFeeConservesEveryWeiRegardlessOfWithdrawalOrder(uint256,bool) (runs: 256, μ: 1992254, ~: 2011456)
+Logs:
+  Bound result 4369
+
+[PASS] test_buyerBubblingReentryFailureRollsBackFinalClaimAndSale() (gas: 2877495)
+[PASS] test_buyerCallbackSeesClosedStateAndCannotCompleteAgainOrWithdraw() (gas: 2733852)
+[PASS] test_changedNftOwnerBeforeSaleRejectsWithoutTouchingFunds() (gas: 1135194)
+[PASS] test_closedClaimsRemainPermanentAndNeverClaimSoldNftAgain() (gas: 1987950)
+[PASS] test_closedClaimsWithExpiryDisabledRemainClaimableAfterLongDelay() (gas: 3520962)
+[PASS] test_closedRejectsReplayAndPermanentlyFreezesShares() (gas: 1551066)
+[PASS] test_completeLastSecondBeforeListingExpirySucceeds() (gas: 1485243)
+[PASS] test_executeAtVoteDeadlineRejectsEvenPassingProposal() (gas: 764405)
+[PASS] test_executeLastSecondBeforeVoteDeadlineSucceeds() (gas: 1085984)
+[PASS] test_executeRequiresCurrentPassingProposalAndRecordsSevenDayListing() (gas: 995569)
+[PASS] test_expiryBoundaryClearsListingAndRequiresNewApprovedProposalForRelist() (gas: 1734743)
+[PASS] test_failedBnbWithdrawalRestoresLazySaleEntitlementForRetry() (gas: 2752470)
+[PASS] test_listedFreezesTransfersAndFillsButOrderCanBeCancelled() (gas: 1294397)
+[PASS] test_memberBuyerRetainsHistoricShareRightsAndOwnsFutureNftRewards() (gas: 1691511)
+[PASS] test_miningClaimCallbackCannotReenterCompletion() (gas: 1674225)
+[PASS] test_onePercentFeeAndExactNetAtSmallPriceBoundaries() (gas: 13732963)
+[PASS] test_saleAddsToOldRefundDirectSellerAndPurchaseSurplusCredits() (gas: 3565694)
+[PASS] test_saleRemainderAssignedToLastHolderWhileHistoricalPurchaseTailRemains() (gas: 3616030)
+[PASS] test_saleStrictlySettlesRewardsBeforeNftTransferWithoutBurn() (gas: 1733596)
+[PASS] test_sameSecondListingAndCompletionLazilyDistributeActualFrozenHoldings() (gas: 2328787)
+[PASS] test_settleSaleNeverAcceptsAnUnverifiedExternalSaleRoute() (gas: 1503111)
+[PASS] test_treasuryMemberReceivesFeeAndOwnSharesWithoutLosingFormerMemberSurplus() (gas: 1895977)
+[PASS] test_wrongPaymentRollsBackWithoutHarvestingOrCrediting() (gas: 1744022)
+[PASS] test_zeroPriceProposalRejectedBeforeAnySale() (gas: 56991)
+Suite result: ok. 27 passed; 0 failed; 0 skipped; finished in 1.64s (1.63s CPU time)
+
+Ran 2 tests for test/invariant/PoolRewardsInvariant.t.sol:PoolRewardsInvariantTest
+[PASS] invariant_accumulatorAndHistoricalEpochLiabilitiesMatchOracle() (runs: 256, calls: 128000, reverts: 0)
+
+╭----------------+---------------------+-------+---------+----------╮
+| Contract       | Selector            | Calls | Reverts | Discards |
++===================================================================+
+| RewardsHandler | advanceTime         | 16022 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | burn                | 15964 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | claim               | 16043 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | donate              | 15996 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | externalMiningClaim | 15913 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | harvest             | 16134 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | queueMining         | 15966 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | settle              | 15962 | 0       | 0        |
+╰----------------+---------------------+-------+---------+----------╯
+
+Logs:
+  Bound result 905386764175
+  Bound result 800
+  Bound result 16565
+  Bound result 464920
+  Bound result 5659
+  Bound result 2061321
+  Bound result 339587260027
+  Bound result 892597215188
+  Bound result 145
+  Bound result 2560084
+  Bound result 0
+  Bound result 2221
+  Bound result 24271
+  Bound result 16341
+  Bound result 2166523
+  Bound result 22193
+  Bound result 18659
+  Bound result 136929075
+  Bound result 635509034141
+  Bound result 2346970
+  Bound result 4434
+  Bound result 2343
+  Bound result 313829
+  Bound result 3095
+  Bound result 545070392237
+  Bound result 11458
+  Bound result 520379875477
+  Bound result 1122447
+  Bound result 298271
+  Bound result 1739
+  Bound result 857876
+  Bound result 656436
+  Bound result 10462
+  Bound result 6466678
+  Bound result 224812242283
+  Bound result 18681
+  Bound result 7620
+  Bound result 1
+  Bound result 360078
+  Bound result 17703
+  Bound result 1737
+  Bound result 16907
+  Bound result 907338
+  Bound result 2359077701
+  Bound result 1420050
+  Bound result 46
+  Bound result 613063844
+  Bound result 854461213752
+  Bound result 1587448
+  Bound result 886151014904
+  Bound result 67657719395
+  Bound result 15436
+  Bound result 2161
+  Bound result 5638
+  Bound result 3
+  Bound result 5292
+  Bound result 6473
+  Bound result 545
+  Bound result 505423411467
+  Bound result 2253260299
+  Bound result 649115964150
+  Bound result 420411
+  Bound result 698605813663
+  Bound result 2253657
+  Bound result 2142205
+  Bound result 91
+  Bound result 3679
+  Bound result 300744
+  Bound result 851478422359
+  Bound result 5169
+  Bound result 14710668
+  Bound result 2983
+  Bound result 74479
+  Bound result 1037
+  Bound result 2048648
+  Bound result 29452666
+  Bound result 794286930598
+  Bound result 680565
+  Bound result 2959
+  Bound result 21631
+  Bound result 307581718904
+  Bound result 725315
+  Bound result 833574448844
+  Bound result 15314
+  Bound result 425113
+  Bound result 1265795049
+  Bound result 2
+  Bound result 22178
+  Bound result 273909110681
+  Bound result 3438
+  Bound result 36935885712
+  Bound result 2229023
+  Bound result 660382
+  Bound result 32028
+  Bound result 4556
+  Bound result 895
+  Bound result 45
+  Bound result 560036893900
+  Bound result 528161850902
+  Bound result 1815909
+  Bound result 1988
+  Bound result 846001
+  Bound result 1970347
+  Bound result 0
+  Bound result 943942
+  Bound result 704979814331
+  Bound result 2067332
+  Bound result 5780
+  Bound result 1505870
+  Bound result 16779
+  Bound result 707436634380
+  Bound result 204032427
+  Bound result 1585868
+  Bound result 375907679337
+  Bound result 86399
+  Bound result 1580716
+  Bound result 567292
+  Bound result 943099883808
+  Bound result 734355512988
+  Bound result 913508575378
+  Bound result 4429
+  Bound result 5751
+  Bound result 1248688
+  Bound result 149843258493
+  Bound result 851868616490
+  Bound result 447123641589
+  Bound result 1
+  Bound result 898639199214
+  Bound result 407650027220
+  Bound result 33463549043
+  Bound result 15321
+  Bound result 685808563322
+  Bound result 1243005
+  Bound result 767922
+  Bound result 12699
+  Bound result 23162
+  Bound result 302890
+  Bound result 15203
+  Bound result 1
+  Bound result 0
+  Bound result 805802983
+  Bound result 333443
+  Bound result 155785665821
+  Bound result 6365
+  Bound result 320197806060
+  Bound result 443035904931
+  Bound result 131751539012
+  Bound result 3
+  Bound result 931087193431
+  Bound result 1901572
+  Bound result 1807010337
+  Bound result 3502
+  Bound result 1
+  Bound result 2352
+  Bound result 236664523963
+  Bound result 16023
+  Bound result 588881058
+  Bound result 395267451464
+  Bound result 497
+  Bound result 794316383264
+  Bound result 8335
+  Bound result 9105
+  Bound result 105825708
+  Bound result 506
+  Bound result 35499840086
+  Bound result 3342
+  Bound result 508542456
+  Bound result 304963089753
+  Bound result 0
+  Bound result 19818
+  Bound result 897231114
+  Bound result 696697851651
+  Bound result 4731
+  Bound result 764110149484
+  Bound result 59427
+  Bound result 524089
+  Bound result 13240
+  Bound result 13223829360
+  Bound result 9125
+  Bound result 586227
+  Bound result 19003
+  Bound result 524637
+  Bound result 23966466
+  Bound result 512604049962
+  Bound result 17650
+  Bound result 3755841
+  Bound result 1422177
+  Bound result 850918523562
+  Bound result 990131376132
+  Bound result 16182394627
+  Bound result 2321401
+  Bound result 833870
+  Bound result 4236
+  Bound result 8493
+  Bound result 298697904
+  Bound result 300
+  Bound result 1414917554
+  Bound result 551686
+  Bound result 674997174973
+  Bound result 144732421028
+
+[PASS] invariant_actualBalancesMatchIndependentGrossNetAndLiabilities() (runs: 256, calls: 128000, reverts: 0)
+
+╭----------------+---------------------+-------+---------+----------╮
+| Contract       | Selector            | Calls | Reverts | Discards |
++===================================================================+
+| RewardsHandler | advanceTime         | 16022 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | burn                | 15964 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | claim               | 16043 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | donate              | 15996 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | externalMiningClaim | 15913 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | harvest             | 16134 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | queueMining         | 15966 | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | settle              | 15962 | 0       | 0        |
+╰----------------+---------------------+-------+---------+----------╯
+
+Logs:
+  Bound result 905386764175
+  Bound result 5742
+  Bound result 16565
+  Bound result 1882037
+  Bound result 5599
+  Bound result 2061321
+  Bound result 339587260027
+  Bound result 892597215188
+  Bound result 145
+  Bound result 2560084
+  Bound result 0
+  Bound result 2158778573
+  Bound result 24295
+  Bound result 2753
+  Bound result 2166523
+  Bound result 6524
+  Bound result 19719
+  Bound result 136929075
+  Bound result 635509034141
+  Bound result 2346970
+  Bound result 13151
+  Bound result 2343
+  Bound result 313829
+  Bound result 22933
+  Bound result 545070392237
+  Bound result 11597
+  Bound result 520379875477
+  Bound result 1436574
+  Bound result 298271
+  Bound result 860608794
+  Bound result 857876
+  Bound result 656436
+  Bound result 16777214
+  Bound result 6466678
+  Bound result 224812242283
+  Bound result 18749
+  Bound result 7746
+  Bound result 1
+  Bound result 360078
+  Bound result 18001
+  Bound result 1737
+  Bound result 17013
+  Bound result 907338
+  Bound result 2364637339
+  Bound result 2535438
+  Bound result 5388
+  Bound result 836044625
+  Bound result 854461213752
+  Bound result 1587448
+  Bound result 886151014904
+  Bound result 67657719395
+  Bound result 15565
+  Bound result 2231
+  Bound result 1599280
+  Bound result 3
+  Bound result 16196
+  Bound result 9332
+  Bound result 576
+  Bound result 505423411467
+  Bound result 2253260299
+  Bound result 649115964150
+  Bound result 6456
+  Bound result 133897647
+  Bound result 1309030
+  Bound result 2142205
+  Bound result 91
+  Bound result 10585
+  Bound result 300744
+  Bound result 851478422359
+  Bound result 369
+  Bound result 14710668
+  Bound result 15879
+  Bound result 74479
+  Bound result 1037
+  Bound result 3924
+  Bound result 29452666
+  Bound result 794286930598
+  Bound result 6411
+  Bound result 3230
+  Bound result 22631
+  Bound result 307581718904
+  Bound result 725315
+  Bound result 833574448844
+  Bound result 36869
+  Bound result 6179
+  Bound result 1265795049
+  Bound result 2
+  Bound result 22346
+  Bound result 273909110681
+  Bound result 3894
+  Bound result 673534876159
+  Bound result 2229023
+  Bound result 660577
+  Bound result 32028
+  Bound result 6237
+  Bound result 895
+  Bound result 45
+  Bound result 560036893900
+  Bound result 528161850902
+  Bound result 1815909
+  Bound result 2121
+  Bound result 846001
+  Bound result 1970347
+  Bound result 0
+  Bound result 943942
+  Bound result 317352274077
+  Bound result 2067332
+  Bound result 5816
+  Bound result 1505870
+  Bound result 17413
+  Bound result 707436634380
+  Bound result 204032427
+  Bound result 1232325
+  Bound result 802431465556
+  Bound result 4528
+  Bound result 12619
+  Bound result 567292
+  Bound result 943099883808
+  Bound result 734355512988
+  Bound result 913508575378
+  Bound result 585381
+  Bound result 6255
+  Bound result 1248688
+  Bound result 149843258493
+  Bound result 851868616490
+  Bound result 447123641589
+  Bound result 1
+  Bound result 898639199214
+  Bound result 407650027220
+  Bound result 33463549043
+  Bound result 15438
+  Bound result 685808563322
+  Bound result 1243005
+  Bound result 767922
+  Bound result 13265
+  Bound result 11905
+  Bound result 302890
+  Bound result 16899
+  Bound result 1
+  Bound result 0
+  Bound result 805802983
+  Bound result 333443
+  Bound result 155785665821
+  Bound result 1949
+  Bound result 320197806060
+  Bound result 443035904931
+  Bound result 131751539012
+  Bound result 3
+  Bound result 931087193431
+  Bound result 2142205
+  Bound result 1807010337
+  Bound result 3502
+  Bound result 1
+  Bound result 2352
+  Bound result 236664523963
+  Bound result 16023
+  Bound result 588881058
+  Bound result 395267451464
+  Bound result 497
+  Bound result 375902969856
+  Bound result 8964
+  Bound result 9965
+  Bound result 105825708
+  Bound result 506
+  Bound result 35499840086
+  Bound result 3232
+  Bound result 6357
+  Bound result 304963089753
+  Bound result 0
+  Bound result 19854
+  Bound result 897231114
+  Bound result 696697851651
+  Bound result 3142582905
+  Bound result 764110149484
+  Bound result 59427
+  Bound result 524089
+  Bound result 13240
+  Bound result 13223829360
+  Bound result 9478
+  Bound result 586227
+  Bound result 172581114
+  Bound result 524637
+  Bound result 23966466
+  Bound result 512604049962
+  Bound result 17878
+  Bound result 3755841
+  Bound result 1218217
+  Bound result 850918523562
+  Bound result 990131376132
+  Bound result 16182394627
+  Bound result 2321401
+  Bound result 833870
+  Bound result 4793
+  Bound result 8690
+  Bound result 298697904
+  Bound result 300
+  Bound result 849
+  Bound result 551686
+  Bound result 674997174973
+  Bound result 144732421028
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 202.03s (124.26s CPU time)
+
+Ran 8 tests for test/unit/SingleOwnerDeployment.t.sol:SingleOwnerDeploymentTest
+[PASS] test_AllThreeUpgradePathsRequire48HoursAndPreserveFundedPool() (gas: 18292060)
+[PASS] test_DeploymentAndInitializersCannotBeReplayedOrTakenOver() (gas: 4345076)
+[PASS] test_FailedGraphLeavesNoUninitializedProxyAndCanRetrySamePrediction() (gas: 8376319)
+[PASS] test_ForeignCallerCannotDeployAndOwnerCannotBeRedirected() (gas: 41258)
+[PASS] test_OwnerCannotReduceSchedulingFloorEvenThroughTimelock() (gas: 4346650)
+[PASS] test_RejectsEmptyImplementationsAndForeignVaultBinding() (gas: 4992237)
+[PASS] test_RejectsZeroRolesAndPreservesLegacyMultisigRequirements() (gas: 47488)
+[PASS] test_SingleEOAWalletReceivesDailyRolesButNotDirectUpgradeAuthority() (gas: 4950436)
+Suite result: ok. 8 passed; 0 failed; 0 skipped; finished in 5.49ms (3.24ms CPU time)
+
+Ran 2 tests for test/invariant/PoolFundingInvariant.t.sol:PoolFundingInvariantTest
+[PASS] invariant_fundingUsesRealBnbAndRefundsRemainSolvent() (runs: 256, calls: 128000, reverts: 0)
+
+╭----------------+-----------------+-------+---------+----------╮
+| Contract       | Selector        | Calls | Reverts | Discards |
++===============================================================+
+| FundingHandler | advanceTime     | 18287 | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | deposit         | 18504 | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | finalizeFailure | 18442 | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | forceBnb        | 18135 | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | setPause        | 18166 | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | withdrawBnb     | 18206 | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | withdrawDeposit | 18260 | 0       | 0        |
+╰----------------+-----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 23
+  Bound result 345598
+  Bound result 17606
+  Bound result 5480
+  Bound result 916988203087445375
+  Bound result 216814937971802015
+  Bound result 9657
+  Bound result 326753
+  Bound result 3520
+  Bound result 173821
+  Bound result 315703
+  Bound result 14552
+  Bound result 16689885
+  Bound result 1736083459841959
+  Bound result 940180050420829444
+  Bound result 3
+  Bound result 0
+  Bound result 11025
+  Bound result 15175
+  Bound result 28166204997219473
+  Bound result 187370
+  Bound result 1373761022392165
+  Bound result 5997
+  Bound result 145611
+  Bound result 270647
+  Bound result 255
+  Bound result 557
+  Bound result 4112894825
+  Bound result 2795
+  Bound result 621315446479552059
+  Bound result 13468
+  Bound result 138536
+  Bound result 226575
+  Bound result 4233
+  Bound result 33847
+  Bound result 309632
+  Bound result 138777
+  Bound result 408646972863325610
+  Bound result 171473
+  Bound result 10331
+  Bound result 527844309467521527
+  Bound result 342893
+  Bound result 6642
+  Bound result 137
+  Bound result 1837366890
+  Bound result 264337514315787819
+  Bound result 4823
+  Bound result 0
+  Bound result 571434020863104074
+  Bound result 4577
+  Bound result 2
+  Bound result 335832
+  Bound result 330527
+  Bound result 10890
+  Bound result 4957
+  Bound result 4529
+  Bound result 245093
+  Bound result 289135742
+  Bound result 806869404664813994
+  Bound result 1861
+  Bound result 903617767205931973
+  Bound result 26125
+  Bound result 120930447156
+  Bound result 6811
+  Bound result 95916
+  Bound result 6768
+  Bound result 205726
+  Bound result 7417
+  Bound result 326050
+  Bound result 93
+  Bound result 44877
+  Bound result 9247
+  Bound result 1335
+  Bound result 332592959876923977
+  Bound result 10497
+  Bound result 5
+  Bound result 44733
+  Bound result 216614
+  Bound result 759
+  Bound result 19427
+  Bound result 78240
+  Bound result 130809996666137214
+  Bound result 118970
+  Bound result 335946
+  Bound result 18146887804753311
+  Bound result 2
+  Bound result 15796
+  Bound result 250421
+  Bound result 247237
+  Bound result 231469
+  Bound result 286654
+  Bound result 17111230085721
+  Bound result 1926932877
+  Bound result 126464
+  Bound result 1
+  Bound result 88057999194
+  Bound result 22334
+  Bound result 497049659
+  Bound result 702583334156453496
+  Bound result 345599
+  Bound result 67832324393684988
+  Bound result 172131
+  Bound result 6775260879990186
+  Bound result 1450141489
+  Bound result 60
+  Bound result 9503040511
+  Bound result 1344178051
+  Bound result 84737
+  Bound result 343334
+  Bound result 146694
+  Bound result 4035
+  Bound result 0
+  Bound result 4215
+  Bound result 342344
+  Bound result 577627412575950823
+  Bound result 221458
+  Bound result 304382
+  Bound result 7235
+  Bound result 16167
+  Bound result 45509
+  Bound result 38872
+  Bound result 941607314901278879
+  Bound result 22293
+  Bound result 4496
+  Bound result 5852
+  Bound result 3249
+  Bound result 13427
+  Bound result 4111
+  Bound result 325695
+  Bound result 280344682798470938
+  Bound result 4253
+  Bound result 9759
+  Bound result 6747
+  Bound result 345599
+  Bound result 125573
+  Bound result 2203851252
+  Bound result 345600
+  Bound result 90321
+  Bound result 94289
+  Bound result 491288854242063299
+  Bound result 1486
+  Bound result 150478
+  Bound result 90552
+  Bound result 414383134702344047
+
+[PASS] invariant_shareSupplyAndCurrentMemberIndexAgree() (runs: 256, calls: 128000, reverts: 0)
+
+╭----------------+-----------------+-------+---------+----------╮
+| Contract       | Selector        | Calls | Reverts | Discards |
++===============================================================+
+| FundingHandler | advanceTime     | 18287 | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | deposit         | 18504 | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | finalizeFailure | 18442 | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | forceBnb        | 18135 | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | setPause        | 18166 | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | withdrawBnb     | 18206 | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | withdrawDeposit | 18260 | 0       | 0        |
+╰----------------+-----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 23
+  Bound result 345598
+  Bound result 214376
+  Bound result 5480
+  Bound result 916988203087445375
+  Bound result 216814937971802015
+  Bound result 9639
+  Bound result 326753
+  Bound result 3539
+  Bound result 173821
+  Bound result 315703
+  Bound result 14552
+  Bound result 16689885
+  Bound result 1736083459841959
+  Bound result 940180050420829444
+  Bound result 3
+  Bound result 0
+  Bound result 1239446557
+  Bound result 15061
+  Bound result 28166204997219473
+  Bound result 187370
+  Bound result 1373761022392165
+  Bound result 5984
+  Bound result 145611
+  Bound result 270647
+  Bound result 116756
+  Bound result 6230
+  Bound result 1580
+  Bound result 7983
+  Bound result 621315446479552059
+  Bound result 4413
+  Bound result 138536
+  Bound result 48560
+  Bound result 4199
+  Bound result 17937
+  Bound result 309632
+  Bound result 278395
+  Bound result 408646972863325610
+  Bound result 171473
+  Bound result 10077
+  Bound result 527844309467521527
+  Bound result 280206
+  Bound result 6622
+  Bound result 87874
+  Bound result 864000
+  Bound result 264337514315787819
+  Bound result 4049
+  Bound result 0
+  Bound result 571434020863104074
+  Bound result 4505
+  Bound result 2
+  Bound result 140395
+  Bound result 330527
+  Bound result 10890
+  Bound result 926098792
+  Bound result 4527
+  Bound result 245093
+  Bound result 289135742
+  Bound result 806869404664813994
+  Bound result 1811
+  Bound result 11417
+  Bound result 26125
+  Bound result 120930447156
+  Bound result 6766
+  Bound result 95916
+  Bound result 9999999999999999
+  Bound result 253532
+  Bound result 7150
+  Bound result 326050
+  Bound result 93
+  Bound result 44877
+  Bound result 8954
+  Bound result 1334
+  Bound result 332592959876923977
+  Bound result 9982
+  Bound result 5
+  Bound result 44733
+  Bound result 216614
+  Bound result 16362
+  Bound result 18754
+  Bound result 7011
+  Bound result 130809996666137214
+  Bound result 118970
+  Bound result 323915
+  Bound result 18146887804753311
+  Bound result 2
+  Bound result 15056
+  Bound result 250421
+  Bound result 247237
+  Bound result 231469
+  Bound result 197912
+  Bound result 17111230085721
+  Bound result 948
+  Bound result 126464
+  Bound result 1
+  Bound result 88057999194
+  Bound result 20765
+  Bound result 3086
+  Bound result 2565
+  Bound result 345599
+  Bound result 67832324393684988
+  Bound result 172131
+  Bound result 6775260879990186
+  Bound result 785280416
+  Bound result 60
+  Bound result 9503040511
+  Bound result 2368
+  Bound result 84737
+  Bound result 154898
+  Bound result 146694
+  Bound result 1857
+  Bound result 0
+  Bound result 3352
+  Bound result 342344
+  Bound result 5917
+  Bound result 221458
+  Bound result 304382
+  Bound result 7047
+  Bound result 120450349
+  Bound result 45509
+  Bound result 38872
+  Bound result 941607314901278879
+  Bound result 305496
+  Bound result 3700
+  Bound result 5764
+  Bound result 4677
+  Bound result 12904
+  Bound result 4111
+  Bound result 223441
+  Bound result 280344682798470938
+  Bound result 3950
+  Bound result 7478
+  Bound result 6684
+  Bound result 345599
+  Bound result 125573
+  Bound result 919448723786178780
+  Bound result 345600
+  Bound result 90321
+  Bound result 94289
+  Bound result 491288854242063299
+  Bound result 183668
+  Bound result 150478
+  Bound result 90552
+  Bound result 414383134702344047
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 208.55s (323.33s CPU time)
+
+Ran 2 tests for test/audit/AuditFunds.t.sol:AuditFundsRewardsTest
+[PASS] testFuzz_legacyPaidClaimsAndFormerOwnersMigrateExactlyOnce(uint256,uint256,uint256) (runs: 256, μ: 1911535, ~: 1920028)
+Logs:
+  Bound result 13295
+  Bound result 86400
+  Bound result 8500
+
+[PASS] testFuzz_rewardsFollowOldOwnersAcrossMixedHarvestTransferAndClaims(uint256) (runs: 256, μ: 4396770, ~: 4429221)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 209.02s (2.42s CPU time)
+
+Ran 2 tests for test/invariant/PoolSaleInvariant.t.sol:PoolSaleLifecycleInvariantTest
+[PASS] invariant_bnbEqualsIndependentCreditsReservesAndForcedFunds() (runs: 256, calls: 128000, reverts: 0)
+
+╭-----------------+-------------+-------+---------+----------╮
+| Contract        | Selector    | Calls | Reverts | Discards |
++============================================================+
+| PoolSaleHandler | advanceTime | 18317 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | cancel      | 18099 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | complete    | 18441 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | forceBnb    | 18339 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | listSale    | 18162 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | moveShares  | 18286 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | withdraw    | 18356 | 0       | 0        |
+╰-----------------+-------------+-------+---------+----------╯
+
+Logs:
+  Bound result 2
+  Bound result 5
+  Bound result 3
+  Bound result 10003
+  Bound result 604800
+  Bound result 20007
+  Bound result 17
+  Bound result 246767
+  Bound result 6995
+  Bound result 304644
+  Bound result 21129034190122673
+  Bound result 4075
+  Bound result 999999999999999998
+  Bound result 679900
+  Bound result 17752
+  Bound result 361293622816264394
+  Bound result 682812
+  Bound result 930015670548055300
+  Bound result 3253134782
+  Bound result 144575
+  Bound result 2
+  Bound result 499999999999999994
+  Bound result 672623
+  Bound result 968814361718535058
+  Bound result 264136771442431935
+  Bound result 509561
+  Bound result 176929306357433269
+  Bound result 539645495082100069
+  Bound result 783653771786531736
+  Bound result 402730
+  Bound result 23155
+  Bound result 2260
+  Bound result 199040422948735624
+  Bound result 319956
+  Bound result 3365
+  Bound result 147858921831918962
+  Bound result 860771644549525423
+  Bound result 2
+  Bound result 213459687039159257
+  Bound result 129371
+  Bound result 606102054276969613
+  Bound result 513007796690857246
+  Bound result 11554
+  Bound result 56468
+  Bound result 17135
+  Bound result 191230
+  Bound result 940335087169438850
+  Bound result 657307
+  Bound result 534100098658286309
+  Bound result 5494
+  Bound result 9167
+  Bound result 615838474636916185
+  Bound result 475385
+  Bound result 228902
+  Bound result 3
+  Bound result 302106
+  Bound result 776070739688202984
+  Bound result 2
+  Bound result 214520805942377282
+  Bound result 837080022512706300
+  Bound result 1294
+  Bound result 130405
+  Bound result 6651
+  Bound result 433216
+  Bound result 913775013656368039
+  Bound result 288642
+  Bound result 45826908566412417
+  Bound result 9531
+  Bound result 161629
+  Bound result 590226143892115198
+  Bound result 640914
+  Bound result 371116303841600630
+  Bound result 14973
+  Bound result 372434718031657644
+  Bound result 784863692407796723
+  Bound result 116988
+  Bound result 76861998842403698
+  Bound result 137729585920281582
+  Bound result 477177
+  Bound result 238976
+  Bound result 3
+  Bound result 647857732741956815
+  Bound result 18951
+  Bound result 14191
+  Bound result 168995089304826736
+  Bound result 7612
+  Bound result 468754
+  Bound result 383471
+  Bound result 8931
+  Bound result 165872979655672620
+  Bound result 455431707157841141
+  Bound result 737936093498169385
+  Bound result 94406836912719744
+  Bound result 978660112646509526
+  Bound result 106
+  Bound result 14961
+  Bound result 714335818960317432
+  Bound result 103683
+  Bound result 454985405
+  Bound result 880899320743915058
+  Bound result 118236
+  Bound result 228380
+  Bound result 774352165700730
+  Bound result 89818733112896140
+  Bound result 439449
+  Bound result 45085
+  Bound result 691198
+  Bound result 2
+  Bound result 15312
+  Bound result 92
+  Bound result 587380
+  Bound result 143872524651723967
+  Bound result 1474
+  Bound result 5672
+  Bound result 251113
+  Bound result 233528
+  Bound result 41677
+  Bound result 644457
+  Bound result 12670
+  Bound result 515332727445679115
+  Bound result 3584
+  Bound result 20161
+  Bound result 146841703808724666
+  Bound result 135383
+  Bound result 379888234
+  Bound result 530934175947003754
+  Bound result 461224
+  Bound result 701024504847380358
+  Bound result 21703
+  Bound result 658314
+  Bound result 15511
+  Bound result 350495882970655587
+  Bound result 410472367167564074
+  Bound result 59677
+  Bound result 3586
+  Bound result 461492
+  Bound result 1378750838
+  Bound result 557466
+  Bound result 243190128869315159
+  Bound result 0
+  Bound result 598946434932543441
+  Bound result 391649860348690392
+  Bound result 15652
+  Bound result 432749255177400927
+  Bound result 341168333219947140
+  Bound result 589910
+  Bound result 72618253
+  Bound result 999999999999999997
+  Bound result 902188522358817709
+  Bound result 14148
+  Bound result 484287
+  Bound result 3
+  Bound result 365331229123588209
+  Bound result 469653
+  Bound result 462656885165544428
+  Bound result 130738084
+  Bound result 706
+  Bound result 43
+  Bound result 646755
+
+[PASS] invariant_ownershipRemainsFrozenAfterAtMostOneCompletedSale() (runs: 256, calls: 128000, reverts: 0)
+
+╭-----------------+-------------+-------+---------+----------╮
+| Contract        | Selector    | Calls | Reverts | Discards |
++============================================================+
+| PoolSaleHandler | advanceTime | 18317 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | cancel      | 18099 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | complete    | 18441 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | forceBnb    | 18339 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | listSale    | 18162 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | moveShares  | 18286 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | withdraw    | 18356 | 0       | 0        |
+╰-----------------+-------------+-------+---------+----------╯
+
+Logs:
+  Bound result 2
+  Bound result 5
+  Bound result 3
+  Bound result 10003
+  Bound result 604800
+  Bound result 20007
+  Bound result 17
+  Bound result 246767
+  Bound result 6975
+  Bound result 304644
+  Bound result 685481102600347900
+  Bound result 2308072887
+  Bound result 999999999999999998
+  Bound result 679900
+  Bound result 5817
+  Bound result 361293622816264394
+  Bound result 682812
+  Bound result 930015670548055300
+  Bound result 3253134782
+  Bound result 580651
+  Bound result 2
+  Bound result 163550733775038832
+  Bound result 672623
+  Bound result 595966962032151250
+  Bound result 264136771442431935
+  Bound result 509561
+  Bound result 176929306357433269
+  Bound result 539645495082100069
+  Bound result 783653771786531736
+  Bound result 402730
+  Bound result 23085
+  Bound result 1275
+  Bound result 199040422948735624
+  Bound result 319956
+  Bound result 10071
+  Bound result 147858921831918962
+  Bound result 419111649634023632
+  Bound result 2
+  Bound result 110089678972174021
+  Bound result 129371
+  Bound result 606102054276969613
+  Bound result 513007796690857246
+  Bound result 292791387687811458
+  Bound result 56468
+  Bound result 25775
+  Bound result 191230
+  Bound result 520763051191058316
+  Bound result 657307
+  Bound result 534100098658286309
+  Bound result 15849
+  Bound result 9059
+  Bound result 615838474636916185
+  Bound result 475385
+  Bound result 601235
+  Bound result 3
+  Bound result 302106
+  Bound result 776070739688202984
+  Bound result 2
+  Bound result 214520805942377282
+  Bound result 837080022512706300
+  Bound result 490
+  Bound result 477219
+  Bound result 6651
+  Bound result 433216
+  Bound result 913775013656368039
+  Bound result 288642
+  Bound result 128227487229493879
+  Bound result 24646
+  Bound result 161629
+  Bound result 396740528104257923
+  Bound result 640914
+  Bound result 371116303841600630
+  Bound result 14242
+  Bound result 372434718031657644
+  Bound result 784863692407796723
+  Bound result 116988
+  Bound result 76861998842403698
+  Bound result 137729585920281582
+  Bound result 477177
+  Bound result 238976
+  Bound result 3
+  Bound result 647857732741956815
+  Bound result 18065
+  Bound result 13956
+  Bound result 168995089304826736
+  Bound result 383670
+  Bound result 214118
+  Bound result 383471
+  Bound result 1273
+  Bound result 15755
+  Bound result 455431707157841141
+  Bound result 316314797696402122
+  Bound result 118437777417582534
+  Bound result 978660112646509526
+  Bound result 3972
+  Bound result 14608
+  Bound result 714335818960317432
+  Bound result 146323
+  Bound result 454985405
+  Bound result 880899320743915058
+  Bound result 118236
+  Bound result 228380
+  Bound result 774352165700730
+  Bound result 490411956695591302
+  Bound result 184557
+  Bound result 45085
+  Bound result 691198
+  Bound result 2
+  Bound result 510543
+  Bound result 92
+  Bound result 587380
+  Bound result 836319522678458018
+  Bound result 1474
+  Bound result 3887134309
+  Bound result 368625
+  Bound result 88867
+  Bound result 296053
+  Bound result 644457
+  Bound result 12341
+  Bound result 123739606597047373
+  Bound result 3584
+  Bound result 19060
+  Bound result 146841703808724666
+  Bound result 135383
+  Bound result 18094
+  Bound result 530934175947003754
+  Bound result 461224
+  Bound result 375314744313296446
+  Bound result 19818
+  Bound result 658314
+  Bound result 1471
+  Bound result 995473531247007913
+  Bound result 410472367167564074
+  Bound result 59677
+  Bound result 2480
+  Bound result 461492
+  Bound result 342
+  Bound result 557466
+  Bound result 243190128869315159
+  Bound result 0
+  Bound result 22424
+  Bound result 391649860348690392
+  Bound result 15212
+  Bound result 432749255177400927
+  Bound result 341168333219947140
+  Bound result 355152
+  Bound result 72618253
+  Bound result 999999999999999997
+  Bound result 902188522358817709
+  Bound result 13542
+  Bound result 43124
+  Bound result 3
+  Bound result 365331229123588209
+  Bound result 238630
+  Bound result 462656885165544428
+  Bound result 130738084
+  Bound result 14877
+  Bound result 43
+  Bound result 3937
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 223.94s (223.93s CPU time)
+
+Ran 2 tests for test/invariant/PoolTransfersInvariant.t.sol:PoolTransfersInvariantTest
+[PASS] invariant_effectiveSharesLocksAndOriginalPurchaseSurplusRemainCorrect() (runs: 256, calls: 128000, reverts: 0)
+
+╭----------------------+----------------+-------+---------+----------╮
+| Contract             | Selector       | Calls | Reverts | Discards |
++====================================================================+
+| ShareTransferHandler | advanceTime    | 14127 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | burn           | 14320 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | changeLock     | 14007 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | claim          | 14191 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | donate         | 14143 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | harvest        | 14286 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | queueMining    | 14235 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferLocked | 14314 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferShares | 14377 | 0       | 0        |
+╰----------------------+----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 199044420710
+  Bound result 33
+  Bound result 1
+  Bound result 33
+  Bound result 731847
+  Bound result 23255
+  Bound result 90100962464
+  Bound result 1
+  Bound result 408153501
+  Bound result 3861
+  Bound result 106866781734
+  Bound result 8822
+  Bound result 3678955
+  Bound result 1
+  Bound result 3
+  Bound result 14042
+  Bound result 15269
+  Bound result 11
+  Bound result 597796105047
+  Bound result 49
+  Bound result 390746
+  Bound result 14469
+  Bound result 1
+  Bound result 431029765225
+  Bound result 267615
+  Bound result 1
+  Bound result 399555558853
+  Bound result 1
+  Bound result 2
+  Bound result 1
+  Bound result 23384
+  Bound result 19
+  Bound result 402935449446
+  Bound result 16166
+  Bound result 173885
+  Bound result 13925
+  Bound result 918371
+  Bound result 1047
+  Bound result 27
+  Bound result 2
+  Bound result 1
+  Bound result 10
+  Bound result 952922
+  Bound result 201384
+  Bound result 2
+  Bound result 424723666451
+  Bound result 26
+  Bound result 53436
+  Bound result 1
+  Bound result 1
+  Bound result 404098526
+  Bound result 2174
+  Bound result 350823631764
+  Bound result 991412680501
+  Bound result 475604754
+  Bound result 18300
+  Bound result 876927
+  Bound result 1
+  Bound result 1
+  Bound result 704487
+  Bound result 5045360939
+  Bound result 756522
+  Bound result 3264
+  Bound result 577
+  Bound result 15605
+  Bound result 994691
+  Bound result 882
+  Bound result 1
+  Bound result 1
+  Bound result 4
+  Bound result 405
+  Bound result 7
+  Bound result 228090152762
+  Bound result 1065337
+  Bound result 30
+  Bound result 28
+  Bound result 125298
+  Bound result 2
+  Bound result 244085
+  Bound result 464031999325
+  Bound result 8482
+  Bound result 1
+  Bound result 506682633122
+  Bound result 10627
+  Bound result 1023503
+  Bound result 8
+  Bound result 15
+  Bound result 14876
+  Bound result 14
+  Bound result 1
+  Bound result 687570
+  Bound result 37583
+  Bound result 4073638783
+  Bound result 4
+  Bound result 0
+  Bound result 426730361625
+  Bound result 797697255692
+  Bound result 1295999
+  Bound result 4
+  Bound result 1381535
+  Bound result 411
+  Bound result 505663
+  Bound result 1
+  Bound result 26
+  Bound result 6858
+  Bound result 120497905266
+  Bound result 0
+  Bound result 6
+  Bound result 399679
+  Bound result 960931
+  Bound result 131586
+  Bound result 15013
+  Bound result 1
+  Bound result 3
+  Bound result 2
+  Bound result 458554251975
+  Bound result 759137823292
+  Bound result 250409
+  Bound result 16822
+  Bound result 26749415314
+  Bound result 13126
+  Bound result 43403267549
+  Bound result 134777
+  Bound result 19
+  Bound result 620
+  Bound result 1
+  Bound result 561693508004
+  Bound result 65542
+  Bound result 8885
+  Bound result 1118992654
+  Bound result 14775
+  Bound result 6530
+  Bound result 0
+  Bound result 0
+  Bound result 19303
+  Bound result 1
+  Bound result 541157
+  Bound result 749194857869
+  Bound result 4011175118
+  Bound result 1
+  Bound result 21
+  Bound result 1
+  Bound result 431029765226
+  Bound result 5217
+  Bound result 537
+  Bound result 1
+  Bound result 1035009
+  Bound result 14
+  Bound result 2577
+  Bound result 12
+  Bound result 894386
+  Bound result 7133
+  Bound result 902557677760
+  Bound result 21
+  Bound result 475608024454
+  Bound result 428530
+  Bound result 50726354
+  Bound result 598541833382
+  Bound result 7588
+  Bound result 8
+  Bound result 894047532240
+  Bound result 80848
+  Bound result 571921125405
+  Bound result 12803
+  Bound result 677647973444
+  Bound result 13920
+  Bound result 884631
+  Bound result 230734991560
+  Bound result 11416
+  Bound result 228006
+  Bound result 655818612002
+  Bound result 281974
+  Bound result 20
+  Bound result 19
+  Bound result 3903
+  Bound result 544279515397
+  Bound result 313958
+  Bound result 999462
+  Bound result 18
+  Bound result 684
+  Bound result 238159060233
+  Bound result 60473445
+  Bound result 4470
+  Bound result 655644848638
+  Bound result 806726638602
+  Bound result 579
+  Bound result 19296
+  Bound result 365448
+  Bound result 118523
+  Bound result 8562
+  Bound result 774993935171
+  Bound result 835458
+  Bound result 894377740633
+  Bound result 1
+  Bound result 12
+  Bound result 8
+  Bound result 21
+  Bound result 2
+  Bound result 27
+  Bound result 5
+  Bound result 4
+  Bound result 431029765225
+  Bound result 21
+  Bound result 10
+  Bound result 1
+  Bound result 2
+  Bound result 408348
+  Bound result 14
+  Bound result 12
+  Bound result 2
+  Bound result 785629923817
+  Bound result 1006196
+  Bound result 1
+  Bound result 3
+  Bound result 16
+  Bound result 343418684534
+  Bound result 11
+  Bound result 7
+  Bound result 2
+  Bound result 992326497911
+  Bound result 1975968
+  Bound result 5140
+  Bound result 1097655
+  Bound result 834033
+  Bound result 1
+  Bound result 19078
+  Bound result 3
+  Bound result 6
+  Bound result 4
+  Bound result 1
+  Bound result 661499
+
+[PASS] invariant_rawIncomeAndHistoricalHoldingsConserveEveryBemUnit() (runs: 256, calls: 128000, reverts: 0)
+
+╭----------------------+----------------+-------+---------+----------╮
+| Contract             | Selector       | Calls | Reverts | Discards |
++====================================================================+
+| ShareTransferHandler | advanceTime    | 14127 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | burn           | 14320 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | changeLock     | 14007 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | claim          | 14191 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | donate         | 14143 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | harvest        | 14286 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | queueMining    | 14235 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferLocked | 14314 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferShares | 14377 | 0       | 0        |
+╰----------------------+----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 199044420710
+  Bound result 24
+  Bound result 1
+  Bound result 1055131
+  Bound result 23254
+  Bound result 90100962462
+  Bound result 1
+  Bound result 408153501
+  Bound result 3861
+  Bound result 106866781734
+  Bound result 8822
+  Bound result 3678955
+  Bound result 1
+  Bound result 5
+  Bound result 23
+  Bound result 14123
+  Bound result 15372
+  Bound result 42
+  Bound result 1
+  Bound result 597796105047
+  Bound result 8
+  Bound result 5
+  Bound result 390746
+  Bound result 14502
+  Bound result 3
+  Bound result 431029765225
+  Bound result 267615
+  Bound result 1
+  Bound result 399555558853
+  Bound result 1
+  Bound result 7
+  Bound result 2
+  Bound result 6
+  Bound result 1
+  Bound result 4878
+  Bound result 6
+  Bound result 1
+  Bound result 402935449446
+  Bound result 1
+  Bound result 7061
+  Bound result 47
+  Bound result 173885
+  Bound result 16095
+  Bound result 918371
+  Bound result 45
+  Bound result 1047
+  Bound result 1
+  Bound result 50
+  Bound result 1
+  Bound result 2
+  Bound result 967594
+  Bound result 2
+  Bound result 201384
+  Bound result 2
+  Bound result 424723666451
+  Bound result 2
+  Bound result 53436
+  Bound result 9
+  Bound result 404098526
+  Bound result 2279
+  Bound result 350823631764
+  Bound result 991412680501
+  Bound result 475604754
+  Bound result 11471
+  Bound result 876927
+  Bound result 3
+  Bound result 4
+  Bound result 250075
+  Bound result 8
+  Bound result 5045360939
+  Bound result 756522
+  Bound result 3253
+  Bound result 577
+  Bound result 2679
+  Bound result 994691
+  Bound result 16207
+  Bound result 1
+  Bound result 1
+  Bound result 3704336466
+  Bound result 1
+  Bound result 228090152762
+  Bound result 1065337
+  Bound result 22
+  Bound result 14
+  Bound result 11591
+  Bound result 244085
+  Bound result 7
+  Bound result 464031999325
+  Bound result 11998
+  Bound result 1
+  Bound result 6
+  Bound result 506682633122
+  Bound result 835402157314
+  Bound result 1023503
+  Bound result 8
+  Bound result 7
+  Bound result 1
+  Bound result 2134
+  Bound result 1
+  Bound result 687570
+  Bound result 405204
+  Bound result 2
+  Bound result 4073638783
+  Bound result 4
+  Bound result 1
+  Bound result 0
+  Bound result 9667
+  Bound result 797697255692
+  Bound result 1295999
+  Bound result 4
+  Bound result 1381535
+  Bound result 1532
+  Bound result 505663
+  Bound result 26
+  Bound result 6858
+  Bound result 284523584
+  Bound result 0
+  Bound result 1
+  Bound result 399679
+  Bound result 5
+  Bound result 1243891
+  Bound result 1177
+  Bound result 15013
+  Bound result 38
+  Bound result 4
+  Bound result 458554251975
+  Bound result 759137823292
+  Bound result 79211
+  Bound result 20355
+  Bound result 35
+  Bound result 26749415314
+  Bound result 11081
+  Bound result 39
+  Bound result 43403267549
+  Bound result 134777
+  Bound result 620
+  Bound result 561693508004
+  Bound result 833163407
+  Bound result 9138
+  Bound result 1
+  Bound result 13399
+  Bound result 2
+  Bound result 16425
+  Bound result 4315
+  Bound result 0
+  Bound result 0
+  Bound result 1541
+  Bound result 541157
+  Bound result 749194857869
+  Bound result 4011175118
+  Bound result 1
+  Bound result 57
+  Bound result 1
+  Bound result 1
+  Bound result 431029765226
+  Bound result 17012
+  Bound result 7890
+  Bound result 2
+  Bound result 1
+  Bound result 2
+  Bound result 1035009
+  Bound result 60
+  Bound result 10567
+  Bound result 6
+  Bound result 894386
+  Bound result 10054
+  Bound result 902557677760
+  Bound result 1
+  Bound result 18
+  Bound result 475608024454
+  Bound result 1282203
+  Bound result 50726354
+  Bound result 598541833382
+  Bound result 12799
+  Bound result 20
+  Bound result 894047532240
+  Bound result 80848
+  Bound result 571921125405
+  Bound result 15777
+  Bound result 677647973444
+  Bound result 419359509
+  Bound result 884631
+  Bound result 230734991560
+  Bound result 12365
+  Bound result 228006
+  Bound result 655818612002
+  Bound result 18
+  Bound result 1
+  Bound result 281974
+  Bound result 3
+  Bound result 4285
+  Bound result 544279515397
+  Bound result 313958
+  Bound result 4
+  Bound result 999462
+  Bound result 831
+  Bound result 550463531437
+  Bound result 60473445
+  Bound result 14680
+  Bound result 658710770922
+  Bound result 806726638602
+  Bound result 1091
+  Bound result 895456
+  Bound result 365448
+  Bound result 118523
+  Bound result 5
+  Bound result 774993935171
+  Bound result 835458
+  Bound result 205463509238
+  Bound result 1
+  Bound result 6
+  Bound result 8
+  Bound result 7
+  Bound result 3
+  Bound result 5
+  Bound result 3
+  Bound result 4
+  Bound result 431029765225
+  Bound result 1
+  Bound result 3
+  Bound result 408348
+  Bound result 1
+  Bound result 831375946266
+  Bound result 1006196
+  Bound result 2
+  Bound result 60
+  Bound result 343418684534
+  Bound result 58
+  Bound result 1
+  Bound result 2
+  Bound result 901719832714
+  Bound result 1975968
+  Bound result 511572122021
+  Bound result 1097655
+  Bound result 834033
+  Bound result 1
+  Bound result 2013430671
+  Bound result 9
+  Bound result 7
+  Bound result 1
+  Bound result 661499
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 262.79s (443.09s CPU time)
+
+Ran 2 tests for test/invariant/PoolTransfersInvariant.t.sol:PoolTransfersNoExpiryInvariantTest
+[PASS] invariant_effectiveSharesLocksAndOriginalPurchaseSurplusRemainCorrect() (runs: 256, calls: 128000, reverts: 0)
+
+╭----------------------+----------------+-------+---------+----------╮
+| Contract             | Selector       | Calls | Reverts | Discards |
++====================================================================+
+| ShareTransferHandler | advanceTime    | 14127 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | burn           | 14320 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | changeLock     | 14007 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | claim          | 14191 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | donate         | 14143 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | harvest        | 14286 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | queueMining    | 14235 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferLocked | 14314 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferShares | 14377 | 0       | 0        |
+╰----------------------+----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 199044420710
+  Bound result 1
+  Bound result 1039764
+  Bound result 23208
+  Bound result 8624
+  Bound result 1
+  Bound result 408153501
+  Bound result 2178170976
+  Bound result 106866781734
+  Bound result 651863
+  Bound result 3678955
+  Bound result 1
+  Bound result 29
+  Bound result 18
+  Bound result 341583
+  Bound result 15189
+  Bound result 34
+  Bound result 597796105047
+  Bound result 49
+  Bound result 1
+  Bound result 390746
+  Bound result 5018
+  Bound result 1
+  Bound result 431029765225
+  Bound result 267615
+  Bound result 32
+  Bound result 399555558853
+  Bound result 1
+  Bound result 1
+  Bound result 2
+  Bound result 4939
+  Bound result 1
+  Bound result 19
+  Bound result 402935449446
+  Bound result 4
+  Bound result 109247949
+  Bound result 9
+  Bound result 173885
+  Bound result 15238
+  Bound result 918371
+  Bound result 13
+  Bound result 1047
+  Bound result 36
+  Bound result 2
+  Bound result 1
+  Bound result 26
+  Bound result 1
+  Bound result 378070
+  Bound result 201384
+  Bound result 10
+  Bound result 2
+  Bound result 424723666451
+  Bound result 38
+  Bound result 7
+  Bound result 53436
+  Bound result 1
+  Bound result 15
+  Bound result 9
+  Bound result 329
+  Bound result 2365
+  Bound result 350823631764
+  Bound result 991412680501
+  Bound result 475604754
+  Bound result 10916
+  Bound result 876927
+  Bound result 5
+  Bound result 5
+  Bound result 1
+  Bound result 15171
+  Bound result 6
+  Bound result 5045360939
+  Bound result 756522
+  Bound result 785
+  Bound result 577
+  Bound result 2774
+  Bound result 994691
+  Bound result 6192
+  Bound result 1
+  Bound result 20
+  Bound result 11
+  Bound result 10
+  Bound result 16
+  Bound result 644
+  Bound result 5
+  Bound result 228090152762
+  Bound result 4
+  Bound result 1065337
+  Bound result 46
+  Bound result 48
+  Bound result 11870
+  Bound result 244085
+  Bound result 1
+  Bound result 464031999325
+  Bound result 11470
+  Bound result 7
+  Bound result 1
+  Bound result 506682633122
+  Bound result 2539800112
+  Bound result 1023503
+  Bound result 8
+  Bound result 1
+  Bound result 3386
+  Bound result 4
+  Bound result 8
+  Bound result 5
+  Bound result 687570
+  Bound result 1056789
+  Bound result 10
+  Bound result 4073638783
+  Bound result 4
+  Bound result 5
+  Bound result 0
+  Bound result 10238
+  Bound result 797697255692
+  Bound result 1295999
+  Bound result 4
+  Bound result 1381535
+  Bound result 863381363
+  Bound result 505663
+  Bound result 5
+  Bound result 26
+  Bound result 6858
+  Bound result 65540
+  Bound result 0
+  Bound result 1
+  Bound result 399679
+  Bound result 5
+  Bound result 479895
+  Bound result 8320
+  Bound result 15013
+  Bound result 7
+  Bound result 1
+  Bound result 458554251975
+  Bound result 759137823292
+  Bound result 600361
+  Bound result 21902
+  Bound result 26749415314
+  Bound result 25775
+  Bound result 1
+  Bound result 43403267549
+  Bound result 134777
+  Bound result 3
+  Bound result 620
+  Bound result 2
+  Bound result 561693508004
+  Bound result 7127
+  Bound result 10930
+  Bound result 4
+  Bound result 5
+  Bound result 1
+  Bound result 14887
+  Bound result 16953
+  Bound result 4580
+  Bound result 0
+  Bound result 0
+  Bound result 999999235001
+  Bound result 3
+  Bound result 1
+  Bound result 541157
+  Bound result 749194857869
+  Bound result 4011175118
+  Bound result 1
+  Bound result 6
+  Bound result 1
+  Bound result 431029765226
+  Bound result 17751
+  Bound result 860028826
+  Bound result 57
+  Bound result 1
+  Bound result 2
+  Bound result 1035009
+  Bound result 3
+  Bound result 6358
+  Bound result 45
+  Bound result 2
+  Bound result 894386
+  Bound result 11899
+  Bound result 902557677760
+  Bound result 12
+  Bound result 2
+  Bound result 475608024454
+  Bound result 6572
+  Bound result 50726354
+  Bound result 598541833382
+  Bound result 14914
+  Bound result 12
+  Bound result 894047532240
+  Bound result 80848
+  Bound result 571921125405
+  Bound result 16873
+  Bound result 677647973444
+  Bound result 4913
+  Bound result 884631
+  Bound result 230734991560
+  Bound result 13082
+  Bound result 228006
+  Bound result 655818612002
+  Bound result 31
+  Bound result 281974
+  Bound result 2
+  Bound result 30
+  Bound result 13395
+  Bound result 544279515397
+  Bound result 313958
+  Bound result 11
+  Bound result 5
+  Bound result 1
+  Bound result 4
+  Bound result 23
+  Bound result 999462
+  Bound result 299891412272
+  Bound result 88281105589
+  Bound result 60473445
+  Bound result 5200
+  Bound result 21399273789
+  Bound result 806726638602
+  Bound result 5207970
+  Bound result 314
+  Bound result 365448
+  Bound result 118523
+  Bound result 11621
+  Bound result 774993935171
+  Bound result 835458
+  Bound result 41217044193
+  Bound result 1
+  Bound result 29
+  Bound result 8
+  Bound result 3
+  Bound result 3
+  Bound result 2
+  Bound result 25
+  Bound result 1
+  Bound result 3
+  Bound result 431029765225
+  Bound result 3
+  Bound result 1
+  Bound result 1
+  Bound result 1
+  Bound result 408348
+  Bound result 13
+  Bound result 37
+  Bound result 2
+  Bound result 361192676580
+  Bound result 13
+  Bound result 1006196
+  Bound result 3
+  Bound result 28
+  Bound result 343418684534
+  Bound result 1
+  Bound result 3
+  Bound result 26
+  Bound result 979998492616
+  Bound result 1975968
+  Bound result 3396877102
+  Bound result 1097655
+  Bound result 834033
+  Bound result 5
+  Bound result 7438
+  Bound result 39
+  Bound result 2
+  Bound result 1
+  Bound result 661499
+
+[PASS] invariant_rawIncomeAndHistoricalHoldingsConserveEveryBemUnit() (runs: 256, calls: 128000, reverts: 0)
+
+╭----------------------+----------------+-------+---------+----------╮
+| Contract             | Selector       | Calls | Reverts | Discards |
++====================================================================+
+| ShareTransferHandler | advanceTime    | 14127 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | burn           | 14320 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | changeLock     | 14007 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | claim          | 14191 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | donate         | 14143 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | harvest        | 14286 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | queueMining    | 14235 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferLocked | 14314 | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferShares | 14377 | 0       | 0        |
+╰----------------------+----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 199044420710
+  Bound result 1
+  Bound result 1005
+  Bound result 23208
+  Bound result 8624
+  Bound result 1
+  Bound result 408153501
+  Bound result 3922
+  Bound result 106866781734
+  Bound result 502
+  Bound result 3678955
+  Bound result 1
+  Bound result 3
+  Bound result 105315
+  Bound result 14913
+  Bound result 9
+  Bound result 1
+  Bound result 597796105047
+  Bound result 41
+  Bound result 1
+  Bound result 390746
+  Bound result 14988
+  Bound result 1
+  Bound result 431029765225
+  Bound result 267615
+  Bound result 1
+  Bound result 399555558853
+  Bound result 1
+  Bound result 1
+  Bound result 2
+  Bound result 14835
+  Bound result 23
+  Bound result 402935449446
+  Bound result 1
+  Bound result 5733
+  Bound result 11
+  Bound result 173885
+  Bound result 14489
+  Bound result 918371
+  Bound result 1047
+  Bound result 5
+  Bound result 2
+  Bound result 1
+  Bound result 1
+  Bound result 17
+  Bound result 593247
+  Bound result 1
+  Bound result 201384
+  Bound result 2
+  Bound result 424723666451
+  Bound result 5
+  Bound result 1
+  Bound result 53436
+  Bound result 1
+  Bound result 4
+  Bound result 404098526
+  Bound result 7411
+  Bound result 350823631764
+  Bound result 991412680501
+  Bound result 475604754
+  Bound result 9984
+  Bound result 876927
+  Bound result 1
+  Bound result 1
+  Bound result 544255
+  Bound result 1
+  Bound result 5045360939
+  Bound result 756522
+  Bound result 3252
+  Bound result 577
+  Bound result 1
+  Bound result 1523
+  Bound result 994691
+  Bound result 11097
+  Bound result 1
+  Bound result 3
+  Bound result 4
+  Bound result 1
+  Bound result 2
+  Bound result 13513
+  Bound result 14
+  Bound result 228090152762
+  Bound result 4
+  Bound result 1065337
+  Bound result 6
+  Bound result 7
+  Bound result 11732
+  Bound result 244085
+  Bound result 3
+  Bound result 464031999325
+  Bound result 69291261009
+  Bound result 506682633122
+  Bound result 7191
+  Bound result 1023503
+  Bound result 8
+  Bound result 28
+  Bound result 1
+  Bound result 2496
+  Bound result 2
+  Bound result 33
+  Bound result 687570
+  Bound result 355802
+  Bound result 4073638783
+  Bound result 4
+  Bound result 2
+  Bound result 0
+  Bound result 6873
+  Bound result 797697255692
+  Bound result 1295999
+  Bound result 4
+  Bound result 1381535
+  Bound result 1576
+  Bound result 505663
+  Bound result 26
+  Bound result 6858
+  Bound result 3467
+  Bound result 0
+  Bound result 3
+  Bound result 399679
+  Bound result 1246536
+  Bound result 2163561989
+  Bound result 15013
+  Bound result 1
+  Bound result 14
+  Bound result 458554251975
+  Bound result 759137823292
+  Bound result 954493
+  Bound result 19109
+  Bound result 1
+  Bound result 26749415314
+  Bound result 15198
+  Bound result 1
+  Bound result 43403267549
+  Bound result 134777
+  Bound result 33
+  Bound result 620
+  Bound result 561693508004
+  Bound result 6675
+  Bound result 8169
+  Bound result 1
+  Bound result 12414
+  Bound result 25573
+  Bound result 10646
+  Bound result 0
+  Bound result 0
+  Bound result 23593
+  Bound result 1
+  Bound result 541157
+  Bound result 749194857869
+  Bound result 4011175118
+  Bound result 1
+  Bound result 13
+  Bound result 1
+  Bound result 431029765226
+  Bound result 17175
+  Bound result 2439649221
+  Bound result 18
+  Bound result 1
+  Bound result 1035009
+  Bound result 30
+  Bound result 1902471738
+  Bound result 21
+  Bound result 894386
+  Bound result 10532
+  Bound result 902557677760
+  Bound result 8
+  Bound result 6
+  Bound result 475608024454
+  Bound result 1257499
+  Bound result 50726354
+  Bound result 598541833382
+  Bound result 12245
+  Bound result 9
+  Bound result 1
+  Bound result 894047532240
+  Bound result 80848
+  Bound result 571921125405
+  Bound result 15809
+  Bound result 677647973444
+  Bound result 3541
+  Bound result 884631
+  Bound result 230734991560
+  Bound result 12749
+  Bound result 228006
+  Bound result 655818612002
+  Bound result 1
+  Bound result 281974
+  Bound result 8
+  Bound result 4388
+  Bound result 544279515397
+  Bound result 313958
+  Bound result 7
+  Bound result 9
+  Bound result 19
+  Bound result 999462
+  Bound result 5
+  Bound result 859
+  Bound result 201337243500
+  Bound result 60473445
+  Bound result 15101
+  Bound result 490501479360
+  Bound result 5
+  Bound result 3
+  Bound result 1
+  Bound result 806726638602
+  Bound result 1820
+  Bound result 8548
+  Bound result 365448
+  Bound result 118523
+  Bound result 3560
+  Bound result 774993935171
+  Bound result 835458
+  Bound result 376686690505
+  Bound result 1
+  Bound result 8
+  Bound result 8
+  Bound result 28
+  Bound result 4
+  Bound result 5
+  Bound result 3
+  Bound result 2
+  Bound result 7
+  Bound result 1
+  Bound result 431029765225
+  Bound result 19
+  Bound result 408348
+  Bound result 12
+  Bound result 571921125405
+  Bound result 20
+  Bound result 1006196
+  Bound result 3
+  Bound result 8
+  Bound result 343418684534
+  Bound result 22
+  Bound result 17
+  Bound result 2
+  Bound result 189925437065
+  Bound result 1975968
+  Bound result 21
+  Bound result 3758969554
+  Bound result 1097655
+  Bound result 834033
+  Bound result 1
+  Bound result 7919
+  Bound result 10
+  Bound result 1
+  Bound result 1
+  Bound result 661499
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 284.06s (428.55s CPU time)
+
+Ran 2 tests for test/invariant/PoolSaleInvariant.t.sol:PoolSaleClosedInvariantTest
+[PASS] invariant_bnbEqualsIndependentCreditsReservesAndForcedFunds() (runs: 256, calls: 128000, reverts: 0)
+
+╭-----------------+-------------+-------+---------+----------╮
+| Contract        | Selector    | Calls | Reverts | Discards |
++============================================================+
+| PoolSaleHandler | advanceTime | 18317 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | cancel      | 18099 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | complete    | 18441 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | forceBnb    | 18339 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | listSale    | 18162 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | moveShares  | 18286 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | withdraw    | 18356 | 0       | 0        |
+╰-----------------+-------------+-------+---------+----------╯
+
+Logs:
+  Bound result 2
+  Bound result 5
+  Bound result 3
+  Bound result 10003
+  Bound result 604800
+  Bound result 20007
+  Bound result 17
+  Bound result 246767
+  Bound result 3638
+  Bound result 304644
+  Bound result 996978129045390610
+  Bound result 2359077700
+  Bound result 999999999999999998
+  Bound result 679900
+  Bound result 320
+  Bound result 361293622816264394
+  Bound result 682812
+  Bound result 930015670548055300
+  Bound result 3253134782
+  Bound result 743
+  Bound result 2
+  Bound result 1688851661272035
+  Bound result 672623
+  Bound result 52830164550321914
+  Bound result 264136771442431935
+  Bound result 509561
+  Bound result 176929306357433269
+  Bound result 539645495082100069
+  Bound result 783653771786531736
+  Bound result 402730
+  Bound result 23179
+  Bound result 1140
+  Bound result 199040422948735624
+  Bound result 319956
+  Bound result 3366
+  Bound result 147858921831918962
+  Bound result 151104981308320112
+  Bound result 2
+  Bound result 291396826138657061
+  Bound result 129371
+  Bound result 606102054276969613
+  Bound result 513007796690857246
+  Bound result 11295
+  Bound result 56468
+  Bound result 16831
+  Bound result 191230
+  Bound result 682083520289985944
+  Bound result 657307
+  Bound result 534100098658286309
+  Bound result 5214
+  Bound result 9177
+  Bound result 615838474636916185
+  Bound result 475385
+  Bound result 354877
+  Bound result 3
+  Bound result 302106
+  Bound result 776070739688202984
+  Bound result 2
+  Bound result 214520805942377282
+  Bound result 837080022512706300
+  Bound result 587
+  Bound result 5496
+  Bound result 6651
+  Bound result 433216
+  Bound result 913775013656368039
+  Bound result 288642
+  Bound result 108692435194499565
+  Bound result 9354
+  Bound result 161629
+  Bound result 17499874447823146
+  Bound result 640914
+  Bound result 371116303841600630
+  Bound result 14724
+  Bound result 372434718031657644
+  Bound result 784863692407796723
+  Bound result 116988
+  Bound result 76861998842403698
+  Bound result 137729585920281582
+  Bound result 477177
+  Bound result 238976
+  Bound result 3
+  Bound result 647857732741956815
+  Bound result 18645
+  Bound result 25190
+  Bound result 168995089304826736
+  Bound result 13347
+  Bound result 134672
+  Bound result 383471
+  Bound result 14326
+  Bound result 1187
+  Bound result 455431707157841141
+  Bound result 8882
+  Bound result 374508512944193257
+  Bound result 978660112646509526
+  Bound result 106
+  Bound result 90244
+  Bound result 714335818960317432
+  Bound result 63806
+  Bound result 454985405
+  Bound result 880899320743915058
+  Bound result 118236
+  Bound result 228380
+  Bound result 774352165700730
+  Bound result 359973656282389731
+  Bound result 82023
+  Bound result 45085
+  Bound result 691198
+  Bound result 2
+  Bound result 602018
+  Bound result 92
+  Bound result 587380
+  Bound result 45973892136282576
+  Bound result 1474
+  Bound result 13062
+  Bound result 462574
+  Bound result 823
+  Bound result 7567
+  Bound result 644457
+  Bound result 24950
+  Bound result 957927835818419317
+  Bound result 3584
+  Bound result 21723
+  Bound result 146841703808724666
+  Bound result 135383
+  Bound result 18437
+  Bound result 530934175947003754
+  Bound result 461224
+  Bound result 596749361037959389
+  Bound result 20236
+  Bound result 658314
+  Bound result 15299
+  Bound result 219556651737068634
+  Bound result 410472367167564074
+  Bound result 59677
+  Bound result 5234
+  Bound result 461492
+  Bound result 4343
+  Bound result 557466
+  Bound result 243190128869315159
+  Bound result 0
+  Bound result 246347355423456314
+  Bound result 391649860348690392
+  Bound result 1379434433
+  Bound result 432749255177400927
+  Bound result 341168333219947140
+  Bound result 116175
+  Bound result 72618253
+  Bound result 999999999999999997
+  Bound result 902188522358817709
+  Bound result 14145
+  Bound result 571007
+  Bound result 3
+  Bound result 365331229123588209
+  Bound result 527247
+  Bound result 462656885165544428
+  Bound result 130738084
+  Bound result 611
+  Bound result 43
+  Bound result 5387
+
+[PASS] invariant_ownershipRemainsFrozenAfterAtMostOneCompletedSale() (runs: 256, calls: 128000, reverts: 0)
+
+╭-----------------+-------------+-------+---------+----------╮
+| Contract        | Selector    | Calls | Reverts | Discards |
++============================================================+
+| PoolSaleHandler | advanceTime | 18317 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | cancel      | 18099 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | complete    | 18441 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | forceBnb    | 18339 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | listSale    | 18162 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | moveShares  | 18286 | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | withdraw    | 18356 | 0       | 0        |
+╰-----------------+-------------+-------+---------+----------╯
+
+Logs:
+  Bound result 2
+  Bound result 5
+  Bound result 3
+  Bound result 10003
+  Bound result 604800
+  Bound result 20007
+  Bound result 17
+  Bound result 246767
+  Bound result 7028
+  Bound result 304644
+  Bound result 765626004215402369
+  Bound result 4075
+  Bound result 999999999999999998
+  Bound result 679900
+  Bound result 5812
+  Bound result 361293622816264394
+  Bound result 682812
+  Bound result 930015670548055300
+  Bound result 3253134782
+  Bound result 231056
+  Bound result 2
+  Bound result 953631218524041246
+  Bound result 672623
+  Bound result 14137449499826866
+  Bound result 264136771442431935
+  Bound result 509561
+  Bound result 176929306357433269
+  Bound result 539645495082100069
+  Bound result 783653771786531736
+  Bound result 402730
+  Bound result 23053
+  Bound result 9065
+  Bound result 199040422948735624
+  Bound result 319956
+  Bound result 23012
+  Bound result 147858921831918962
+  Bound result 651398063980954530
+  Bound result 2
+  Bound result 922254781693772644
+  Bound result 129371
+  Bound result 606102054276969613
+  Bound result 513007796690857246
+  Bound result 10844
+  Bound result 56468
+  Bound result 16567
+  Bound result 191230
+  Bound result 833405496477460430
+  Bound result 657307
+  Bound result 534100098658286309
+  Bound result 341352
+  Bound result 9089
+  Bound result 615838474636916185
+  Bound result 475385
+  Bound result 54971
+  Bound result 3
+  Bound result 302106
+  Bound result 776070739688202984
+  Bound result 2
+  Bound result 214520805942377282
+  Bound result 837080022512706300
+  Bound result 93
+  Bound result 5444
+  Bound result 6651
+  Bound result 433216
+  Bound result 913775013656368039
+  Bound result 288642
+  Bound result 120514357843150605
+  Bound result 8889
+  Bound result 161629
+  Bound result 644809809761867436
+  Bound result 640914
+  Bound result 371116303841600630
+  Bound result 25345
+  Bound result 372434718031657644
+  Bound result 784863692407796723
+  Bound result 116988
+  Bound result 76861998842403698
+  Bound result 137729585920281582
+  Bound result 477177
+  Bound result 238976
+  Bound result 3
+  Bound result 647857732741956815
+  Bound result 17845
+  Bound result 13970
+  Bound result 168995089304826736
+  Bound result 0
+  Bound result 15591
+  Bound result 383471
+  Bound result 1288
+  Bound result 15465
+  Bound result 455431707157841141
+  Bound result 8882
+  Bound result 242064097932743153
+  Bound result 978660112646509526
+  Bound result 1559
+  Bound result 14609
+  Bound result 714335818960317432
+  Bound result 173463
+  Bound result 454985405
+  Bound result 880899320743915058
+  Bound result 118236
+  Bound result 228380
+  Bound result 774352165700730
+  Bound result 494416438444969780
+  Bound result 566021
+  Bound result 45085
+  Bound result 691198
+  Bound result 2
+  Bound result 353452
+  Bound result 92
+  Bound result 587380
+  Bound result 962633037934073714
+  Bound result 1474
+  Bound result 1854748633
+  Bound result 210087
+  Bound result 230308
+  Bound result 655270
+  Bound result 644457
+  Bound result 12365
+  Bound result 681905236152381568
+  Bound result 3584
+  Bound result 18705
+  Bound result 146841703808724666
+  Bound result 135383
+  Bound result 18095
+  Bound result 530934175947003754
+  Bound result 461224
+  Bound result 343009478539273730
+  Bound result 612392650
+  Bound result 658314
+  Bound result 686895408
+  Bound result 808959354228913204
+  Bound result 410472367167564074
+  Bound result 59677
+  Bound result 2517
+  Bound result 461492
+  Bound result 3353483178
+  Bound result 557466
+  Bound result 243190128869315159
+  Bound result 0
+  Bound result 21620
+  Bound result 391649860348690392
+  Bound result 15213
+  Bound result 432749255177400927
+  Bound result 341168333219947140
+  Bound result 154982
+  Bound result 72618253
+  Bound result 999999999999999997
+  Bound result 902188522358817709
+  Bound result 13562
+  Bound result 119939
+  Bound result 3
+  Bound result 365331229123588209
+  Bound result 622842
+  Bound result 462656885165544428
+  Bound result 130738084
+  Bound result 14840
+  Bound result 43
+  Bound result 2773
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 151.63s (203.75s CPU time)
+Forge terminated by SIGINT

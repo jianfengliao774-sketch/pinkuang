@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "kind": "governance24-actual-formal-graph-fork-rehearsal-v1",
+  "checkedAt": "2026-10-07T00:44:03.710Z",
+  "source": {
+    "number": 126158028,
+    "hash": "0x0ca99f1e5e182e35b4ccb33b010394f3c2009b350f341f8fd0d7dfd431dc6a7f",
+    "timestamp": 1791333793
+  },
+  "candidateArtifactDigest": "0x1bbf8ff3198a692937c1ea0450417c1c49dd91e3c5d1c59a108bac43e3774a0c",
+  "localForkOnly": true,
+  "mainnetTransactions": false,
+  "ethEstimateGasCalls": 0,
+  "poolCount": 11,
+  "preservedBusinessDigest": "0xa99770b63e455af7648f070bd48d085c82e54371057cb8858cbdceffb839dae6",
+  "migratedProxies": [
+    "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+    "0x533199B4E535C03BBAB4EC3fcf9B69aD16936065",
+    "0x6082bfBCC99a4818174230C3351B05faeA18B024",
+    "0x043680f37CC8902C2f58bA099d7C43eC7fa7E313"
+  ],
+  "businessDelay": 86400,
+  "legacyRecoveryDelay": 172800,
+  "future24hAllSixEndpointsVerified": true,
+  "futureEarlyExecutionRejected": true,
+  "corePoolCount": 11,
+  "portfolioPoolCount": 0,
+  "localCreateCount": 13,
+  "supersededCancellationCount": 3,
+  "original48HourBatchActionCount": 7,
+  "localTransactionCount": 20,
+  "exactCandidateRuntimeMatches": 13,
+  "businessBeforeEqualsAfter": true,
+  "protectedFullEvidenceSha256": "6d9b4808126b535421ea53f3b91a96742e11795357ce6cd4f3ab7321a365c364",
+  "productionCancellationPerformed": false
+}

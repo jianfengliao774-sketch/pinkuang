@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "b14793313c5d98a8482e64e2b9bd548367855ac6",
+  "baseCommit": "ac2066d",
+  "generatedAt": "2026-10-07T00:28:35.771335+00:00",
+  "productionActions": 0,
+  "walletActions": 0,
+  "sourceOnly": true,
+  "nonforkCi": {
+    "status": "passed",
+    "profile": "ci",
+    "suites": 58,
+    "testsPassed": 637,
+    "failed": 0,
+    "skipped": 0,
+    "fuzzRuns": 256,
+    "invariantRuns": 128,
+    "invariantDepth": 64,
+    "wallTimeSeconds": 55.57
+  },
+  "targetedGovernanceMigration": {
+    "status": "passed",
+    "tests": 9,
+    "coveredInCi": true
+  },
+  "targetedFirstoBatchRoute": {
+    "status": "passed",
+    "tests": 24,
+    "controlledProtocolOnly": true,
+    "actualProtocolForkClaimed": false,
+    "coveredInCi": true
+  },
+  "defaultStress": {
+    "status": "terminated_after_ci_pass_at_parent_request",
+    "completedSuites": 56,
+    "completedTestsPassed": 632,
+    "observedFailures": 0,
+    "fullRunPassClaimed": false,
+    "reason": "The latest complete CI profile passed every test; remaining higher-depth repeated stress was stopped to release local resources."
+  },
+  "buildSizes": {
+    "status": "passed",
+    "contracts": {
+      "PoolVault": {
+        "runtimeBytes": 24316,
+        "marginBelowEip170": 260
+      },
+      "BudgetPortfolioVault": {
+        "runtimeBytes": 24507,
+        "marginBelowEip170": 69
+      },
+      "Governance24FreshPoolFactory": {
+        "runtimeBytes": 23711,
+        "marginBelowEip170": 865
+      },
+      "Governance24BudgetPortfolioFactory": {
+        "runtimeBytes": 10041,
+        "marginBelowEip170": 14535
+      },
+      "Governance24ShareMarket": {
+        "runtimeBytes": 15513,
+        "marginBelowEip170": 9063
+      },
+      "PoolTimelock24": {
+        "runtimeBytes": 6501,
+        "marginBelowEip170": 18075
+      },
+      "Governance24Beacon": {
+        "runtimeBytes": 889,
+        "marginBelowEip170": 23687
+      },
+      "Governance24Dispatcher": {
+        "runtimeBytes": 503,
+        "marginBelowEip170": 24073
+      },
+      "Governance24Validation": {
+        "runtimeBytes": 2320,
+        "marginBelowEip170": 22256
+      }
+    }
+  },
+  "storage": {
+    "status": "passed",
+    "report": "governance24-storage-report.json",
+    "strictBaseLinearAndErc7201Fields": true,
+    "businessLibrariesRetained": true,
+    "freshInitializerAndLinkingExceptionsReviewed": true
+  },
+  "toolchain": {
+    "node": "24.19.0",
+    "forge": "1.7.1",
+    "forgeCommit": "4072e48705af9d93e3c0f6e29e93b5e9a40caed8",
+    "solc": "0.8.24+commit.e11b9ed9",
+    "evm": "shanghai",
+    "optimizerRuns": 1,
+    "viaIr": false
+  },
+  "boundaries": [
+    "First migration remains >=48 hours, future business governance >=24 hours.",
+    "Original timelock and original beacon ownership remain 48-hour recovery.",
+    "External chain contracts are outside this migration.",
+    "Final portfolio rounding patch only applies to later final settlement; already Closed legacy residue is not retroactively credited.",
+    "No mainnet fork test or activation was performed."
+  ],
+  "unchangedLegacySource": {
+    "PoolTimelock": {
+      "identicalToBase": true,
+      "sha256": "b60375034c995d385c71b1106e524660d2f57d6fff5940a2ec0be9ee731ce682"
+    },
+    "PoolBeacon": {
+      "identicalToBase": true,
+      "sha256": "608ba2cc8c158878f912035b0e4c38f8375013f789d61ddc672b869701b02d68"
+    }
+  },
+  "legacyInitializerDelayHours": 48,
+  "activeBusinessGovernanceDelayHours": 24
+}

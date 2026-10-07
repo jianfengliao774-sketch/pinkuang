@@ -515,7 +515,7 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         if (msg.sender != _marketStorage().timelock) revert Unauthorized();
     }
 
-    function _marketStorage() private pure returns (MarketStorage storage s) {
+    function _marketStorage() internal pure returns (MarketStorage storage s) {
         assembly {
             s.slot := MARKET_STORAGE_LOCATION
         }
