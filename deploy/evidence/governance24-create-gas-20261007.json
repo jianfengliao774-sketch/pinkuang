@@ -1,0 +1,279 @@
+{
+  "schemaVersion": 1,
+  "kind": "governance24-offline-create-gas-review-v1",
+  "measuredAt": "2026-10-07T00:43:31.289Z",
+  "pins": {
+    "trustedPredecessorInputDigest": "0x1beb7d9dd6c51d40737da3f51ba32c84ef0d38e54c2d17654eeda76ab5323929",
+    "trustedUpgradeArtifactDigest": "0x1bbf8ff3198a692937c1ea0450417c1c49dd91e3c5d1c59a108bac43e3774a0c",
+    "trustedReviewCatalogDigest": "0x69789aa6e4fbe63a7c86b4ff166bf60718417762231db3ef147bdcd37bd4e0ad",
+    "trustedGenesisRecordDigest": "0x4aeef3a06351f9dc6b18a85c4a8e34899792bebb38886e0d050bbf3695e41d00",
+    "trustedGenesisManifestDigest": "0x3870f0f8c06092b6418c2bd2ab522414ee4091bb937215b6ea97f4283bd25196"
+  },
+  "environment": {
+    "disposableLoopbackEvm": true,
+    "forked": false,
+    "chainId": 56,
+    "productionTransactions": false,
+    "anvilVersion": "1.7.1",
+    "sendGasCeiling": "9000000",
+    "ethEstimateGasCalls": 0
+  },
+  "margin": {
+    "percent": 20,
+    "absoluteGas": 50000,
+    "roundUpGas": 10000
+  },
+  "deployments": [
+    {
+      "name": "FlexiblePurchase",
+      "address": "0x367cDC26AaC16D91F1262aAEbA1e6B8263a3f01c",
+      "localTransactionHash": "0x27eb59180afc31b59e6d6eba844ec5a9f66b801545a0f5162d3e73d830a51ea3",
+      "nonce": 0,
+      "dataHash": "0x678947db059126ec2a341d1e000089dddc3888e45cdb598f970a3ead3345f793",
+      "initcodeBytes": 18917,
+      "gasUsed": "4132701",
+      "gasLimit": "5010000",
+      "blockHash": "0x597957fc51e42d574a3bd5c6e3cd5e64eb2eb623d9aee6f6486fec5e1f51bb88",
+      "blockNumber": 1,
+      "runtimeBytes": 18864,
+      "runtimeCodehash": "0xd3123201910bbbfea0c225a5edb034c94cf1e6db7db625b4fb7e58f233190594",
+      "libraries": {
+        "PoolFunds": "0x1bE05BE7D954F780E768d931fA0207739F80421D",
+        "PurchaseValidation": "0x7e9f55608B6f00899c61e75A763E86a2ce670A74"
+      },
+      "constructorArgs": []
+    },
+    {
+      "name": "PoolVault",
+      "address": "0xf4cE5CDE7c1e6Fb13BcF1a78eAa9c24E0a20e257",
+      "localTransactionHash": "0x86ff66c883771bde4b9b170276206b4537e9cb9b3972513b94e2ca90a44e4798",
+      "nonce": 1,
+      "dataHash": "0x48eb797638b183f5e4c23d45f776cdb3b78b2d1967979597423170c57d0056b8",
+      "initcodeBytes": 24734,
+      "gasUsed": "5340989",
+      "gasLimit": "6460000",
+      "blockHash": "0xcba95a0521a91b4ce43442fc0b13b912fb656eefccdaf54caef43299c2f9a169",
+      "blockNumber": 2,
+      "runtimeBytes": 24316,
+      "runtimeCodehash": "0x711e51563ddcc6e5c5eee375ccd42eeeb970c98678b012b9471bceb00fa1ddf6",
+      "libraries": {
+        "FirstoSale": "0x6b80f98020c5BB4106A86Bca4378E5CBBb200C21",
+        "FlexiblePurchase": "0x367cDC26AaC16D91F1262aAEbA1e6B8263a3f01c",
+        "MiningOperations": "0x99A5F0f6E780D147EcCC053EDBE1BDB7d93d561e",
+        "PoolFunds": "0x1bE05BE7D954F780E768d931fA0207739F80421D",
+        "RewardAccounting": "0x86645E27b55cA9fFf0bE5DD9B8dc066E19251823",
+        "SaleGovernance": "0x64F116956E5647791F491da28BAdc645859d4Baf",
+        "SaleSettlement": "0x5550e1d8936C96318A74f812318D3DBfc3244dcB",
+        "ShareCheckpoints": "0xcc32d834457aBFc23c310CFcbAEb3267799B8A70"
+      },
+      "constructorArgs": [
+        "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9"
+      ]
+    },
+    {
+      "name": "BudgetPortfolioVault",
+      "address": "0x9920a4115150710F83D99198E31fa517E937108C",
+      "localTransactionHash": "0x3137c1ec6c6f96e1304372822f2eb6d5494acc1e37fce22cde6f2b4c5cff2d55",
+      "nonce": 2,
+      "dataHash": "0x5a55ee5740b9e73f550e0832f28d057f762475f04055b6743fb1f0953047ec47",
+      "initcodeBytes": 24961,
+      "gasUsed": "5380686",
+      "gasLimit": "6510000",
+      "blockHash": "0x0b0884ebaa6649a787d2f6ea15155beebe174764745d05915ce6a9fe3cac3ec5",
+      "blockNumber": 3,
+      "runtimeBytes": 24507,
+      "runtimeCodehash": "0x6332e4adf8306822223f22c7421a6ffc52d2934909b054c379389c21ecfcdf7b",
+      "libraries": {
+        "SaleGovernance": "0x64F116956E5647791F491da28BAdc645859d4Baf"
+      },
+      "constructorArgs": [
+        "0x533199B4E535C03BBAB4EC3fcf9B69aD16936065"
+      ]
+    },
+    {
+      "name": "PoolTimelock24",
+      "address": "0x0BEB7Fb617140e2c9621CaEa103035A4048ddb4c",
+      "localTransactionHash": "0x5db3667a3dc1413c5849738f95494f804ee53241bd5f8e56037ab459619e42b8",
+      "nonce": 3,
+      "dataHash": "0xf3004ddb79c5ca77ef1807effd1d71658591e75a36b3a075abe1ad5a1b9481d1",
+      "initcodeBytes": 7466,
+      "gasUsed": "1595946",
+      "gasLimit": "1970000",
+      "blockHash": "0xb68d483ac8a7f8608b02ad60316012c68b84e9241e695ab86ea99c9fac38af54",
+      "blockNumber": 4,
+      "runtimeBytes": 6501,
+      "runtimeCodehash": "0xa17d5c760cb6f6c5bd236626fe5911bb4ffcd00d96ceeb3cf22646963993a302",
+      "libraries": {},
+      "constructorArgs": [
+        "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7"
+      ]
+    },
+    {
+      "name": "CoreGovernance24Beacon",
+      "address": "0x654B141B6a21efF552de0EabfD2976D8d2108926",
+      "localTransactionHash": "0xc1ccb40d270512ff0403f56a577ec5be7454bfcc14b54deb9a8933fb7917ca48",
+      "nonce": 4,
+      "dataHash": "0x93bdbbd8845c9e54b73690040fb3d75ab37314b65e6a3f61f5c40a3bfe8f64d4",
+      "initcodeBytes": 3073,
+      "gasUsed": "355601",
+      "gasLimit": "480000",
+      "blockHash": "0x3018a77def25785a4abfbcfae28a8ea52fba44fb7eedaf6a1577d85449c89981",
+      "blockNumber": 5,
+      "runtimeBytes": 889,
+      "runtimeCodehash": "0xfccddd4d0099ac4918fb5984032cbe70956639ef4a096e6a43adb648e03b4a7e",
+      "libraries": {},
+      "constructorArgs": [
+        "0xf4cE5CDE7c1e6Fb13BcF1a78eAa9c24E0a20e257",
+        "0x0BEB7Fb617140e2c9621CaEa103035A4048ddb4c"
+      ]
+    },
+    {
+      "name": "PortfolioGovernance24Beacon",
+      "address": "0xc1dB0D15c5433a5694C5D53a85b86278b882Ee29",
+      "localTransactionHash": "0xd6e57c3949af6e6ac4c120a1ffcd3a577d490502c2bc01f8ba7284e144fb923c",
+      "nonce": 5,
+      "dataHash": "0xd8c0eca493c618e9990d1c0fcdadc549ecdccd36c21ec4229d82d09aa681516d",
+      "initcodeBytes": 3073,
+      "gasUsed": "355029",
+      "gasLimit": "480000",
+      "blockHash": "0x97c127e3360eae312a1ccb06f7334498594fc615983420ee41e3f6511d5f988e",
+      "blockNumber": 6,
+      "runtimeBytes": 889,
+      "runtimeCodehash": "0x1d9a7dd14f19ecf847e1c35dabf584670f2c3f6ce5dfb3ab18ed8cf53947581f",
+      "libraries": {},
+      "constructorArgs": [
+        "0x9920a4115150710F83D99198E31fa517E937108C",
+        "0x0BEB7Fb617140e2c9621CaEa103035A4048ddb4c"
+      ]
+    },
+    {
+      "name": "CoreGovernance24Dispatcher",
+      "address": "0xefb495f1D166886BE7325C06641729E1D927252d",
+      "localTransactionHash": "0xba7143ca11931d7785ca55c10557e7b280205d6aa0338a3201e65b780c2dbb20",
+      "nonce": 6,
+      "dataHash": "0x15d4d66a181d21cfb8a39fc1dac1c12f07ba7a81958a6beac68c1206acd9d28d",
+      "initcodeBytes": 2465,
+      "gasUsed": "223590",
+      "gasLimit": "320000",
+      "blockHash": "0x5ecc5986426bb71277f17488eef7d828d74298dbf0a90dfd2193646e9efe1f81",
+      "blockNumber": 7,
+      "runtimeBytes": 503,
+      "runtimeCodehash": "0x8ded083192757a4730b43ea7f7e49fac107b1584fdd198a672353ee708e42724",
+      "libraries": {},
+      "constructorArgs": [
+        "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+        "0x654B141B6a21efF552de0EabfD2976D8d2108926"
+      ]
+    },
+    {
+      "name": "PortfolioGovernance24Dispatcher",
+      "address": "0xDdc0a0D364bFea49B333e0cCd0431E82681F7324",
+      "localTransactionHash": "0x3ec7d9a2042546a6efeb1123f2c002dc83ae7c5d324bf420835ecb3d8dcb92ea",
+      "nonce": 7,
+      "dataHash": "0x19cfd2bc71537705037939fe8f21cdfdde0813e99bcfb6428ba7151ce3f952cb",
+      "initcodeBytes": 2465,
+      "gasUsed": "223590",
+      "gasLimit": "320000",
+      "blockHash": "0x6fafdffbb7f515fc01a7c513899457dc4dd59e7b2d1d081a864f2923beaea475",
+      "blockNumber": 8,
+      "runtimeBytes": 503,
+      "runtimeCodehash": "0xc8a8292434470292aa7f696f7dbe8cf7c0557e11f12bcac57f91337b3953d584",
+      "libraries": {},
+      "constructorArgs": [
+        "0x533199B4E535C03BBAB4EC3fcf9B69aD16936065",
+        "0xc1dB0D15c5433a5694C5D53a85b86278b882Ee29"
+      ]
+    },
+    {
+      "name": "Governance24Validation",
+      "address": "0x7967Ab94bcDeEC734284f8Dfeb003EB0Daed5F5E",
+      "localTransactionHash": "0xaa4626a3e1d903aea3f23873c0cd53259036940cd864b1fc8fee73ab9508f308",
+      "nonce": 8,
+      "dataHash": "0x7e93d337da32655c46a9871f3a5c68597d538c2c8d3002ecfb78fbe9815de6cf",
+      "initcodeBytes": 2373,
+      "gasUsed": "555196",
+      "gasLimit": "720000",
+      "blockHash": "0xf0056566e6200f95d348fa6c57a26a1193ec3bb7d8d658e15fb7f856b472ea7e",
+      "blockNumber": 9,
+      "runtimeBytes": 2320,
+      "runtimeCodehash": "0xfaad216605ea75b2121a33b36d7133ff597aa24957a848aaa22574467a81ec92",
+      "libraries": {},
+      "constructorArgs": []
+    },
+    {
+      "name": "Governance24FreshPoolFactory",
+      "address": "0x35d837A19554B038b0DD16BE3A5A0eccEBeff63c",
+      "localTransactionHash": "0xffb49c6955dba0766d1f4f3493670bb102c96d94660f0961f81752a0101e8263",
+      "nonce": 9,
+      "dataHash": "0x5ea3809ccfadfaa81d86e36a44e60a4d3c608f2b6de960ca1881f60257ab1550",
+      "initcodeBytes": 23967,
+      "gasUsed": "5194928",
+      "gasLimit": "6290000",
+      "blockHash": "0x0146538b2ecd53f8f399adeba7f809a67249544416f695aa7189241cc18860ba",
+      "blockNumber": 10,
+      "runtimeBytes": 23711,
+      "runtimeCodehash": "0xed3a02762c9be198fea6a40e94a9abc85244740350983012852d9b9c721e78bb",
+      "libraries": {
+        "Governance24Validation": "0x7967Ab94bcDeEC734284f8Dfeb003EB0Daed5F5E",
+        "PurchaseValidation": "0x7e9f55608B6f00899c61e75A763E86a2ce670A74"
+      },
+      "constructorArgs": []
+    },
+    {
+      "name": "Governance24BudgetPortfolioFactory",
+      "address": "0x39EfceC7b1cf537DB348b4906d3740EbF3A9a825",
+      "localTransactionHash": "0x4431be37d08295062d2d6fb65d7acb32d7068a4e2d8548666b52f1dd46060265",
+      "nonce": 10,
+      "dataHash": "0x5117d6c69c967e862da94fa1f3fa6fa5a5dc744c60643756f9071fa7ee5bdfaf",
+      "initcodeBytes": 10290,
+      "gasUsed": "2245084",
+      "gasLimit": "2750000",
+      "blockHash": "0x737ea41c5b248ff6124d1bce6a00aac5db900cd4dbd475c8bcab99acbe4521d7",
+      "blockNumber": 11,
+      "runtimeBytes": 10041,
+      "runtimeCodehash": "0xc6a26ac805bbe69983046ee0db825f9cf360fb0fede83e39624036a8099ba38b",
+      "libraries": {
+        "Governance24Validation": "0x7967Ab94bcDeEC734284f8Dfeb003EB0Daed5F5E"
+      },
+      "constructorArgs": []
+    },
+    {
+      "name": "CoreGovernance24ShareMarket",
+      "address": "0x79f4E633BF1bBB3FC67EA45636B8C53D047a20e4",
+      "localTransactionHash": "0x1bef5b7ff783bd15d293200aa296ce5c1b9012ad7b7d9392772dc1e1542b0b7f",
+      "nonce": 11,
+      "dataHash": "0x65d6353ea9e6b1a5b85077b412dd8773d5bb6a8293fd086da521b5e5f7db1246",
+      "initcodeBytes": 15769,
+      "gasUsed": "3434255",
+      "gasLimit": "4180000",
+      "blockHash": "0xd02c9cec03c524db7bf1e25c1334183569211af811f8d58770e66e632d0cc817",
+      "blockNumber": 12,
+      "runtimeBytes": 15513,
+      "runtimeCodehash": "0x809a936904527bc84ef885c3997f6a2f3521ac40eccafb9a94cdfd2260070a80",
+      "libraries": {
+        "Governance24Validation": "0x7967Ab94bcDeEC734284f8Dfeb003EB0Daed5F5E"
+      },
+      "constructorArgs": []
+    },
+    {
+      "name": "PortfolioGovernance24ShareMarket",
+      "address": "0x90a47B24b4F80b437c781eEc197F0cF2d4f66bf4",
+      "localTransactionHash": "0x993b3a2a0cbce41da00f8d4f0103081f194d1f3f422e42c6a60c1308eee05279",
+      "nonce": 12,
+      "dataHash": "0x65d6353ea9e6b1a5b85077b412dd8773d5bb6a8293fd086da521b5e5f7db1246",
+      "initcodeBytes": 15769,
+      "gasUsed": "3434255",
+      "gasLimit": "4180000",
+      "blockHash": "0x80bb02a45844173706058563c524ede745bdd7e06e90eb5df0ff18ef0f681832",
+      "blockNumber": 13,
+      "runtimeBytes": 15513,
+      "runtimeCodehash": "0x8dddad400761d0bbbbf1e910dccc87efa56c002ef9f8b286ff5277cdd932651d",
+      "libraries": {
+        "Governance24Validation": "0x7967Ab94bcDeEC734284f8Dfeb003EB0Daed5F5E"
+      },
+      "constructorArgs": []
+    }
+  ],
+  "fixedCeilingsTested": true,
+  "preservedFactory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9"
+}
