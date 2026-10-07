@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { realpathSync } from 'node:fs';
 import { createLiveDataProxy, liveDataProxyConfiguration } from '../upgrade-read/live-data-proxy.mjs';
 import { createRequestLimiter } from '../upgrade-read/request-limiter.mjs';
 import { createGovernance24ScheduledLogs, Governance24ReadError } from './scheduled-logs.mjs';
@@ -66,7 +67,7 @@ export function createGovernance24ReadServer(proxy, scheduledLogs) {
   });
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))) {
   const config = governance24ReadServerConfiguration();
   const proxy = createLiveDataProxy({ rpcUrl: config.rpcUrl, transactionRpcUrl: config.transactionRpcUrl,
     logsRpcUrl: config.rpcUrl, fallbackRpcUrl: null, ...GOVERNANCE24_READ_PROXY_LIMITS,

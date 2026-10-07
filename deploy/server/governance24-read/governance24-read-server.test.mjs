@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { spawn } from 'node:child_process';
+import { mkdtemp, rm, symlink } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { id } from 'ethers';
 import { createLiveDataProxy } from '../upgrade-read/live-data-proxy.mjs';
 import { createGovernance24ReadServer, governance24ReadServerConfiguration, GOVERNANCE24_REVIEW_ANCHOR_BLOCK as anchor } from './governance24-read-server.mjs';
@@ -17,6 +23,34 @@ const envelope = (payload, result) => json({ jsonrpc: '2.0', id: payload.id, res
 const archive = 'https://archive.invalid/protected-key', transactions = 'https://transactions.invalid/protected-key';
 const env = overrides => ({ GOVERNANCE24_REVIEW_ANCHOR_BLOCK: String(anchor), GOVERNANCE24_READ_RPC_URL: archive,
   GOVERNANCE24_READ_TRANSACTION_RPC_URL: transactions, ...overrides });
+
+test('actual CLI starts through a current-style directory symlink and serves loopback without any external RPC', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gov24-read-symlink-'));
+  await symlink(fileURLToPath(new URL('./', import.meta.url)), join(directory, 'current'));
+  const entry = join(directory, 'current', 'governance24-read-server.mjs');
+  const reservation = createServer(); await new Promise(resolve => reservation.listen(0, '127.0.0.1', resolve));
+  const port = reservation.address().port; await new Promise(resolve => reservation.close(resolve));
+  const child = spawn(process.execPath, [entry], { env: { ...process.env,
+    ...env({ GOVERNANCE24_READ_PORT: String(port), GOVERNANCE24_READ_RPC_URL: 'http://127.0.0.1:1/archive',
+      GOVERNANCE24_READ_TRANSACTION_RPC_URL: 'http://127.0.0.1:1/transactions' }) }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '';
+  try {
+    await new Promise((resolveStarted, reject) => {
+      const timer = setTimeout(() => { cleanup(); reject(new Error('Symlink CLI did not listen within the test deadline.')); }, 5000);
+      const cleanup = () => { clearTimeout(timer); child.off('exit', earlyExit); child.off('error', failed); child.stdout.off('data', data); };
+      const earlyExit = code => { cleanup(); reject(new Error(`Symlink CLI exited before listening (${code}).`)); };
+      const failed = error => { cleanup(); reject(error); };
+      const data = chunk => { output += chunk.toString(); if (output.includes(`listening on 127.0.0.1:${port}`)) { cleanup(); resolveStarted(); } };
+      child.once('exit', earlyExit); child.once('error', failed); child.stdout.on('data', data);
+    });
+    const response = await fetch(`http://127.0.0.1:${port}/api/rpc`);
+    assert.equal(response.status, 405, 'HTTP route proves the real CLI is listening; GET never contacts either dummy RPC');
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api/journal/health`)).status, 404);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) { child.kill('SIGTERM'); await new Promise(resolve => child.once('exit', resolve)); }
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test('isolated configuration binds loopback4230, separate operator destinations and an explicit reviewed anchor', () => {
   assert.deepEqual(governance24ReadServerConfiguration(env()), { host: '127.0.0.1', port: 4230,

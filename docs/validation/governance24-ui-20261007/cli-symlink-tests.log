@@ -1,0 +1,18 @@
+✔ actual CLI starts through a current-style directory symlink and serves loopback without any external RPC (97.230083ms)
+✔ isolated configuration binds loopback4230, separate operator destinations and an explicit reviewed anchor (1.03175ms)
+✔ exact CallScheduled signature and indexed topics accept only canonical bounded incremental filters (0.761834ms)
+✔ other contracts/events, OR filters, wildcards, noncanonical bounds and ranges over2048 never reach the archive (0.253833ms)
+✔ canonical log response fails closed on every unrelated, removed, duplicate or malformed row (0.345459ms)
+✔ one service route preserves ordinary guarded reads and rejects writes, batches, index, assets and destination injection (20.643292ms)
+✔ scoped logs use protected archive only, check finalized/canonical anchors and are never cached (12.734875ms)
+✔ log requests beyond finalized or malformed upstream scope, identity or chain are refused without fallback (26.463167ms)
+✔ log redirect, transport, timeout and oversized streaming responses fail closed (26.060333ms)
+✔ scoped log concurrency has a fixed bound and does not queue unbounded archive work (11.264167ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 322.923541
