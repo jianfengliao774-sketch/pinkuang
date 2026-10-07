@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=pinkuang
-Group=pinkuang
+User=www-data
+Group=www-data
 WorkingDirectory=/srv/pinkuang-governance24-read/current
 EnvironmentFile=/etc/pinkuang-governance24-read.env
 ExecStart=/usr/bin/node /srv/pinkuang-governance24-read/current/deploy/server/governance24-read/governance24-read-server.mjs
