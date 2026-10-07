@@ -4,7 +4,7 @@ import { Contract, FetchRequest, JsonRpcProvider, getAddress, keccak256, makeErr
   type JsonRpcPayload, type JsonRpcResult } from 'ethers';
 // The reviewed helpers are deliberately shared with the read-only product graph verifier.
 // @ts-ignore ESM helper has runtime validation; this standalone entry supplies pinned JSON only.
-import { buildGovernance24UpgradePlan, prepareGovernance24UpgradeDeployment, validateGovernance24UpgradeReview } from '../shared/governance24-upgrade-plan.mjs';
+import { buildGovernance24UpgradePlan, prepareGovernance24UpgradeDeployment, validateGovernance24UpgradeReview, governance24Cancellations } from '../shared/governance24-upgrade-plan.mjs';
 // @ts-ignore ESM proof module is reviewed and tested independently of this wallet UI.
 import { validateGovernance24UpgradePreflight, governance24VerifiedUpgrade } from '../shared/governance24-upgrade-proof.mjs';
 import { discoverWallets, messageOf, readWallet, switchToBsc, type WalletOption, type WalletState } from './wallet';
@@ -14,6 +14,7 @@ import { GOVERNANCE24_DEPLOYMENTS, confirmedGovernance24Deployments, newGovernan
   governance24JournalKey, governance24Pending, runGovernance24UpgradeSequence, waitForGovernance24Finality, governance24RecoveryPhase, submitGovernance24Upgrade, governance24ReviewedGas,
   verifyGovernance24RecoveryReceipt, VerifiedGovernance24TransactionFailure, archiveGovernance24Failure,
   prepareGovernance24Intent, assertGovernance24IntentCurrent, discoverGovernance24Transaction, archiveLegacyGovernance24Deployment,
+  isGovernance24Cancellation, governance24Transaction, withGovernance24Transaction, confirmedGovernance24Cancellations,
   type Governance24Journal, type Governance24Name, type Governance24Step, type Governance24Operation, type UpgradeTransaction } from './governance24-upgrade-ui';
 import './target-owner-upgrade.css';
 
@@ -31,6 +32,8 @@ type Preflight = { blockNumber: number; blockHash: string; [name: string]: any }
 const release = __GOVERNANCE24_RELEASE__;
 const GOVERNANCE24_DEPLOYER = '0x042B23288E2316DFb6503488292FD0Ad2F811Ae7';
 const explorer = 'https://bscscan.com';
+const formatOldEta = (value: string) => { const seconds = BigInt(value);
+  return seconds <= 8640000000000n ? new Date(Number(seconds) * 1000).toLocaleString('zh-CN') : '超出本机日期显示范围，原秒数已保留'; };
 const short = (value: string) => `${value.slice(0, 8)}…${value.slice(-6)}`;
 const same = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 const json = (value: unknown) => JSON.stringify(value, (_, item) => typeof item === 'bigint' ? item.toString() : item, 2);
@@ -150,17 +153,18 @@ export function Governance24UpgradeStandalone() {
   const busyRef = useRef(false), epoch = useRef(0), abort = useRef<AbortController | null>(null);
   const walletRef = useRef<WalletOption | null>(null), mounted = useRef(true);
   const returnedHash = useRef<{ key: string; raw: string; step: Governance24Step; hash: string } | null>(null);
-  const context = useMemo(() => common ? { factory: common.predecessorInput.genesisRecord.addresses.factory,
+  const cancellationPlan = useMemo(() => common ? governance24Cancellations(common) as Json[] : [], [common]);
+  const context = useMemo(() => common ? { cancellationIds: cancellationPlan.map(item => item.id as `cancel-${string}`), factory: common.predecessorInput.genesisRecord.addresses.factory,
     genesisRecordDigest: common.predecessorInput.trustedGenesisRecordDigest,
     genesisManifestDigest: common.predecessorInput.trustedGenesisManifestDigest,
     candidateArtifactDigest: release.pins.trustedUpgradeArtifactDigest, catalogDigest: release.pins.trustedReviewCatalogDigest,
-    predecessorInputDigest: release.pins.trustedPredecessorInputDigest } : null, [common]);
+    predecessorInputDigest: release.pins.trustedPredecessorInputDigest } : null, [common, cancellationPlan]);
   const key = context ? governance24JournalKey(context) : null;
   const account = walletState?.address;
   const reviewedCatalog = common?.reviewCatalog;
   const deployer = reviewedCatalog?.deployer as string | undefined, proposer = reviewedCatalog?.bindings?.proposer as string | undefined;
   const pending = journal ? governance24Pending(journal) : null;
-  const pendingTransaction = pending === 'schedule' || pending === 'execute' ? journal?.[pending] : pending ? journal?.deployments[pending] : null;
+  const pendingTransaction = pending && journal ? governance24Transaction(journal, pending) : null;
   const needsOriginalHash = !!pending && !pendingTransaction?.txHash && !pendingTransaction?.intent;
   const canResumeLegacyDeployment = needsOriginalHash && GOVERNANCE24_DEPLOYMENTS.includes(pending as Governance24Name);
   const completed = journal ? Object.keys(confirmedGovernance24Deployments(journal)).length : 0;
@@ -303,17 +307,17 @@ export function Governance24UpgradeStandalone() {
     }
     // Imported failure rows are claims too. Re-prove status0 before they can clear a retry gate.
     for (const failed of source?.failedTransactions ?? []) {
-      const governance = failed.step === 'schedule' || failed.step === 'execute';
+      const cancellation = isGovernance24Cancellation(failed.step), governance = cancellation || failed.step === 'schedule' || failed.step === 'execute';
       const prior = source ? Object.fromEntries(GOVERNANCE24_DEPLOYMENTS.slice(0, GOVERNANCE24_DEPLOYMENTS.indexOf(failed.step as Governance24Name))
         .filter(name => source.deployments[name]?.status === 'confirmed').map(name => [name, source.deployments[name]!.address!])) : {};
-      const data = governance ? currentPlan?.[`${failed.step}Data`]
+      const data = cancellation ? currentPlan?.cancellations.find((item: Json) => item.id === failed.step)?.data : governance ? currentPlan?.[`${failed.step}Data`]
         : prepareGovernance24UpgradeDeployment(failed.step, common, { deploymentsPrefix: prior }).data;
       if (!data || !same(keccak256(data), failed.transaction.dataHash)
         || !same(failed.transaction.from, governance ? proposer : deployer)) throw new Error('归档失败交易与本次固定步骤不符。');
       try {
         await verifyGovernance24RecoveryReceipt(provider, failed.evidence.txHash, { from: failed.transaction.from,
           dataHash: failed.transaction.dataHash, intent: failed.transaction.intent,
-          ...(governance ? { to: currentPlan.timelock, data, operation: failed.step as 'schedule' | 'execute', input: common!, plan: currentPlan } : {}) });
+          ...(governance ? { to: currentPlan.timelock, data, operation: cancellation ? 'cancel' as const : failed.step as 'schedule' | 'execute', ...(cancellation ? { cancellationId: failed.step as `cancel-${string}` } : {}), input: common!, plan: currentPlan } : {}) });
         throw new Error('归档交易没有已验证的最终失败回执。');
       } catch (problem) {
         if (!(problem instanceof VerifiedGovernance24TransactionFailure)) throw problem;
@@ -321,13 +325,15 @@ export function Governance24UpgradeStandalone() {
           throw new Error('失败归档的规范区块已变化。');
       }
     }
-    const currentState = currentPlan && force !== 'prepared' ? await operationState(provider, currentPlan)
+    const cancellationsComplete = !!source && source.cancellationIds.every(id => source.cancellations[id]?.status === 'confirmed');
+    const currentState = currentPlan && cancellationsComplete && force !== 'prepared' ? await operationState(provider, currentPlan)
       : { operation: 'unknown' as Operation, readyAt: null, snapshot: undefined };
     const phase = force || (currentState.operation === 'done' ? 'done'
-      : ['waiting', 'ready'].includes(currentState.operation) ? 'scheduled' : currentPlan ? 'unscheduled' : 'prepared');
+      : ['waiting', 'ready'].includes(currentState.operation) ? 'scheduled' : currentPlan && cancellationsComplete ? 'unscheduled' : 'prepared');
     assertCurrent(); setBusy(phase === 'done' ? '确认升级结果' : '自动检查升级条件');
     const checked = await validateGovernance24UpgradePreflight(provider, common, { phase,
       ...(currentState.snapshot ? { snapshot: currentState.snapshot } : {}),
+      cancellationTxHashes: source ? confirmedGovernance24Cancellations(source) : {},
       deployments: source ? confirmedGovernance24Deployments(source) : {}, ...(currentPlan ? { plan: currentPlan } : {}),
       ...(source?.schedule?.txHash ? { scheduleTxHash: source.schedule.txHash } : {}),
       ...(source?.execute?.txHash ? { executeTxHash: source.execute.txHash } : {}) });
@@ -336,7 +342,10 @@ export function Governance24UpgradeStandalone() {
     setProof(checked); setOperation(state.operation); setReadyAt(state.readyAt);
     if (phase === 'done') {
       if (checked.codeUpgradeComplete !== true || checked.governanceMigrationComplete !== true || checked.coverageVerified !== true
-        || checked.businessDelaySeconds !== 86400 || checked.legacyRecoveryDelaySeconds !== 172800)
+        || checked.businessDelaySeconds !== 86400 || checked.legacyRecoveryDelaySeconds !== 172800
+        || !Array.isArray(checked.confirmedCancellationIds)
+        || checked.confirmedCancellationIds.length !== source?.cancellationIds.length
+        || !source?.cancellationIds.every(id => checked.confirmedCancellationIds.some((proofId: string) => same(proofId, id.slice(7)))))
         throw new Error('全业务治理迁移尚未完整核验，不能标记完成。');
       setResult(governance24VerifiedUpgrade(checked));
     }
@@ -366,16 +375,16 @@ export function Governance24UpgradeStandalone() {
         proven = { raw, state: { operation: checked.operation, readyAt: checked.readyAt } }; return proven.state;
       };
       const recover = async (item: Governance24Journal, step: Governance24Step, suppliedHash?: string) => {
-        let transaction = step === 'schedule' || step === 'execute' ? item[step]! : item.deployments[step]!;
-        const governance = step === 'schedule' || step === 'execute', currentPlan = planFor(item);
+        let transaction = governance24Transaction(item, step)!;
+        const cancellation = isGovernance24Cancellation(step), governance = cancellation || step === 'schedule' || step === 'execute', currentPlan = planFor(item);
         const trusted = returnedHash.current;
         const originalRaw = JSON.stringify(item);
         const returned = trusted?.key === key && trusted.raw === originalRaw && trusted.step === step ? trusted.hash : undefined;
-        const data = governance ? currentPlan?.[`${step}Data`]
+        const data = cancellation ? currentPlan?.cancellations.find((item: Json) => item.id === step)?.data : governance ? currentPlan?.[`${step}Data`]
           : prepareGovernance24UpgradeDeployment(step, common, { deploymentsPrefix: confirmedGovernance24Deployments(item) }).data;
         if (!data || !same(keccak256(data), transaction.dataHash)) throw new Error('本机原交易与固定升级步骤不同。');
         const expected = { from: transaction.from, dataHash: transaction.dataHash, intent: transaction.intent,
-          ...(governance ? { to: currentPlan.timelock, data, operation: step as 'schedule' | 'execute', input: common!, plan: currentPlan } : {}) };
+          ...(governance ? { to: currentPlan.timelock, data, operation: cancellation ? 'cancel' as const : step as 'schedule' | 'execute', ...(cancellation ? { cancellationId: step as `cancel-${string}` } : {}), input: common!, plan: currentPlan } : {}) };
         let hash = transaction.txHash || returned || suppliedHash?.trim(), discovered = false;
         if (!hash && transaction.intent) {
           setBusy('自动找回当前交易');
@@ -388,8 +397,7 @@ export function Governance24UpgradeStandalone() {
         if (!same(transaction.from, governance ? proposer : deployer)) throw new Error('原交易发送者与指定钱包不同。');
         if (!transaction.txHash && (returned || discovered)) {
           transaction = { ...transaction, txHash: hash, status: 'submitted' };
-          item = session.persist(governance ? { ...item, [step]: transaction }
-            : { ...item, deployments: { ...item.deployments, [step]: transaction } });
+          item = session.persist(withGovernance24Transaction(item, step, transaction));
           returnedHash.current = null; setUnwrittenHash('');
         }
         setBusy('等待当前交易确认');
@@ -403,8 +411,7 @@ export function Governance24UpgradeStandalone() {
           if (!transaction.txHash && !transaction.intent && !returned) throw new Error('输入的交易已失败，但不能证明它是本次未知发送。请回到原钱包请求或原标签取得带原哈希的记录；当前步骤不会重发。');
           if (!transaction.txHash) {
             transaction = { ...transaction, txHash: hash, status: 'submitted' };
-            item = session.persist(governance ? { ...item, [step]: transaction }
-              : { ...item, deployments: { ...item.deployments, [step]: transaction } });
+            item = session.persist(withGovernance24Transaction(item, step, transaction));
           }
           session.assertCurrent(); const archived = session.persist(archiveGovernance24Failure(item, step, problem.evidence, context));
           setOperation('unknown'); setRecoveryHash('');
@@ -415,23 +422,22 @@ export function Governance24UpgradeStandalone() {
         if (!transaction.txHash && !transaction.intent && !returned) throw new Error('输入的交易已确认，但不能证明它是本次未知发送。请回到原钱包请求或原标签取得带原哈希的记录；当前步骤不会继续发送。');
         const confirmed: UpgradeTransaction = { ...transaction, txHash: hash, status: 'confirmed',
           ...(governance ? {} : { address: getAddress(receipt.contractAddress!) }) };
-        const candidate = governance ? { ...item, [step]: confirmed } : { ...item, deployments: { ...item.deployments, [step]: confirmed } };
-        const checked = await inspect(candidate, governance24RecoveryPhase(step));
+        const candidate = withGovernance24Transaction(item, step, confirmed);
+        const checked = await inspect(candidate, governance24RecoveryPhase(step, candidate));
         session.assertCurrent(); const saved = session.persist(candidate); setRecoveryHash(''); setUnwrittenHash(''); returnedHash.current = null;
         return { journal: saved, outcome: 'confirmed' as const, readyAt: checked.readyAt };
       };
       const submit = async (item: Governance24Journal, step: Governance24Step) => {
-        session.assertCurrent(); const governance = step === 'schedule' || step === 'execute';
+        session.assertCurrent(); const cancellation = isGovernance24Cancellation(step), governance = cancellation || step === 'schedule' || step === 'execute';
         const currentPlan = governance ? planFor(item) : null;
-        const prepared = governance ? { data: currentPlan[`${step}Data`] }
+        const prepared = cancellation ? currentPlan.cancellations.find((item: Json) => item.id === step) : governance ? { data: currentPlan[`${step}Data`] }
           : prepareGovernance24UpgradeDeployment(step, common, { deploymentsPrefix: confirmedGovernance24Deployments(item) });
         setBusy('准备当前交易');
         const intent = await session.read(() => prepareGovernance24Intent(provider, state.address));
         const transaction: UpgradeTransaction = { status: 'uncertain', from: getAddress(state.address), dataHash: keccak256(prepared.data), intent };
         let saved = item;
-        const put = (value: UpgradeTransaction) => governance ? { ...item, [step]: value }
-          : { ...item, deployments: { ...item.deployments, [step]: value } };
-        setBusy(governance ? step === 'schedule' ? '请在钱包中确认等待期排程' : '请在钱包中确认执行升级'
+        const put = (value: UpgradeTransaction) => withGovernance24Transaction(item, step, value);
+        setBusy(cancellation ? `请在钱包中签名取消旧排程 ${currentPlan.cancellations.findIndex((item: Json) => item.id === step) + 1} / ${currentPlan.cancellations.length}` : governance ? step === 'schedule' ? '请在钱包中确认等待期排程' : '请在钱包中确认执行升级'
           : `请在钱包中确认第 ${GOVERNANCE24_DEPLOYMENTS.indexOf(step as Governance24Name) + 1} 笔部署`);
         const guardedWallet = { request: async (request: Parameters<typeof selected.provider.request>[0]) => {
           try { session.assertCurrent(); } catch (problem) { throw Object.assign(problem as Error, { code: 'ACTION_REJECTED' }); }
@@ -452,7 +458,7 @@ export function Governance24UpgradeStandalone() {
         proven = null; session.assertCurrent(); return saved;
       };
       const original = governance24Pending(source);
-      const originalTransaction = original && (original === 'schedule' || original === 'execute' ? source[original] : source.deployments[original]);
+      const originalTransaction = original ? governance24Transaction(source, original) : null;
       if (original && (readOnly || !originalTransaction?.txHash && (originalTransaction?.intent || recoveryHash.trim() || returnedHash.current))) {
         const recovered = await recover(source, original, recoveryHash); source = recovered.journal;
         if (readOnly && recovered.outcome === 'confirmed') setMessage('原交易已确认并保存。点击“继续升级”处理下一步。');
@@ -503,12 +509,11 @@ export function Governance24UpgradeStandalone() {
     const imported = await parseGovernance24ImportFile(file, context); session.assertCurrent();
     await session.lock(async existing => {
       if (existing) {
-        const step = governance24Pending(existing), governance = step === 'schedule' || step === 'execute';
+        const step = governance24Pending(existing), cancellation = isGovernance24Cancellation(step), governance = cancellation || step === 'schedule' || step === 'execute';
         if (!step) throw new Error('本机已有完整记录，不能覆盖。');
-        const original = governance ? existing[step]! : existing.deployments[step]!;
-        const replacement = governance ? imported[step]! : imported.deployments[step]!;
-        const restored = governance ? { ...imported, [step]: original }
-          : { ...imported, deployments: { ...imported.deployments, [step]: original } };
+        const original = governance24Transaction(existing, step)!;
+        const replacement = governance24Transaction(imported, step)!;
+        const restored = withGovernance24Transaction(imported, step, original);
         if (!original.intent || original.txHash || !replacement?.txHash
           || canonical(restored) !== canonical(existing)
           || canonical({ ...replacement, status: original.status, txHash: undefined, address: undefined }) !== canonical(original))
@@ -518,16 +523,15 @@ export function Governance24UpgradeStandalone() {
         const state = await session.read(() => readWallet(selected.provider));
         if (!state || state.chainId !== 56 || !same(state.address, original.from)) throw new Error('请连接原部署钱包并切换 BSC 主网。');
         const provider = recoveryProvider(session, selected), currentPlan = planFor(existing);
-        const data = governance ? currentPlan?.[`${step}Data`] : undefined;
+        const data = cancellation ? currentPlan?.cancellations.find((item: Json) => item.id === step)?.data : governance ? currentPlan?.[`${step}Data`] : undefined;
         const expected = { from: original.from, dataHash: original.dataHash, intent: original.intent,
-          ...(governance ? { to: currentPlan.timelock, data, operation: step as 'schedule' | 'execute', input: common!, plan: currentPlan } : {}) };
+          ...(governance ? { to: currentPlan.timelock, data, operation: cancellation ? 'cancel' as const : step as 'schedule' | 'execute', ...(cancellation ? { cancellationId: step as `cancel-${string}` } : {}), input: common!, plan: currentPlan } : {}) };
         try {
           const receipt = await session.read(() => verifyGovernance24RecoveryReceipt(provider, replacement.txHash!, expected));
           if (!receipt) throw new Error('原交易尚未最终确认，记录未合并。');
         } catch (problem) { if (!(problem instanceof VerifiedGovernance24TransactionFailure)) throw problem; }
         const submitted = { ...original, status: 'submitted' as const, txHash: replacement.txHash };
-        session.persist(governance ? { ...existing, [step]: submitted }
-          : { ...existing, deployments: { ...existing.deployments, [step]: submitted } });
+        session.persist(withGovernance24Transaction(existing, step, submitted));
         setMessage('原交易哈希已合并。点击“核对当前交易”确认结果，该按钮不会发送新交易。'); return;
       }
       let provider = session.provider;
@@ -555,15 +559,15 @@ export function Governance24UpgradeStandalone() {
   const done = !!result && operation === 'done', scheduled = journal?.schedule?.status === 'confirmed';
   const stateLabel = done ? '升级已完成' : operation === 'waiting' ? '等待 48 小时'
     : operation === 'ready' ? '等待期已结束，可以执行升级' : canResumeLegacyDeployment ? '旧部署记录需要恢复' : pending ? '当前交易待确认'
-      : scheduled ? '排程已确认，继续时自动检查等待期' : completed ? `部署进度 ${completed} / ${GOVERNANCE24_DEPLOYMENTS.length}` : '准备就绪后，点击下方按钮开始';
+      : scheduled ? '排程已确认，继续时自动检查等待期' : completed === GOVERNANCE24_DEPLOYMENTS.length && journal?.cancellationIds.some(id => journal.cancellations[id]?.status !== 'confirmed') ? '新部署已确认，请在钱包签名取消旧排程' : completed ? `部署进度 ${completed} / ${GOVERNANCE24_DEPLOYMENTS.length}` : '准备就绪后，点击下方按钮开始';
   return <main className="to-shell">
     <div className="to-top"><span className="to-mark">BEMINE / 合约升级</span><span className="to-status">BSC 主网</span></div>
     <h1>全业务 24 小时治理升级</h1>
-    <p className="to-lead">连接指定部署钱包，按提示依次确认 {GOVERNANCE24_DEPLOYMENTS.length} 笔部署和原时间锁排程；首次等待 48 小时后，再回来确认执行。迁移完成后，正常业务升级等待 24 小时。</p>
+    <p className="to-lead">连接指定部署钱包，按提示确认 {GOVERNANCE24_DEPLOYMENTS.length} 笔新部署，再亲自签名取消被完整升级覆盖的旧排程，并确认原时间锁排程；首次等待 48 小时后，再回来执行。迁移完成后，正常业务升级等待 24 小时。</p>
     <section className="to-card to-main">
       <ol className="to-steps" aria-label="升级进度">
         <li className={completed === GOVERNANCE24_DEPLOYMENTS.length ? 'to-complete' : 'to-current'}><span>1</span><div>部署升级组件<small>{completed} / {GOVERNANCE24_DEPLOYMENTS.length} 已确认</small></div></li>
-        <li className={done ? 'to-complete' : scheduled ? 'to-current' : ''}><span>2</span><div>等待 48 小时<small>{scheduled ? '排程已确认' : '部署后自动排程'}</small></div></li>
+        <li className={done ? 'to-complete' : scheduled ? 'to-current' : ''}><span>2</span><div>等待 48 小时<small>{scheduled ? '排程已确认' : '确认新部署及旧排程取消后排程'}</small></div></li>
         <li className={done ? 'to-complete' : operation === 'ready' ? 'to-current' : ''}><span>3</span><div>完成升级<small>{done ? '结果已确认' : '等待期后钱包确认'}</small></div></li>
       </ol>
       <h2 className="to-state" data-testid="activation-state">{stateLabel}</h2>
@@ -572,6 +576,13 @@ export function Governance24UpgradeStandalone() {
       {message && <p role="status" className="to-note">{message}</p>}
       {wallets.length > 1 && <label className="to-wallet">选择钱包<select aria-label="选择钱包" value={wallet?.id ?? wallets[0]?.id ?? ''} disabled={!!busy}
         onChange={event => selectWallet(event.target.value)}>{wallets.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>}
+      {!!cancellationPlan.length && <div className="to-note to-wait" data-testid="signed-cancellation-notice">
+        <strong>本次将取消已被完整升级覆盖的旧排程，原项目与资金不变。</strong>
+        <p>全部新部署确认后，你需要在钱包逐笔签名取消下列旧排程，再签名确认新的 48 小时排程。点击“继续升级”表示进入这个流程；每次取消都由你在钱包审批。</p>
+        <p className="to-small">原操作参数和最早执行时间保留在技术信息及导出记录中。取消旧排程不会直接执行升级。</p>
+        {cancellationPlan.map(item => <div className="to-technical-row" key={item.id}><strong>{item.name}</strong><code>{item.operationId}</code>
+          <span>{journal?.cancellations[item.id as `cancel-${string}`]?.status === 'confirmed' ? '取消已核验' : journal?.cancellations[item.id as `cancel-${string}`] ? '取消交易待核验' : '待用户签名取消'}</span></div>)}
+      </div>}
       <button className="to-primary" disabled={!!busy || !common || !gasLimits || !!loadError || done || !wallets.length || needsOriginalHash}
         onClick={() => begin()}>{busy || (done ? '升级已完成' : needsOriginalHash ? '请先处理下方旧记录' : account ? operation === 'ready' ? '确认执行升级' : '继续升级' : '连接钱包并开始升级')}</button>
       {journal && <button disabled={!!busy || !common || !wallets.length || needsOriginalHash && !recoveryHash.trim() && !unwrittenHash} onClick={() => begin(true)}>{pending ? '核对当前交易' : '核对升级进度'}</button>}
@@ -616,6 +627,11 @@ export function Governance24UpgradeStandalone() {
         {transaction?.address && <code>{transaction.address}</code>}
         {transaction?.txHash && <a href={`${explorer}/tx/${transaction.txHash}`} target="_blank" rel="noreferrer">查看原交易</a>}
       </div>; })}
+      {cancellationPlan.map(item => <details key={item.id}><summary>原排程 {short(item.operationId)} · {journal?.cancellations[item.id as `cancel-${string}`]?.status === 'confirmed' ? '用户取消已核验' : '待用户取消'}</summary>
+        <p>原最早执行时间：{formatOldEta(item.originalOperation.timestamp)}</p>
+        <pre>{json({ originalOperation: item.originalOperation, effects: item.effects })}</pre>
+        {journal?.cancellations[item.id as `cancel-${string}`]?.txHash && <a href={`${explorer}/tx/${journal.cancellations[item.id as `cancel-${string}`]!.txHash}`} target="_blank" rel="noreferrer">查看用户取消原交易</a>}
+      </details>)}
       {journal?.schedule?.txHash && <p><a href={`${explorer}/tx/${journal.schedule.txHash}`} target="_blank" rel="noreferrer">查看排程原交易</a></p>}
       {journal?.execute?.txHash && <p><a href={`${explorer}/tx/${journal.execute.txHash}`} target="_blank" rel="noreferrer">查看执行原交易</a></p>}
       {!!journal?.failedTransactions?.length && <p className="to-small">已保留 {journal.failedTransactions.length} 笔最终失败回执。</p>}

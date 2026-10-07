@@ -14,6 +14,8 @@ const h = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
 const a = (n: number) => n === 6 ? '0x042B23288E2316DFb6503488292FD0Ad2F811Ae7' : `0x${n.toString(16).padStart(40, '0')}`;
 const names = governance24UpgradeDeploymentOrder as readonly typedUi.Governance24Name[];
 const lock = new ethers.Interface([
+  'function cancel(bytes32)',
+  'event Cancelled(bytes32 indexed id)',
   'function scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)',
   'function executeBatch(address[],uint256[],bytes[],bytes32,bytes32)',
   'event CallScheduled(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data,bytes32 predecessor,uint256 delay)',
@@ -39,9 +41,13 @@ const engineModules:Record<string,any>={ethers,'./upgrade-transactions':transact
   '../shared/governance24-upgrade-proof.mjs':{verifyGovernance24OperationReceipt:async (_provider:any,{tx,receipt,expected}:any)=>{
     assert(expected.input && expected.plan,'pinned input and plan are passed to original receipt verification');
     assert.equal(tx.to,expected.to);assert.equal(tx.data,expected.data);assert.equal(ethers.keccak256(tx.data),expected.dataHash);
-    assert.equal(expected.data,expected.operation==='schedule'?expected.plan.scheduleData:expected.plan.executeData);
-    const decoded=lock.parseTransaction(tx)!;assert.equal(decoded.name,`${expected.operation}Batch`);
-    if(receipt.status===1) assert.equal(receipt.logs.filter((row:any)=>row.address===a(8)).length,expected.operation==='schedule'?8:7);
+    const cancellation=expected.operation==='cancel'?expected.plan.cancellations.find((item:any)=>item.id===expected.cancellationId):null;
+    assert.equal(expected.data,cancellation?cancellation.data:expected.operation==='schedule'?expected.plan.scheduleData:expected.plan.executeData);
+    const decoded=lock.parseTransaction(tx)!;assert.equal(decoded.name,expected.operation==='cancel'?'cancel':`${expected.operation}Batch`);
+    if(receipt.status===1) {
+      const emitted=receipt.logs.filter((row:any)=>row.address===a(8));assert.equal(emitted.length,cancellation?1:expected.operation==='schedule'?8:7);
+      if(cancellation)assert.equal(lock.parseLog(emitted[0])?.args[0],cancellation.operationId);
+    }
   }}};
 new Function('require','exports',uiCode)((id:string)=>{assert(id in engineModules,id);return engineModules[id];},uiExport);
 const ui=uiExport as typeof typedUi;
@@ -54,14 +60,19 @@ const compiled = ts.transpileModule(readFileSync(new URL('./Governance24UpgradeS
 type Options = { source?: typedUi.Governance24Journal; recoveryHash?: string; deniedLock?: boolean; jump48h?: boolean;
   beforeSendRead?: (f: any) => Promise<void>; afterBroadcast?: (f: any, hash: string) => void;
   preflight?: (f: any) => Promise<void>; receiptStatus?: 0 | 1; pendingNonce?: number;
-  walletInteger?: (count: number) => unknown; walletAddress?: string; doneOverrides?: Record<string,any>; brandFailure?: boolean };
+  walletInteger?: (count: number) => unknown; walletAddress?: string; doneOverrides?: Record<string,any>; brandFailure?: boolean; cancellations?: number; receiptStatusFor?: (data:string)=>0|1; rejectSendFor?: (data:string)=>boolean; invalidCancellationLog?: boolean };
 // Execute the actual component with deterministic hooks, wallet and read-only RPC adapters.
 // No browser, network, wallet extension or live chain is used by this test.
 function fixture(options: Options = {}) {
+  const cancellationPlan=Array.from({length:options.cancellations ?? options.source?.cancellationIds.length ?? 0},(_,index)=>({
+    id:`cancel-${h(2000+index)}`,name:'取消已被本次完整升级覆盖的旧排程',operationId:h(2000+index),to:a(8),value:'0',data:lock.encodeFunctionData('cancel',[h(2000+index)]),unsigned:true,
+    originalOperation:{operationId:h(2000+index),target:a(7),value:'0',data:beacon.encodeFunctionData('upgradeTo',[a(12)]),predecessor:ethers.ZeroHash,salt:h(2200+index),timestamp:'172800'},
+    effects:[{target:a(7),implementation:a(12),effect:'legacy-beacon-override'}]}));
+  const fixtureContext={...context,cancellationIds:cancellationPlan.map(item=>item.id as typedUi.Governance24CancellationStep)};
   const rows = new Map<string, any>(), storage = new Map<string, string>(), events = new Map<string, Set<(...args: any[]) => void>>();
   const state: any[] = [], refs: any[] = [], effects: (() => any)[] = [], cleanup: (() => void)[] = [];
   let stateIndex = 0, refIndex = 0, first = true, sent = 0, receiptReads = 0, storageFailure = false;
-  const phases: string[] = [], sends: any[] = [], key = ui.governance24JournalKey(context);
+  const phases: string[] = [], sends: any[] = [], key = ui.governance24JournalKey(fixtureContext);
   if (options.source) storage.set(key, JSON.stringify(options.source));
   const dispatch = (event: string, ...args: any[]) => { for (const fn of events.get(event) ?? []) fn(...args); };
   const add = (event: string, fn: (...args: any[]) => void) => { if (!events.has(event)) events.set(event, new Set()); events.get(event)!.add(fn); };
@@ -69,7 +80,7 @@ function fixture(options: Options = {}) {
   const register = (hash: string, data: string, to: string | null, status = 1) => {
     const nonce = rows.size, blockNumber = 21 + nonce, address = to ? null : ethers.getCreateAddress({ from: a(6), nonce });
     const parsed = to === a(8) ? lock.parseTransaction({ data }) : null;
-    const operation = parsed ? operationPlan(parsed.args[4]) : null;
+    const operation = parsed && parsed.name!=='cancel' ? operationPlan(parsed.args[4]) : null;
     const logs: any[] = [];
     const event = (emitter: string, abi: ethers.Interface, name: string, values: any[]) => {
       const encoded=abi.encodeEventLog(abi.getEvent(name)!,values);
@@ -77,7 +88,8 @@ function fixture(options: Options = {}) {
         index:logs.length,transactionIndex:0,removed:false});
     };
     if (parsed && status === 1) {
-      if (parsed.name === 'scheduleBatch') {
+      if(parsed.name==='cancel')event(a(8),lock,'Cancelled',[options.invalidCancellationLog?h(9999):parsed.args[0]]);
+      else if (parsed.name === 'scheduleBatch') {
         for(let index=0;index<7;index++)event(a(8),lock,'CallScheduled',[operation!.operationId,BigInt(index),parsed.args[0][index],0n,parsed.args[2][index],ethers.ZeroHash,parsed.args[5]]);
         event(a(8),lock,'CallSalt',[operation!.operationId,parsed.args[4]]);
       } else {
@@ -114,9 +126,12 @@ function fixture(options: Options = {}) {
     }
     assert.equal(method, 'eth_sendTransaction'); const intent = JSON.parse(storage.get(key)!);
     assert(ui.governance24Pending(intent), 'uncertain intent must exist before the wallet send');
-    const transaction = params[0], hash = h(1000 + ++sent); sends.push(transaction);
-    register(hash, transaction.data, transaction.to ?? null, options.receiptStatus ?? 1);
-    if (transaction.to === a(8)) provider.timestamp = lock.parseTransaction(transaction)?.name === 'scheduleBatch' ? 173800n : 1n;
+    const transaction = params[0];
+    if(options.rejectSendFor?.(transaction.data))throw Object.assign(new Error('User rejected cancellation'),{code:4001});
+    const hash = h(1000 + ++sent); sends.push(transaction);
+    register(hash, transaction.data, transaction.to ?? null, options.receiptStatusFor?.(transaction.data) ?? options.receiptStatus ?? 1);
+    if (transaction.to === a(8)) { const name=lock.parseTransaction(transaction)?.name;
+      if(name==='scheduleBatch')provider.timestamp=173800n;else if(name==='executeBatch')provider.timestamp=1n; }
     options.afterBroadcast?.(f, hash); return hash;
   }, on: add, removeListener: remove };
   const walletOption = { id: 'mock-wallet', name: 'Test wallet', provider: wallet };
@@ -128,18 +143,22 @@ function fixture(options: Options = {}) {
   useMemo: (factory: () => any) => factory(), useEffect: (effect: () => any) => { if (first) effects.push(effect); } };
   const prepare = (name: string, _common: any, { deploymentsPrefix }: any) => { const index = names.indexOf(name as any); assert(index >= 0);
     assert.deepEqual(Object.keys(deploymentsPrefix).filter(key => key !== name), names.slice(0, index)); return { data: `0x60${index.toString(16).padStart(2, '0')}` }; };
-  const build = ({ replacements, salt }: any) => { assert.equal(Object.keys(replacements).length, names.length); return operationPlan(salt); };
+  const build = ({ replacements, salt }: any) => { assert.equal(Object.keys(replacements).length, names.length); return {...operationPlan(salt),cancellations:cancellationPlan}; };
   const proof = async (_provider: any, _common: any, proofOptions: any) => {
     phases.push(proofOptions.phase); await options.preflight?.(f);
     assert.equal(Object.keys(proofOptions.deployments).length, names.filter(name => proofOptions.deployments[name]).length);
+    const verified=Object.keys(proofOptions.cancellationTxHashes ?? {});
+    if(proofOptions.phase!=='prepared')assert.deepEqual(verified,cancellationPlan.map(item=>item.id));
+    for(const id of verified){const row=rows.get(proofOptions.cancellationTxHashes[id]);assert(row?.receipt.status===1);assert.equal(lock.parseTransaction(row.transaction)?.args[0],id.slice(7));}
+
     return { blockNumber: 20, blockHash: h(20), operation: proofOptions.phase === 'prepared' ? null
       : proofOptions.phase === 'unscheduled' ? 'unscheduled' : proofOptions.phase === 'done' ? 'done'
-        : options.jump48h ? 'ready' : 'waiting', readyAt: proofOptions.phase === 'scheduled' ? 173800 : null, codeUpgradeComplete:proofOptions.phase==='done',governanceMigrationComplete:proofOptions.phase==='done',coverageVerified:true,businessDelaySeconds:86400,legacyRecoveryDelaySeconds:172800, ...(proofOptions.phase==='done'?options.doneOverrides:{}) };
+        : options.jump48h ? 'ready' : 'waiting', readyAt: proofOptions.phase === 'scheduled' ? 173800 : null, codeUpgradeComplete:proofOptions.phase==='done',governanceMigrationComplete:proofOptions.phase==='done',coverageVerified:true,businessDelaySeconds:86400,legacyRecoveryDelaySeconds:172800,confirmedCancellationIds:verified.map(id=>id.slice(7)), ...(proofOptions.phase==='done'?options.doneOverrides:{}) };
   };
   const jsx = { jsx: (type: any, props: any) => ({ type, props }), jsxs: (type: any, props: any) => ({ type, props }), Fragment: 'fragment' };
   const modules: Record<string, any> = { react, 'react/jsx-runtime': jsx, 'react-dom/client': { createRoot: () => ({ render: () => {} }) },
     ethers: { ...ethers, JsonRpcProvider: class { constructor() { return provider; } }, Contract: class { getTimestamp = async () => provider.timestamp; } },
-    '../shared/governance24-upgrade-plan.mjs': { buildGovernance24UpgradePlan: build, prepareGovernance24UpgradeDeployment: prepare, validateGovernance24UpgradeReview: () => {} },
+    '../shared/governance24-upgrade-plan.mjs': { buildGovernance24UpgradePlan: build, prepareGovernance24UpgradeDeployment: prepare, validateGovernance24UpgradeReview: () => {}, governance24Cancellations:()=>cancellationPlan },
     '../shared/governance24-upgrade-proof.mjs': { validateGovernance24UpgradePreflight: proof,governance24VerifiedUpgrade:(value:any)=>{if(options.brandFailure)throw new Error('Unverified complete governance migration.');return value;} }, './governance24-upgrade-ui': ui,
     './upgrade-transactions': transactions,
     './wallet': { discoverWallets: () => () => {}, readWallet: async () => ({ address: options.walletAddress ?? a(6), chainId: 56 }), messageOf: (error: any) => error?.message ?? String(error) },
@@ -158,9 +177,9 @@ function fixture(options: Options = {}) {
   };
   const render = () => { stateIndex = 0; refIndex = 0; const tree = exports.Governance24UpgradeStandalone();
     if (first) { first = false; effects.forEach((effect, index) => { if (index !== 1) { const fn = effect(); if (typeof fn === 'function') cleanup.push(fn); } }); } return tree; };
-  f = { provider, storage, key, state, phases, sends, dispatch, register, render,
+  f = { provider, storage, key, state, phases, sends, dispatch, register, render, context:fixtureContext,cancellationPlan,
     failWrites: () => { storageFailure = true; }, allowWrites: () => { storageFailure = false; }, setUnknownHash: (hash: string) => { state[14] = hash; },
-    journal: () => storage.has(key) ? ui.parseGovernance24Journal(JSON.parse(storage.get(key)!), context) : null,
+    journal: () => storage.has(key) ? ui.parseGovernance24Journal(JSON.parse(storage.get(key)!), fixtureContext) : null,
     click: async () => { const button = walk(render(), node => node.type === 'button' && node.props.className === 'to-primary'); assert(button); await button.props.onClick(); },
     resumeLegacy: async (acknowledged = true) => { const box = walk(render(), node => node.type === 'input' && node.props.type === 'checkbox'); assert(box); box.props.onChange({ target: { checked: acknowledged } });
       const button = walk(render(), node => node.type === 'button' && node.props.children === '保留旧记录并恢复部署'); assert(button); await button.props.onClick(); },
@@ -366,4 +385,87 @@ test('successful migration displays completion only after all 13 deployments, co
   const f=fixture({jump48h:true});await f.click();assert.equal(Object.keys(f.journal().deployments).length,names.length);
   assert.equal(f.state[8],null);await f.click();assert.equal(f.journal().execute.status,'confirmed');
   assert.equal(f.find((node:any)=>node.props?.['data-testid']==='activation-state').props.children,'升级已完成');f.unmount();
+});
+
+test('user signed cancels are visible before starting, run only after all13 CREATE and precede exact48h schedule',async()=>{
+  const f=fixture({cancellations:2});const notice=f.find((node:any)=>node.props?.['data-testid']==='signed-cancellation-notice');assert(notice);
+  assert.equal(f.sends.length,0);await f.click();assert.equal(f.state[12],'');
+  assert.equal(f.sends.length,names.length+3);assert(f.sends.slice(0,names.length).every((tx:any)=>tx.to===undefined));
+  assert.deepEqual(f.sends.slice(names.length,names.length+2).map((tx:any)=>lock.parseTransaction(tx)?.name),['cancel','cancel']);
+  assert.equal(lock.parseTransaction(f.sends.at(-1))?.name,'scheduleBatch');assert.equal(f.journal().schedule.status,'confirmed');
+  assert(f.cancellationPlan.every((item:any)=>f.journal().cancellations[item.id]?.status==='confirmed'));
+  assert.equal(f.journal().execute,undefined);f.unmount();
+});
+test('a rejected cancellation preserves13 deployments and requires a fresh user click before trying the same cancel',async()=>{
+  const f=fixture({cancellations:2,rejectSendFor:data=>lock.parseTransaction({data})?.name==='cancel'});
+  await f.click();assert.equal(f.sends.length,names.length);assert.equal(Object.keys(f.journal().deployments).length,names.length);
+  assert.deepEqual(f.journal().cancellations,{});assert.equal(f.journal().schedule,undefined);f.unmount();
+});
+test('broadcast cancel with unknown callback is recovered by exactnonce without resending or issuing the next cancel',async()=>{
+  const f=fixture({cancellations:2,afterBroadcast:current=>{if(current.sends.length===names.length+1)throw new Error('wallet callback timeout');}});
+  await f.click();const id=f.cancellationPlan[0].id;assert.equal(f.sends.length,names.length+1);
+  assert.equal(f.journal().cancellations[id].status,'uncertain');assert.equal(f.journal().cancellations[id].intent.nonce,names.length);
+  await f.recover();assert.equal(f.state[12],'');assert.equal(f.sends.length,names.length+1);assert.equal(f.journal().cancellations[id].status,'confirmed');
+  assert.equal(f.journal().cancellations[f.cancellationPlan[1].id],undefined);assert.equal(f.journal().schedule,undefined);f.unmount();
+});
+test('cancel storage failure keeps its uncertain nonce and recovers the returned hash without another send',async()=>{
+  const f=fixture({cancellations:1,afterBroadcast:current=>{if(current.sends.length===names.length+1)current.failWrites();}});
+  await f.click();const id=f.cancellationPlan[0].id;assert.equal(f.journal().cancellations[id].status,'uncertain');assert(f.state[15]);
+  f.allowWrites();await f.recover();assert.equal(f.sends.length,names.length+1);assert.equal(f.journal().cancellations[id].status,'confirmed');
+  assert.equal(f.journal().schedule,undefined);f.unmount();
+});
+test('finalized cancel failure is archived and cannot trigger another cancel or schedule in the same click',async()=>{
+  const f=fixture({cancellations:2,receiptStatusFor:data=>lock.parseTransaction({data})?.name==='cancel'?0:1});
+  await f.click();assert.equal(f.sends.length,names.length+1);assert.equal(f.journal().failedTransactions.length,1);
+  assert.equal(f.journal().failedTransactions[0].step,f.cancellationPlan[0].id);assert.deepEqual(f.journal().cancellations,{});
+  assert.equal(f.journal().schedule,undefined);f.unmount();
+});
+test('canonical cancel event, receipt and complete final cancellation proof are all required',async()=>{
+  const wrong=fixture({cancellations:1,invalidCancellationLog:true});await wrong.click();
+  assert.equal(wrong.sends.length,names.length+1);assert.equal(wrong.journal().cancellations[wrong.cancellationPlan[0].id].status,'submitted');
+  assert.equal(wrong.journal().schedule,undefined);wrong.unmount();
+  const missing=fixture({cancellations:1,jump48h:true,doneOverrides:{confirmedCancellationIds:[]}});await missing.click();await missing.click();
+  assert.equal(missing.journal().execute.status,'submitted');assert.equal(missing.state[8],null);missing.unmount();
+  const good=fixture({cancellations:2,jump48h:true});await good.click();await good.click();
+  assert.equal(good.journal().execute.status,'confirmed');assert.equal(good.find((node:any)=>node.props?.['data-testid']==='activation-state').props.children,'升级已完成');good.unmount();
+});
+
+test('account change or another tab after cancellation broadcast preserves original cancel hash and stops every following step',async()=>{
+  const changed=fixture({cancellations:2,afterBroadcast:current=>{if(current.sends.length===names.length+1)current.dispatch('accountsChanged',[a(99)]);}});
+  await changed.click();const id=changed.cancellationPlan[0].id;assert.equal(changed.sends.length,names.length+1);
+  assert.equal(changed.journal().cancellations[id].txHash,h(1000+names.length+1));assert.equal(changed.journal().schedule,undefined);changed.unmount();
+  const conflict=fixture({cancellations:2,afterBroadcast:current=>{if(current.sends.length===names.length+1)current.storage.set(current.key,'changed by other tab');}});
+  await conflict.click();assert.equal(conflict.sends.length,names.length+1);assert.equal(conflict.storage.get(conflict.key),'changed by other tab');
+  assert.equal(conflict.find((node:any)=>node.props?.['aria-label']==='未保存的原交易哈希').props.value,h(1000+names.length+1));conflict.unmount();
+});
+test('noncebound cancellation hash import merges only the matching current row and never sends',async()=>{
+  const f=fixture({cancellations:2,afterBroadcast:current=>{if(current.sends.length===names.length+1)throw new Error('wallet callback timeout');}});
+  await f.click();const id=f.cancellationPlan[0].id,source=f.journal(),imported=structuredClone(source);
+  imported.cancellations[id]={...imported.cancellations[id],status:'submitted',txHash:h(1000+names.length+1)};
+  await f.import(imported);assert.equal(f.state[12],'');assert.equal(f.sends.length,names.length+1);
+  assert.equal(f.journal().cancellations[id].status,'submitted');assert.equal(f.journal().cancellations[id].txHash,h(1000+names.length+1));
+  await f.recover();assert.equal(f.sends.length,names.length+1);assert.equal(f.journal().cancellations[id].status,'confirmed');
+  assert.equal(f.journal().cancellations[f.cancellationPlan[1].id],undefined);f.unmount();
+});
+test('imported cancellation identity, order or wrongnonce cannot rewrite current unknown cancel',async()=>{
+  for(const change of ['id','order','nonce']){
+    const f=fixture({cancellations:2,afterBroadcast:current=>{if(current.sends.length===names.length+1)throw new Error('wallet callback timeout');}});
+    await f.click();const id=f.cancellationPlan[0].id,source=f.journal(),changed=structuredClone(source);
+    changed.cancellations[id]={...changed.cancellations[id],status:'submitted',txHash:h(1000+names.length+1)};
+    if(change==='id')changed.cancellationIds[0]=`cancel-${h(9999)}`;
+    if(change==='order')changed.cancellationIds.reverse();
+    if(change==='nonce')changed.cancellations[id].intent.nonce++;
+    await f.import(changed);assert.equal(f.sends.length,names.length+1);assert.deepEqual(f.journal(),source);assert(f.state[12]);f.unmount();
+  }
+});
+
+test('legacy hashless cancel has no deployment-reset escape and arbitrary old matching receipt cannot unlock schedule',async()=>{
+  const id=`cancel-${h(2000)}` as typedUi.Governance24CancellationStep;
+  const source=ui.newGovernance24Journal({...context,cancellationIds:[id]},h(8));
+  source.deployments=Object.fromEntries(names.map((name,index)=>[name,{status:'confirmed',from:a(6),dataHash:h(40+index),txHash:h(50+index),address:a(60+index)}]));
+  source.cancellations[id]={status:'uncertain',from:a(6),dataHash:ethers.keccak256(lock.encodeFunctionData('cancel',[h(2000)]))};
+  const f=fixture({cancellations:1,source,recoveryHash:h(90)});f.register(h(90),lock.encodeFunctionData('cancel',[h(2000)]),a(8));
+  assert.equal(f.find((node:any)=>node.props?.className==='to-primary').props.disabled,true);
+  assert.equal(f.find((node:any)=>node.props?.['data-testid']==='legacy-deployment-recovery'),null);
+  await f.recover();assert.equal(f.sends.length,0);assert.deepEqual(f.journal(),source);assert.match(f.state[12],/不能证明/);f.unmount();
 });

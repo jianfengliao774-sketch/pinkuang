@@ -25,12 +25,15 @@ export type Governance24Name = 'FlexiblePurchase' | 'PoolVault' | 'BudgetPortfol
   | 'Governance24Validation' | 'Governance24FreshPoolFactory' | 'Governance24BudgetPortfolioFactory'
   | 'CoreGovernance24ShareMarket' | 'PortfolioGovernance24ShareMarket';
 export const GOVERNANCE24_DEPLOYMENTS: readonly Governance24Name[] = governance24UpgradeDeploymentOrder;
-export type Governance24Context = { factory: string; genesisRecordDigest: string; genesisManifestDigest: string; candidateArtifactDigest: string; catalogDigest: string; predecessorInputDigest: string };
+export type Governance24CancellationStep = `cancel-${string}`;
+export type Governance24Context = { cancellationIds?: readonly Governance24CancellationStep[]; factory: string; genesisRecordDigest: string; genesisManifestDigest: string; candidateArtifactDigest: string; catalogDigest: string; predecessorInputDigest: string };
 export type Governance24Journal = Governance24Context & {
   schemaVersion: 1; kind: 'governance24-upgrade-journal-v1'; salt: string; delaySeconds: number;
   deployments: Partial<Record<Governance24Name, UpgradeTransaction>>;
+  cancellationIds: Governance24CancellationStep[];
+  cancellations: Partial<Record<Governance24CancellationStep, UpgradeTransaction>>;
   schedule?: UpgradeTransaction; execute?: UpgradeTransaction;
-  failedTransactions?: { step: Governance24Name | 'schedule' | 'execute'; transaction: UpgradeTransaction; evidence: FailedGovernance24Receipt }[];
+  failedTransactions?: { step: Governance24Step; transaction: UpgradeTransaction; evidence: FailedGovernance24Receipt }[];
   abandonedUnknownDeployments?: AbandonedUnknownGovernance24Deployment[];
 };
 export type AbandonedUnknownGovernance24Deployment = {
@@ -68,7 +71,7 @@ async function intentAnchor(provider: Provider, from: string, intent: Governance
 }
 type Governance24RecoveryIdentity = { from: string; to?: string; dataHash: string; intent?: Governance24Intent;
   /** Only governance calls may use the reviewed MetaMask wrapper; CREATE remains direct. */
-  data?: string; operation?: 'schedule' | 'execute'; input?: Record<string, any>; plan?: Record<string, any> };
+  data?: string; operation?: 'schedule' | 'execute' | 'cancel'; cancellationId?: Governance24CancellationStep; input?: Record<string, any>; plan?: Record<string, any> };
 
 /** At most 32 nonce bisections and one full block. No mempool absence can authorize a retry. */
 export async function discoverGovernance24Transaction(provider: Provider, expected: Governance24RecoveryIdentity): Promise<string | null> {
@@ -131,23 +134,30 @@ const contextKeys = ['genesisRecordDigest', 'genesisManifestDigest', 'candidateA
 export function governance24JournalKey(context: Governance24Context) {
   need(contextKeys.every(key => hash(context[key])), '升级摘要格式无效。');
   need(getAddress(context.factory) !== ZeroAddress, '正式 Factory 地址无效。');
+  const ids = context.cancellationIds ?? [];
+  need(Array.isArray(ids) && ids.length <= 100 && ids.every(id => /^cancel-0x[\da-f]{64}$/.test(id))
+    && new Set(ids).size === ids.length, '取消排程清单必须是独立审查的唯一操作 ID。');
   return `bemine.governance24-upgrade.v1.${getAddress(context.factory).toLowerCase()}.`
-    + contextKeys.map(key => context[key].toLowerCase()).join('.');
+    + contextKeys.map(key => context[key].toLowerCase()).join('.') + `.${evidenceDigest(ids)}`;
 }
 export function newGovernance24Journal(context: Governance24Context, salt: string): Governance24Journal {
   governance24JournalKey(context); need(hash(salt) && BigInt(salt) !== 0n, '本次升级 salt 必须为非零 32 字节。');
-  return { ...context, schemaVersion: 1, kind: 'governance24-upgrade-journal-v1', salt, delaySeconds: 172800, deployments: {} };
+  return { ...context, schemaVersion: 1, kind: 'governance24-upgrade-journal-v1', salt, delaySeconds: 172800, deployments: {}, cancellationIds: [...context.cancellationIds ?? []], cancellations: {} };
 }
 export function parseGovernance24Journal(value: unknown, context: Governance24Context): Governance24Journal {
   const item = value as Governance24Journal;
   need(item && item.schemaVersion === 1 && item.kind === 'governance24-upgrade-journal-v1'
     && governance24JournalKey(item) === governance24JournalKey(context), '升级记录与本页固定的正式图或候选产物不匹配。');
   need(Object.keys(item).every(key => ['factory', ...contextKeys, 'schemaVersion', 'kind', 'salt', 'delaySeconds',
-    'deployments', 'schedule', 'execute', 'failedTransactions', 'abandonedUnknownDeployments'].includes(key)), '记录包含本次升级以外的操作。');
+    'deployments', 'cancellationIds', 'cancellations', 'schedule', 'execute', 'failedTransactions', 'abandonedUnknownDeployments'].includes(key)), '记录包含本次升级以外的操作。');
   need(hash(item.salt) && BigInt(item.salt) !== 0n && Number.isSafeInteger(item.delaySeconds) && item.delaySeconds >= 172800,
     '恢复记录需要非零 salt 和至少 48 小时。');
   need(item.deployments && typeof item.deployments === 'object' && !Array.isArray(item.deployments)
     && Object.keys(item.deployments).every(name => GOVERNANCE24_DEPLOYMENTS.includes(name as Governance24Name)), '只能恢复本页固定顺序的候选合约。');
+  need(Array.isArray(item.cancellationIds) && JSON.stringify(item.cancellationIds) === JSON.stringify(context.cancellationIds ?? [])
+    && item.cancellations && typeof item.cancellations === 'object' && !Array.isArray(item.cancellations)
+    && Object.keys(item.cancellations).every(id => item.cancellationIds.includes(id as Governance24CancellationStep)),
+    '取消排程记录必须匹配本页固定的原操作清单。');
   const addresses = new Set<string>(), transactions = new Set<string>(); let ended = false;
   function transaction(tx: UpgradeTransaction, deployment: boolean) {
     need(tx && typeof tx === 'object' && !Array.isArray(tx)
@@ -167,16 +177,27 @@ export function parseGovernance24Journal(value: unknown, context: Governance24Co
     need(!ended, '候选部署必须按本页固定步骤顺序恢复。');
     transaction(tx, true); if (tx.status !== 'confirmed') ended = true;
   }
+  let cancellationEnded = false;
+  for (const id of item.cancellationIds) {
+    const tx = item.cancellations[id]; if (!tx) { cancellationEnded = true; continue; }
+    need(GOVERNANCE24_DEPLOYMENTS.every(name => item.deployments[name]?.status === 'confirmed'), '取消旧排程必须先确认全部新部署。');
+    need(!cancellationEnded, '取消旧排程必须按固定顺序确认。'); transaction(tx, false);
+    if (tx.status !== 'confirmed') cancellationEnded = true;
+  }
   for (const tx of [item.schedule, item.execute]) if (tx) {
     need(GOVERNANCE24_DEPLOYMENTS.every(name => item.deployments[name]?.status === 'confirmed'), '时间锁操作需要全部已确认部署。');
+    need(item.cancellationIds.every(id => item.cancellations[id]?.status === 'confirmed'), '新的时间锁排程需要全部旧冲突排程的取消回执。');
     transaction(tx, false);
   }
   if (item.execute) need(item.schedule?.status === 'confirmed', '执行升级必须先确认原排程。');
   need(item.failedTransactions === undefined || Array.isArray(item.failedTransactions) && item.failedTransactions.length <= 100,
     '失败回执归档格式无效。');
   for (const failed of item.failedTransactions ?? []) {
-    need([...GOVERNANCE24_DEPLOYMENTS, 'schedule', 'execute'].includes(failed.step)
+    need([...GOVERNANCE24_DEPLOYMENTS, ...item.cancellationIds, 'schedule', 'execute'].includes(failed.step)
       && failed.transaction.status !== 'confirmed', '失败归档不能替代成功步骤。');
+    if (isGovernance24Cancellation(failed.step)) need(GOVERNANCE24_DEPLOYMENTS.every(name => item.deployments[name]?.status === 'confirmed')
+      && item.cancellationIds.slice(0, item.cancellationIds.indexOf(failed.step)).every(id => item.cancellations[id]?.status === 'confirmed'),
+      '失败取消回执需要保留全部新部署和已确认取消前缀。');
     transaction(failed.transaction, false); const evidence = failed.evidence;
     need(evidence?.kind === 'governance24-finalized-failed-transaction-v1' && evidence.chainId === 56 && evidence.status === 0
       && evidence.value === '0' && hash(evidence.txHash) && hash(evidence.dataHash) && hash(evidence.blockHash)
@@ -257,38 +278,63 @@ export function archiveLegacyGovernance24Deployment(source: Governance24Journal,
   delete next.deployments[step];
   return parseGovernance24Journal(next, context);
 }
+export function isGovernance24Cancellation(step: Governance24Step | null | undefined): step is Governance24CancellationStep {
+  return typeof step === 'string' && /^cancel-0x[\da-f]{64}$/.test(step);
+}
+export function governance24Transaction(journal: Governance24Journal, step: Governance24Step): UpgradeTransaction | undefined {
+  return isGovernance24Cancellation(step) ? journal.cancellations[step]
+    : step === 'schedule' || step === 'execute' ? journal[step] : journal.deployments[step];
+}
+export function withGovernance24Transaction(journal: Governance24Journal, step: Governance24Step, transaction?: UpgradeTransaction): Governance24Journal {
+  const next = { ...journal, deployments: { ...journal.deployments }, cancellations: { ...journal.cancellations } };
+  if (isGovernance24Cancellation(step)) { if (transaction) next.cancellations[step] = transaction; else delete next.cancellations[step]; }
+  else if (step === 'schedule' || step === 'execute') { if (transaction) next[step] = transaction; else delete next[step]; }
+  else { if (transaction) next.deployments[step] = transaction; else delete next.deployments[step]; }
+  return next;
+}
+export function confirmedGovernance24Cancellations(journal: Governance24Journal) {
+  return Object.fromEntries(journal.cancellationIds.filter(id => journal.cancellations[id]?.status === 'confirmed')
+    .map(id => [id, journal.cancellations[id]!.txHash!]));
+}
 export function governance24Pending(journal: Governance24Journal) {
   return GOVERNANCE24_DEPLOYMENTS.find(name => journal.deployments[name] && journal.deployments[name]?.status !== 'confirmed')
+    ?? journal.cancellationIds.find(id => journal.cancellations[id] && journal.cancellations[id]?.status !== 'confirmed')
     ?? (journal.schedule && journal.schedule.status !== 'confirmed' ? 'schedule'
       : journal.execute && journal.execute.status !== 'confirmed' ? 'execute' : null);
 }
 export function governance24Next(journal: Governance24Journal) {
-  return governance24Pending(journal) ? null : GOVERNANCE24_DEPLOYMENTS.find(name => !journal.deployments[name]) ?? null;
+  return governance24Pending(journal) ? null : GOVERNANCE24_DEPLOYMENTS.find(name => !journal.deployments[name])
+    ?? journal.cancellationIds.find(id => !journal.cancellations[id]) ?? null;
 }
 export function confirmedGovernance24Deployments(journal: Governance24Journal) {
   return Object.fromEntries(GOVERNANCE24_DEPLOYMENTS.filter(name => journal.deployments[name]?.status === 'confirmed')
     .map(name => [name, { address: journal.deployments[name]!.address!, txHash: journal.deployments[name]!.txHash! }]));
 }
 export function governance24ActionReady(options: {
-  action: 'deploy' | 'schedule' | 'execute'; onBsc: boolean; signerAuthorized: boolean; pending: boolean;
+  action: 'deploy' | 'cancel' | 'schedule' | 'execute'; onBsc: boolean; signerAuthorized: boolean; pending: boolean;
   graphVerified: boolean; prefixVerified: boolean; completedDeployments: number;
-  operation: 'unknown' | 'unscheduled' | 'waiting' | 'ready' | 'done'; scheduleConfirmed: boolean;
+  operation: 'unknown' | 'unscheduled' | 'waiting' | 'ready' | 'done'; scheduleConfirmed: boolean; cancellationTotal?: number; confirmedCancellations?: number;
 }) {
   if (!options.onBsc || !options.signerAuthorized || options.pending || !options.graphVerified || !options.prefixVerified) return false;
   if (options.action === 'deploy') return options.completedDeployments < GOVERNANCE24_DEPLOYMENTS.length && options.operation !== 'done';
   if (options.completedDeployments !== GOVERNANCE24_DEPLOYMENTS.length) return false;
+  const total = options.cancellationTotal ?? 0, confirmed = options.confirmedCancellations ?? 0;
+  if (!Number.isInteger(total) || total < 0 || total > 100 || !Number.isInteger(confirmed) || confirmed < 0 || confirmed > total) return false;
+  if (options.action === 'cancel') return confirmed < total && !['waiting', 'ready', 'done'].includes(options.operation);
+  if (confirmed !== total) return false;
   return options.action === 'schedule' ? options.operation === 'unscheduled'
     : options.operation === 'ready' && options.scheduleConfirmed;
 }
 
-export type Governance24Step = Governance24Name | 'schedule' | 'execute';
+export type Governance24Step = Governance24Name | Governance24CancellationStep | 'schedule' | 'execute';
 export type Governance24Operation = 'unknown' | 'unscheduled' | 'waiting' | 'ready' | 'done';
 export type Governance24SequenceResult = { journal: Governance24Journal; outcome: 'waiting' | 'unknown' | 'failed' | 'done'; readyAt?: number | null };
 
 /** The last candidate opens governance; a prepared-only proof cannot classify its operation. */
-export function governance24RecoveryPhase(step: Governance24Step) {
+export function governance24RecoveryPhase(step: Governance24Step, source?: Governance24Journal) {
   return step === 'schedule' ? 'scheduled' as const : step === 'execute' ? 'done' as const
-    : step === GOVERNANCE24_DEPLOYMENTS.at(-1) ? undefined : 'prepared' as const;
+    : source && source.cancellationIds.every(id => source.cancellations[id]?.status === 'confirmed')
+      && (isGovernance24Cancellation(step) || step === GOVERNANCE24_DEPLOYMENTS.at(-1)) ? undefined : 'prepared' as const;
 }
 
 /** Advance only from verified, durable rows; an unknown wallet result is never resent. */
@@ -299,11 +345,11 @@ export async function runGovernance24UpgradeSequence(options: {
   recover: (source: Governance24Journal, step: Governance24Step) => Promise<{ journal: Governance24Journal; outcome: 'confirmed' | 'waiting' | 'failed'; readyAt?: number | null }>;
 }): Promise<Governance24SequenceResult> {
   let source = options.journal;
-  for (let advance = 0; advance < GOVERNANCE24_DEPLOYMENTS.length * 2 + 8; advance++) {
+  for (let advance = 0; advance < (GOVERNANCE24_DEPLOYMENTS.length + source.cancellationIds.length) * 2 + 8; advance++) {
     options.assertCurrent();
     const pending = governance24Pending(source);
     if (pending) {
-      const original = pending === 'schedule' || pending === 'execute' ? source[pending]! : source.deployments[pending]!;
+      const original = governance24Transaction(source, pending)!;
       if (!original.txHash) return { journal: source, outcome: 'unknown' };
       const recovered = await options.recover(source, pending); options.assertCurrent(); source = recovered.journal;
       if (recovered.outcome !== 'confirmed') return { journal: source, outcome: recovered.outcome };
@@ -413,15 +459,14 @@ export async function verifyGovernance24RecoveryReceipt(provider: Provider, hash
   return receipt;
 }
 
-export function archiveGovernance24Failure(source: Governance24Journal, step: Governance24Name | 'schedule' | 'execute',
+export function archiveGovernance24Failure(source: Governance24Journal, step: Governance24Step,
   evidence: FailedGovernance24Receipt, context: Governance24Context) {
   need(governance24Pending(source) === step, '只能恢复当前待核验原交易。');
-  const transaction = step === 'schedule' || step === 'execute' ? source[step]! : source.deployments[step]!;
+  const transaction = governance24Transaction(source, step)!;
   need(transaction.txHash, '本次发送结果仍未知，输入的失败回执不能证明原交易，不能解除重试限制。');
   need(transaction.txHash.toLowerCase() === evidence.txHash.toLowerCase(), '失败回执属于另一笔交易。');
   const next = { ...source, deployments: { ...source.deployments }, failedTransactions: [...source.failedTransactions ?? [], {
     step, transaction: { ...transaction, txHash: evidence.txHash }, evidence,
   }] };
-  if (step === 'schedule' || step === 'execute') delete next[step]; else delete next.deployments[step];
-  return parseGovernance24Journal(next, context);
+  return parseGovernance24Journal(withGovernance24Transaction(next, step), context);
 }
