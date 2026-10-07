@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "readOnly": true,
+  "checkedAt": "2026-10-07T00:40:44.867Z",
+  "anchor": {
+    "blockNumber": 126156767,
+    "blockHash": "0xed113da760e87a2e61877cccb2e2ae7025a9ffc3bc7a2724f19b4de7be8566de",
+    "timestamp": 1791333225
+  },
+  "operationId": "0x8ae3fceccde348445cdef62041cba8861fccecc9b2a347a213da3503da72709b",
+  "implementation": "0xd318bceEAb70B9C96b360d21051e5A7262522C9A",
+  "codehash": "0x0ebfcb7243b2808904b178e743be4bc2c90c95dc358df46305ad59d08a1df3a6",
+  "expectedCodehash": "0x0ebfcb7243b2808904b178e743be4bc2c90c95dc358df46305ad59d08a1df3a6",
+  "runtimeByteLength": 24507,
+  "exactReviewedRuntime": true,
+  "deploymentTransactionHash": "0x09831ad37d71a3c8cc8deddcee367f1a3091d95c95a8f87c12cd5833e64ecd76",
+  "deploymentBlockNumber": 125969148,
+  "deploymentBlockHash": "0x3a4cad5027722e74278ec9c374a49b656664dc5931449d60c9ceeeb080f40713",
+  "exactCreateInitcode": true,
+  "canonicalDeploymentReceipt": true,
+  "canonicalBlockContainsDeployment": true,
+  "finalizedDeployment": true,
+  "reviewedSourceCommit": "6150ad8869a1a9689cc60f0832f2f1e07b0f3bb1",
+  "portfolioSourceSha256": "45217a6dc436f58754dfec09f150b6a0f92384eb24167ed1b81492beccc29998",
+  "migrationCompiledSourceCommit": "fb740903dffc986d9919c32783f41475280ea18d",
+  "exactWholeSourceFileIncluded": true,
+  "library": "0x64F116956E5647791F491da28BAdc645859d4Baf",
+  "officialFactory": "0x533199B4E535C03BBAB4EC3fcf9B69aD16936065"
+}

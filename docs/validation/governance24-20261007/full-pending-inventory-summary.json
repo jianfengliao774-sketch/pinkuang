@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "kind": "complete-old-timelock-inventory-summary-v1",
+  "chainId": 56,
+  "readOnly": true,
+  "checkedAt": "2026-10-07T00:35:06.839Z",
+  "timelock": "0x2c0AaE63302A7bF7caF5322Cdfc9da67d4ec8F97",
+  "scanFromActualBirthBlock": 125476240,
+  "actualBirthBlockHash": "0xa65cef31894ec2339a52e9e43452e72b647a46a4c0a0cdab8f08ddce7b08767e",
+  "anchor": {
+    "blockNumber": 126156767,
+    "blockHash": "0xed113da760e87a2e61877cccb2e2ae7025a9ffc3bc7a2724f19b4de7be8566de",
+    "timestamp": 1791333225
+  },
+  "rangeCount": 69,
+  "rangeCoverageContinuous": true,
+  "allEventCount": 14,
+  "operationCount": 4,
+  "pendingOperationCount": 3,
+  "eventTransactionsHaveCanonicalSuccessReceipts": true,
+  "eventLogsExactlyIncludedInReceipts": true,
+  "eventBlockHeadersAndSnapshotBoundaryRechecked": true,
+  "operationIdsRecomputedFromCompleteOriginalScheduleParameters": true,
+  "pendingTimestampsEqualOriginalEta": true,
+  "allRawEventsTransactionsReceiptsPreservedPrivately": true,
+  "privateInventoryFileSha256": "308f4178e10d06141b009c13ac02d9836df056a12ef762f2a25efc0be0d66d2d",
+  "privateInventoryKeccak256FileBytes": "0x2274009c1064cf6c51ffa823df5f24f1e26024fdb7331410cc11f4d8abbf329c",
+  "operations": [
+    {
+      "operationId": "0x4f29ead20ca5a72a93712bd2c589f261ad81a33afe09befa1c43626c5a0630f4",
+      "timestamp": "1",
+      "pending": false,
+      "done": true,
+      "ready": false,
+      "method": "schedule",
+      "scheduledTransactionHash": "0xb9357d5e109556eed8f613add88b30b40bbc9a24ea4a00f8f8df731ac2da76f8",
+      "scheduledBlock": 125656597,
+      "scheduledAt": 1791108033,
+      "originalEta": "1791280833",
+      "outerTo": "0x2c0aae63302a7bf7caf5322cdfc9da67d4ec8f97",
+      "viaWrapper": false,
+      "predecessor": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "salt": "0x833c06b3874310f0b04a5dc025bb69389d3f379d82cc1c61b45109191be95ef4",
+      "delaySeconds": "172800",
+      "calls": [
+        {
+          "target": "0x326Ef311677d4e2952B7C83D7fc28EF9088d94a9",
+          "value": "0",
+          "payload": "0x3659cfe600000000000000000000000040bab6bddba9afb2ccd6ddc44678997284173579",
+          "method": "upgradeTo(address)",
+          "replacementImplementation": "0x40bab6bddba9afb2ccd6ddc44678997284173579",
+          "classification": "coreBeacon"
+        }
+      ],
+      "eventTransactionHashes": [
+        "0xb9357d5e109556eed8f613add88b30b40bbc9a24ea4a00f8f8df731ac2da76f8",
+        "0x24af8f26385ed96510e75d9851e4e76b0ca8c6329ec1f4e494aadeb319e64708"
+      ]
+    },
+    {
+      "operationId": "0x8ae3fceccde348445cdef62041cba8861fccecc9b2a347a213da3503da72709b",
+      "timestamp": "1791421929",
+      "pending": true,
+      "done": false,
+      "ready": false,
+      "method": "schedule",
+      "scheduledTransactionHash": "0xe328b1082d4b61acfade27755e5fef5c29aec4da5a3ad83876463d6f96fc0202",
+      "scheduledBlock": 125969938,
+      "scheduledAt": 1791249129,
+      "originalEta": "1791421929",
+      "outerTo": "0xdb9b1e94b5b69df7e401ddbede43491141047db3",
+      "viaWrapper": true,
+      "predecessor": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "salt": "0x1c6ceb365f116344021bb78d98dde41378b941cd5123073521806d99ccae31ef",
+      "delaySeconds": "172800",
+      "calls": [
+        {
+          "target": "0x8BFF2080B0B04CfDaCBeb05696b07a0cC480c1Ae",
+          "value": "0",
+          "payload": "0x3659cfe6000000000000000000000000d318bceeab70b9c96b360d21051e5a7262522c9a",
+          "method": "upgradeTo(address)",
+          "replacementImplementation": "0xd318bceeab70b9c96b360d21051e5a7262522c9a",
+          "classification": "portfolioBeacon"
+        }
+      ],
+      "eventTransactionHashes": [
+        "0xe328b1082d4b61acfade27755e5fef5c29aec4da5a3ad83876463d6f96fc0202"
+      ]
+    },
+    {
+      "operationId": "0x5432346a5d2d3558c444d2b0a8b62e99df41bd857abe67191ba365ead83b19ff",
+      "timestamp": "1791459939",
+      "pending": true,
+      "done": false,
+      "ready": false,
+      "method": "schedule",
+      "scheduledTransactionHash": "0x31b4470f2d8beeba053cd0cb2be7bfc8778903d3e13b3c6f0c8f6bcd976e71b1",
+      "scheduledBlock": 126054384,
+      "scheduledAt": 1791287139,
+      "originalEta": "1791459939",
+      "outerTo": "0xdb9b1e94b5b69df7e401ddbede43491141047db3",
+      "viaWrapper": true,
+      "predecessor": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "salt": "0xab0fd0125e57b6c0861924462f26f0945051e612c220115404dd35e4cfedbf4c",
+      "delaySeconds": "172800",
+      "calls": [
+        {
+          "target": "0x326Ef311677d4e2952B7C83D7fc28EF9088d94a9",
+          "value": "0",
+          "payload": "0x3659cfe60000000000000000000000009f3e3452a5f85013091382f0ab829bd7f9f05e6d",
+          "method": "upgradeTo(address)",
+          "replacementImplementation": "0x9f3e3452a5f85013091382f0ab829bd7f9f05e6d",
+          "classification": "coreBeacon"
+        }
+      ],
+      "eventTransactionHashes": [
+        "0x31b4470f2d8beeba053cd0cb2be7bfc8778903d3e13b3c6f0c8f6bcd976e71b1"
+      ]
+    },
+    {
+      "operationId": "0xe3350ca31df2df72fb1a69ca68d3514e960780f5ab4eafc3434c59a462377a27",
+      "timestamp": "1791503196",
+      "pending": true,
+      "done": false,
+      "ready": false,
+      "method": "schedule",
+      "scheduledTransactionHash": "0x2731466effdf23023d12d387aca16c6782c5672b5960bc049611a6766238e390",
+      "scheduledBlock": 126150483,
+      "scheduledAt": 1791330396,
+      "originalEta": "1791503196",
+      "outerTo": "0xdb9b1e94b5b69df7e401ddbede43491141047db3",
+      "viaWrapper": true,
+      "predecessor": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "salt": "0x85cc002997fa3edad160e5c310306ca95c051213bd21a95acfb220ec920ee158",
+      "delaySeconds": "172800",
+      "calls": [
+        {
+          "target": "0x326Ef311677d4e2952B7C83D7fc28EF9088d94a9",
+          "value": "0",
+          "payload": "0x3659cfe6000000000000000000000000bcbbdaeb56466a6448c960920b6a12ad17c48dbe",
+          "method": "upgradeTo(address)",
+          "replacementImplementation": "0xbcbbdaeb56466a6448c960920b6a12ad17c48dbe",
+          "classification": "coreBeacon"
+        }
+      ],
+      "eventTransactionHashes": [
+        "0x2731466effdf23023d12d387aca16c6782c5672b5960bc049611a6766238e390"
+      ]
+    }
+  ]
+}
