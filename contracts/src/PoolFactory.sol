@@ -441,7 +441,7 @@ contract PoolFactory is
         PurchaseValidation.validatePoolParams(params, TAPEOUT_CIRCUITS, BEHEMOTH_CIRCUITS, TOTAL_SHARES);
     }
 
-    function _factoryStorage() private pure returns (FactoryStorage storage $) {
+    function _factoryStorage() internal pure returns (FactoryStorage storage $) {
         bytes32 slot = FACTORY_STORAGE;
         assembly { $.slot := slot }
     }

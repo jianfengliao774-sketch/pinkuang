@@ -9,6 +9,9 @@ import {IFirstoBatchAskExchange} from "../../src/interfaces/IFirstoExchange.sol"
 import {PoolVault} from "../../src/PoolVault.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
 import {Addresses} from "../../script/Addresses.sol";
+import {PoolTimelock24} from "../../src/PoolTimelock24.sol";
+import {Governance24Beacon} from "../../src/Governance24Beacon.sol";
+import {Governance24Dispatcher} from "../../src/Governance24Dispatcher.sol";
 
 /// @notice CONTROLLED PROTOCOL TESTS ONLY. Exact observed runtime remains at the fixed address,
 /// but vm.mockFunction delegates its calls to a fault fixture. These tests exercise PoolVault
@@ -158,6 +161,22 @@ contract FirstoBatchControlledProtocolTest is FundingTestBase {
         assertEq(poolFactory.machinePool(address(nft), leaf.tokenId), address(pool));
         assertTrue(exchange.leafUsed(exchange.leafKey(leaf)));
         assertFalse(exchange.batchCancelled(seller, batch.batchNonce));
+    }
+
+    function test_MOCK_PROTOCOL_batchSingleLeafAfterGovernance24DispatcherKeepsCustodyAndSettlement() public {
+        PoolTimelock24 nextLock = new PoolTimelock24(OWNER);
+        Governance24Beacon secondary =
+            new Governance24Beacon(address(new PoolVault(address(poolFactory))), address(nextLock));
+        Governance24Dispatcher dispatcher = new Governance24Dispatcher(address(poolFactory), address(secondary));
+        bytes memory upgrade = abi.encodeWithSignature("upgradeTo(address)", address(dispatcher));
+        bytes32 salt = keccak256("batch-after-governance24-dispatch");
+        vm.prank(OWNER);
+        timelock.schedule(address(beacon), 0, upgrade, bytes32(0), salt, 48 hours);
+        vm.warp(block.timestamp + 48 hours);
+        timelock.execute(address(beacon), 0, upgrade, bytes32(0), salt);
+        // Repeat the controlled protocol acquisition with both delegatecall layers active.
+        // Exact NFT custody, cost, seller BEM settlement and leaf consumption checks remain identical.
+        test_MOCK_PROTOCOL_batchSingleLeafExactCostCustodyAndSellerRewards();
     }
 
     function test_MOCK_PROTOCOL_multiLeafSortedProofAndSiblingRemainUnspent() public {
