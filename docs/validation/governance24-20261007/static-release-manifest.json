@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "kind": "governance24-upgrade-static-package-v1",
+  "preparedAt": "2026-10-07T00:52:37.298Z",
+  "sourceCommit": "1daeb59b4c28691059e35a2bc94e161ecfa584c8",
+  "sourceDiffDigest": "92f11f3f1dac2b4342767abe7dbc7457491fb47aecdf89f151d1f3072f7c4f1b",
+  "pins": {
+    "trustedGenesisRecordDigest": "0x4aeef3a06351f9dc6b18a85c4a8e34899792bebb38886e0d050bbf3695e41d00",
+    "trustedGenesisManifestDigest": "0x3870f0f8c06092b6418c2bd2ab522414ee4091bb937215b6ea97f4283bd25196",
+    "trustedPredecessorInputDigest": "0x1beb7d9dd6c51d40737da3f51ba32c84ef0d38e54c2d17654eeda76ab5323929",
+    "trustedUpgradeArtifactDigest": "0x1bbf8ff3198a692937c1ea0450417c1c49dd91e3c5d1c59a108bac43e3774a0c",
+    "trustedReviewCatalogDigest": "0x69789aa6e4fbe63a7c86b4ff166bf60718417762231db3ef147bdcd37bd4e0ad"
+  },
+  "gasEvidenceDigest": "0xdff01db0bc70062eb7aa73ab77a40dc8c6923d5b9a4e7fdec15dc7b4afcfd143",
+  "liveReviewEvidenceDigest": "0xdc09dbdf9c2d51c7f04d09357263a31456a636aca971c92118eaaae992d6eb8b",
+  "liveReviewAnchor": {
+    "blockNumber": 126156767,
+    "blockHash": "0xed113da760e87a2e61877cccb2e2ae7025a9ffc3bc7a2724f19b4de7be8566de",
+    "checkedAt": "2026-10-07T00:42:38.516Z"
+  },
+  "entryPath": "/pinkuang-governance24-upgrade/",
+  "files": {
+    "assets/governance24-upgrade-B0G5ebXi.css": {
+      "bytes": 34763,
+      "sha256": "f3b321989498b87d3cfd6f96b7213da092bd8dc59dc8b2e3816cca11e889f11b"
+    },
+    "assets/governance24-upgrade-BRcTIVBq.js": {
+      "bytes": 649091,
+      "sha256": "acb275296b009d838db94219d5445c421a23126f7568fac1286a7e9f08c83fb7"
+    },
+    "data/gasEvidence.json": {
+      "bytes": 12032,
+      "sha256": "5b2f0cbde4a1be2e23f63237e2331d43b2eae9684ab95bdbcfe8437ba84319c0"
+    },
+    "data/liveReview.json": {
+      "bytes": 10402,
+      "sha256": "74010643ef368c94910f8e75bab0b98a5472b4ba866a699de99d55dff7597308"
+    },
+    "data/predecessorInput.json": {
+      "bytes": 7077115,
+      "sha256": "f2ca6bb30b8570ac293a94c40b370dfa4ccf2add06f6608fafbc8c4435268cb7"
+    },
+    "data/reviewCatalog.json": {
+      "bytes": 21801,
+      "sha256": "60930560b4e94ee0e0e63d5a246814766651e484b0697dc7e69d4897c4909581"
+    },
+    "data/upgradeBundle.json": {
+      "bytes": 823035,
+      "sha256": "3d7f9f3b671cd6bef71c249233c3dc11f393508dddbc3950755b0aa431946a68"
+    },
+    "index.html": {
+      "bytes": 412,
+      "sha256": "f5ea825a7d287d907f2ea8ebd63bf7a35f4c1520ef43a3afae7b97445f9f3719"
+    }
+  },
+  "chainActionsPerformed": false,
+  "deployedOrActivated": false,
+  "governanceMigrationIncluded": true,
+  "productActive": false,
+  "rpcProxyRequired": "/pinkuang-governance24-read/api/rpc -> isolated loopback read service 4230"
+}
