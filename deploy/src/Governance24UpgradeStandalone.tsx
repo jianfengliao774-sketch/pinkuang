@@ -31,6 +31,7 @@ type Session = { provider: JsonRpcProvider; assertCurrent: () => void; bindWalle
 type Preflight = { blockNumber: number; blockHash: string; [name: string]: any };
 const release = __GOVERNANCE24_RELEASE__;
 const GOVERNANCE24_DEPLOYER = '0x042B23288E2316DFb6503488292FD0Ad2F811Ae7';
+const GOVERNANCE24_PREFLIGHT_TIMEOUT_MS = 10 * 60 * 1000;
 const explorer = 'https://bscscan.com';
 const formatOldEta = (value: string) => { const seconds = BigInt(value);
   return seconds <= 8640000000000n ? new Date(Number(seconds) * 1000).toLocaleString('zh-CN') : '超出本机日期显示范围，原秒数已保留'; };
@@ -330,7 +331,7 @@ export function Governance24UpgradeStandalone() {
       : { operation: 'unknown' as Operation, readyAt: null, snapshot: undefined };
     const phase = force || (currentState.operation === 'done' ? 'done'
       : ['waiting', 'ready'].includes(currentState.operation) ? 'scheduled' : currentPlan && cancellationsComplete ? 'unscheduled' : 'prepared');
-    assertCurrent(); setBusy(phase === 'done' ? '确认升级结果' : '自动检查升级条件');
+    assertCurrent(); setBusy(phase === 'done' ? '只读核验升级结果（可能需要几分钟）' : '只读核验升级条件（可能需要几分钟）');
     const checked = await validateGovernance24UpgradePreflight(provider, common, { phase,
       ...(currentState.snapshot ? { snapshot: currentState.snapshot } : {}),
       cancellationTxHashes: source ? confirmedGovernance24Cancellations(source) : {},
@@ -371,7 +372,7 @@ export function Governance24UpgradeStandalone() {
       const inspect = async (item: Governance24Journal, force?: 'prepared' | 'unscheduled' | 'scheduled' | 'done') => {
         const raw = JSON.stringify(item);
         if (!force && proven?.raw === raw) { session.assertCurrent(); return proven.state; }
-        const checked = await session.read(() => preflight(provider, item, session.assertCurrent, force));
+        const checked = await session.read(() => preflight(provider, item, session.assertCurrent, force), GOVERNANCE24_PREFLIGHT_TIMEOUT_MS);
         proven = { raw, state: { operation: checked.operation, readyAt: checked.readyAt } }; return proven.state;
       };
       const recover = async (item: Governance24Journal, step: Governance24Step, suppliedHash?: string) => {
@@ -495,7 +496,7 @@ export function Governance24UpgradeStandalone() {
       const prepared = prepareGovernance24UpgradeDeployment(step, common, { deploymentsPrefix: confirmedGovernance24Deployments(source) });
       if (!same(original.from, deployer) || !same(original.dataHash, keccak256(prepared.data)))
         throw new Error('旧未知记录的发送者或部署字节码与固定候选不同，原记录已保留。');
-      await session.read(() => preflight(provider, source, session.assertCurrent, 'prepared'));
+      await session.read(() => preflight(provider, source, session.assertCurrent, 'prepared'), GOVERNANCE24_PREFLIGHT_TIMEOUT_MS);
       const observedIntent = await session.read(() => prepareGovernance24Intent(provider, state.address));
       const candidate = archiveLegacyGovernance24Deployment(source, context, {
         step: step as Governance24Name, acknowledged: true, checkedAt: new Date().toISOString(), currentIntent: observedIntent,
@@ -542,7 +543,7 @@ export function Governance24UpgradeStandalone() {
         if (!state || state.chainId !== 56 || !same(state.address, deployer)) throw new Error('请连接原部署钱包并切换 BSC 主网。');
         provider = recoveryProvider(session, selected);
       }
-      await session.read(() => preflight(provider, imported, session.assertCurrent));
+      await session.read(() => preflight(provider, imported, session.assertCurrent), GOVERNANCE24_PREFLIGHT_TIMEOUT_MS);
       session.assertCurrent(); session.persist(imported); setMessage('记录已恢复，点击继续即可。');
     });
   }); }
@@ -574,6 +575,7 @@ export function Governance24UpgradeStandalone() {
       {readyAt && <p>最早执行时间：{new Date(readyAt * 1000).toLocaleString('zh-CN')}</p>}
       {(loadError || error) && <p role="alert" className="to-note to-error">{loadError || error}</p>}
       {message && <p role="status" className="to-note">{message}</p>}
+      {busy.startsWith('只读核验') && <p role="status" className="to-note">正在核对链上记录，请保持页面打开；完成检查后才会请求下一笔钱包确认。</p>}
       {wallets.length > 1 && <label className="to-wallet">选择钱包<select aria-label="选择钱包" value={wallet?.id ?? wallets[0]?.id ?? ''} disabled={!!busy}
         onChange={event => selectWallet(event.target.value)}>{wallets.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>}
       {!!cancellationPlan.length && <div className="to-note to-wait" data-testid="signed-cancellation-notice">

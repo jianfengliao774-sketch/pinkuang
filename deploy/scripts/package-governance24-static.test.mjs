@@ -11,7 +11,7 @@ const html = '<!doctype html><html><head><script type="module" crossorigin src="
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'governance24-static-test-'));
   await mkdir(join(directory, 'assets')); await mkdir(join(directory, 'data'));
-  const release = { kind: 'governance24-upgrade-static-release-v1', entryPath: '/pinkuang-governance24-upgrade/', pins: Object.fromEntries(['trustedGenesisRecordDigest','trustedGenesisManifestDigest','trustedPredecessorInputDigest','trustedUpgradeArtifactDigest','trustedReviewCatalogDigest'].map((name,index)=>[name,`0x${String(index+1).repeat(64)}`])), gasEvidenceDigest:`0x${'ab'.repeat(32)}`,liveReviewEvidenceDigest:`0x${'cd'.repeat(32)}`, files:{} };
+  const release = { kind: 'governance24-upgrade-static-release-v1', entryPath: '/pinkuang-governance24-upgrade/', rpcPath:'/pinkuang-governance24-read/api/rpc', pins: Object.fromEntries(['trustedGenesisRecordDigest','trustedGenesisManifestDigest','trustedPredecessorInputDigest','trustedUpgradeArtifactDigest','trustedReviewCatalogDigest'].map((name,index)=>[name,`0x${String(index+1).repeat(64)}`])), gasEvidenceDigest:`0x${'ab'.repeat(32)}`,liveReviewEvidenceDigest:`0x${'cd'.repeat(32)}`, files:{} };
   await writeFile(join(directory, 'governance24-upgrade.html'), html);
   for (const name of ['predecessorInput','upgradeBundle','reviewCatalog','gasEvidence','liveReview']) {
     const body = JSON.stringify({ name }); release.files[name] = { path:`data/${name}.json`,sha256:sha(body) };
@@ -57,6 +57,7 @@ test('private files, allowed-name symlinks, tampered pinned JSON, missing pins a
 test('missing, extra or redirected public inputs and incomplete review roots are rejected',async()=>{
   for(const change of [f=>{delete f.release.files.liveReview;},f=>{f.release.files.private={path:'data/private.json',sha256:'f'.repeat(64)};},
     f=>{f.release.files.predecessorInput.path='data/reviewCatalog.json';},f=>{delete f.release.pins.trustedPredecessorInputDigest;},
+    f=>{f.release.rpcPath='/pinkuang-firsto-batch-upgrade/api/rpc';}, f=>{f.release.rpcPath='https://bad.invalid/rpc';},f=>{delete f.release.rpcPath;},
     f=>{f.release.gasEvidenceDigest=null;},f=>{f.release.liveReviewEvidenceDigest=null;},f=>{f.release.kind='product-active';}])
     await negative(change);
 });

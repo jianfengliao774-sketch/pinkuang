@@ -16,4 +16,5 @@ test('publication roots are source-owned literals, and all five public inputs ar
   for(const field of ['trustedGenesisRecordDigest','trustedGenesisManifestDigest','trustedPredecessorInputDigest','trustedUpgradeArtifactDigest','trustedReviewCatalogDigest'])
     assert(source.includes(field) || (await readFile(new URL('./governance24-release-roots.mjs',import.meta.url),'utf8')).includes(field));
   assert(source.includes('productActive:false'));
+  assert(source.includes("rpcPath:'/pinkuang-governance24-read/api/rpc'"));
 });

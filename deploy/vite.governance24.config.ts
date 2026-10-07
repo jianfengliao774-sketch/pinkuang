@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const release = JSON.parse(readFileSync(resolve('.governance24-release/config.json'), 'utf8'));
 if (release.kind !== 'governance24-upgrade-static-release-v1' || release.entryPath !== '/pinkuang-governance24-upgrade/'
+  || release.rpcPath !== '/pinkuang-governance24-read/api/rpc'
   || !release.pins?.trustedPredecessorInputDigest || !release.pins?.trustedReviewCatalogDigest
   || !release.pins?.trustedUpgradeArtifactDigest || !release.gasEvidenceDigest || !release.liveReviewEvidenceDigest) {
   throw new Error('Build requires independently reviewed governance24 artifacts, current graph, measured gas and live evidence.');

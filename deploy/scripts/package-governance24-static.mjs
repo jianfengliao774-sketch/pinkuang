@@ -8,6 +8,7 @@ const need = (ok, reason) => { if (!ok) throw new Error(reason); };
 export async function inspectGovernance24Static(directory, release) {
   const expectedInputs = ['predecessorInput', 'upgradeBundle', 'reviewCatalog', 'gasEvidence', 'liveReview'];
   need(release.kind === 'governance24-upgrade-static-release-v1' && release.entryPath === '/pinkuang-governance24-upgrade/'
+    && release.rpcPath === '/pinkuang-governance24-read/api/rpc'
     && Object.keys(release.files ?? {}).sort().join(',') === expectedInputs.sort().join(','), 'The exact independently prepared release input set is required.');
   const requiredPins = ['trustedGenesisRecordDigest', 'trustedGenesisManifestDigest', 'trustedPredecessorInputDigest',
     'trustedUpgradeArtifactDigest', 'trustedReviewCatalogDigest'];
@@ -94,7 +95,7 @@ export async function packageGovernance24Static({ source = resolve(root, 'dist-g
     sourceCommit: release.sourceCommit, sourceDiffDigest: release.sourceDiffDigest, pins: release.pins, gasEvidenceDigest: release.gasEvidenceDigest,
     liveReviewEvidenceDigest: release.liveReviewEvidenceDigest, liveReviewAnchor: release.liveReviewAnchor,
     entryPath: release.entryPath, files, chainActionsPerformed: false, deployedOrActivated: false,
-    governanceMigrationIncluded: true, productActive: false, rpcProxyRequired: '/pinkuang-governance24-upgrade/api/rpc -> existing read-only RPC service' };
+    governanceMigrationIncluded: true, productActive: false, rpcProxyRequired: '/pinkuang-governance24-read/api/rpc -> isolated loopback read service 4230' };
   await writeFile(resolve(dirname(destination), `${destination.split('/').at(-1)}-manifest.json`), `${JSON.stringify(manifest, null, 2)}\n`);
   return { destination, manifest };
 }

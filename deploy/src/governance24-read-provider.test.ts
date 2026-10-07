@@ -127,6 +127,8 @@ test('wallet mutations and unknown methods never reach the public transport', as
       await assert.rejects(provider.send(method, []));
     assert.equal(f.requests.length, 0); assert.throws(() => f.provider(undefined, 15001), /deadline/);
     assert(source.includes('provider = rpc(controller.signal)'));
-    assert(source.includes('timeout = 60000')); // The session/wallet flow retains its existing boundary.
+    assert(source.includes('timeout = 60000')); // Other session reads retain their existing boundary.
+    assert(source.includes('GOVERNANCE24_PREFLIGHT_TIMEOUT_MS = 10 * 60 * 1000'));
+    assert.equal((source.match(/preflight\(provider, [^\n]+GOVERNANCE24_PREFLIGHT_TIMEOUT_MS/g) ?? []).length, 3);
   } finally { await f.close(); }
 });

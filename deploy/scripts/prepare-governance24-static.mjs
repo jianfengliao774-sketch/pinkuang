@@ -67,7 +67,7 @@ export async function prepareGovernance24Static({ inputPath, gasEvidencePath, li
     'deploy/scripts/package-governance24-static.mjs','deploy/scripts/governance24-release-roots.mjs','deploy/scripts/measure-governance24-gas.mjs'];
   for (const file of await readdir(resolve(root,'deploy/shared'))) if(file.endsWith('.mjs') && !file.endsWith('.test.mjs')) sources.push(`deploy/shared/${file}`);
   const sourceHashes={}; for(const file of sources.sort()) sourceHashes[file]=sha(await readFile(resolve(root,file)));
-  const config={schemaVersion:1,kind:'governance24-upgrade-static-release-v1',entryPath:'/pinkuang-governance24-upgrade/',rpcPath:'api/rpc',
+  const config={schemaVersion:1,kind:'governance24-upgrade-static-release-v1',entryPath:'/pinkuang-governance24-upgrade/',rpcPath:'/pinkuang-governance24-read/api/rpc',
     sourceCommit:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),sourceDiffDigest:sha(JSON.stringify(sourceHashes)),sourceHashes,
     candidateSourceCommit:input.upgradeBundle.sourceCommit,pins:governance24ReleasePins,gasEvidenceDigest:governance24GasEvidenceDigest,
     liveReviewEvidenceDigest:governance24LiveEvidenceDigest,liveReviewAnchor:{blockNumber:liveReview.blockNumber,blockHash:liveReview.blockHash,checkedAt:liveReview.checkedAt},
