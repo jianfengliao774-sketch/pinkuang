@@ -106,3 +106,17 @@ test('prepared cancelled receipts require exact prerequisite prefix independent 
   await assert.rejects(validateGovernance24UpgradePreflight(f.provider,f.input,{phase:'prepared',deployments:f.deployments,plan,
     cancellationTxHashes:{[plan.cancellations[1].id]:f.cancellationTxHash}}),/prerequisite prefix/);
 });
+test('new old-governance schedules after review anchor cannot hide behind unchanged known pending timestamps',async()=>{
+  const f=createGovernance24Fixture(),original=f.provider.getLogs;
+  f.provider.getLogs=async filter=>{
+    const logs=await original(filter);if(!logs.length)return logs;
+    return [...logs,{...logs[0],transactionHash:hash('unreviewed-original-beacon-schedule')}];
+  };
+  await assert.rejects(validateGovernance24UpgradePreflight(f.provider,f.input,f.options),/new or repeated original Timelock/);
+});
+test('unavailable or omitted incremental schedule logs fail closed',async()=>{
+  const f=createGovernance24Fixture();f.provider.getLogs=async()=>{throw new Error('archive unavailable');};
+  await assert.rejects(validateGovernance24UpgradePreflight(f.provider,f.input,f.options),/canonical archive log access/);
+  f.provider.getLogs=async()=>[];
+  await assert.rejects(validateGovernance24UpgradePreflight(f.provider,f.input,f.options),/omits or repeats/);
+});

@@ -86,6 +86,33 @@ async function recheck(p,c,review,proofs) {
     && anchor?.number === review.catalog.anchor.blockNumber && same(anchor.hash,review.catalog.anchor.blockHash), 'Chain, snapshot, finality or independent anchor changed.');
   await settleReads(proofs.map(async proof => need(evidenceDigest(body(await transaction(p,proof.tx.hash,c))) === evidenceDigest(body(proof)), 'Canonical transaction body or receipt changed during recheck.')));
 }
+async function newLegacySchedules(p,review,c,plan,scheduled) {
+  const topic=events.getEvent('CallScheduled').topicHash,found=[];
+  const first=review.catalog.anchor.blockNumber+1,last=c.block.number;
+  for(let from=first;from<=last;from+=2048){
+    const to=Math.min(last,from+2047),filter={address:review.addresses.timelock,topics:[topic],fromBlock:from,toBlock:to};
+    let rows;
+    try {rows=typeof p.getLogs==='function'?await p.getLogs(filter):await p.send('eth_getLogs',[{...filter,fromBlock:`0x${from.toString(16)}`,toBlock:`0x${to.toString(16)}`}]);}
+    catch {throw new Error('Cannot verify new original Timelock schedules since the independent review anchor; canonical archive log access is required.');}
+    need(Array.isArray(rows),'Invalid original Timelock schedule log response.');
+    for(const raw of rows){
+      const number=value=>typeof value==='string'?Number(BigInt(value)):value;
+      const log={...raw,blockNumber:number(raw.blockNumber),transactionIndex:number(raw.transactionIndex),index:number(raw.index ?? raw.logIndex)};
+      need(log.removed!==true&&same(log.address,review.addresses.timelock)&&same(log.topics?.[0],topic)
+        &&Number.isSafeInteger(log.blockNumber)&&log.blockNumber>=from&&log.blockNumber<=to,'Noncanonical incremental original Timelock log.');
+      need(scheduled&&same(log.transactionHash,scheduled.tx.hash)&&log.blockNumber===scheduled.receipt.blockNumber
+        &&same(log.blockHash,scheduled.receipt.blockHash)&&log.transactionIndex===scheduled.receipt.index,
+        'A new or repeated original Timelock operation appeared after the review anchor; obtain a fresh complete pending inventory.');
+      const receiptLog=(scheduled.receipt.logs ?? []).find(item=>item.index===log.index);
+      need(receiptLog&&same(receiptLog.address,log.address)&&same(receiptLog.data,log.data)
+        &&evidenceDigest(receiptLog.topics)===evidenceDigest(log.topics),'Incremental schedule log differs from its canonical original receipt.');
+      found.push(log);
+    }
+  }
+  if(scheduled&&scheduled.receipt.blockNumber>=first)need(found.length===plan.targets.length&&new Set(found.map(log=>log.index)).size===found.length,
+    'Incremental log response omits or repeats the complete original migration schedule.');
+  return {fromBlock:first,throughBlock:last,newScheduleEvents:found.length};
+}
 function logs(proof,to,name) {
   const found=[],indices=new Set(),topic=events.getEvent(name).topicHash;
   for (const log of proof.receipt.logs ?? []) {
@@ -280,7 +307,7 @@ export async function validateGovernance24UpgradePreflight(p,suppliedInput,suppl
     need(same(await p.getCode(deployed,c.block.number),governance24ExpectedRuntime(artifact,addresses,deployed,name)),`Confirmed deployment runtime differs: ${name}.`);
     claims[name]=deployed;proofs.push(proof);
   }
-  let plan=null,op={operation:null,readyAt:null,codeUpgradeComplete:false,governanceMigrationComplete:false};
+  let plan=null,scheduledProof=null,op={operation:null,readyAt:null,codeUpgradeComplete:false,governanceMigrationComplete:false};
   if (names.length === governance24UpgradeDeploymentOrder.length) {
     plan=buildGovernance24UpgradePlan({...input,replacements:claims,salt:options.plan?.salt ?? input.salt,delaySeconds:options.plan?.delaySeconds ?? input.delaySeconds});
     if (options.plan) need(evidenceDigest(plan) === evidenceDigest(options.plan),'Plan differs from the complete fixed atomic migration inventory.');
@@ -316,6 +343,7 @@ export async function validateGovernance24UpgradePreflight(p,suppliedInput,suppl
     if (phase === 'unscheduled') need(!exists && !ready && !done && timestamp === 0n,'Migration salt is already used.');
     else {
       const scheduled=await transaction(p,options.scheduleTxHash,c);need(!hashes.has(scheduled.tx.hash.toLowerCase()),'Operation and deployment hashes repeat.');hashes.add(scheduled.tx.hash.toLowerCase());
+      scheduledProof=scheduled;
       need(before(proofs.at(-1),scheduled),'Schedule precedes confirmed dependency deployment.');
       await verifyGovernance24OperationReceipt(p,{...scheduled,finalized:c.finalized,expected:{input,plan,operation:'schedule',to,from:review.proposer,data:plan.scheduleData,dataHash:keccak256(plan.scheduleData)}});
       proofs.push(scheduled);const readyAt=BigInt(scheduled.block.timestamp)+BigInt(plan.delaySeconds);
@@ -337,6 +365,7 @@ export async function validateGovernance24UpgradePreflight(p,suppliedInput,suppl
       ready:phase === 'scheduled' && ready,readyAt:timestamp > 1n ? Number(timestamp) : null,timelockTimestamp:timestamp.toString(),
       operationId:id,codeUpgradeComplete:phase === 'done',governanceMigrationComplete:phase === 'done'};
   }
+  const legacyScheduleWindow=await newLegacySchedules(p,review,c,plan,scheduledProof);
   await recheck(p,c,review,proofs);
   const result=freeze({...graphInfo,...op,phase,blockNumber:c.block.number,blockHash:c.block.hash,checkedAt:new Date().toISOString(),
     proposer:review.proposer,deployer:review.deployer,baselineVerified:true,coverageVerified:true,
@@ -349,7 +378,7 @@ export async function validateGovernance24UpgradePreflight(p,suppliedInput,suppl
       return [op.operationId,proof.tx.hash];
     })),
     codehash:plan ? Object.fromEntries(plan.deployments.map(d=>[d.name,d.codehash])) : {},
-    scope:review.catalog.coverage.scope});
+    scope:review.catalog.coverage.scope,legacyScheduleWindow});
   if (phase === 'done') completed.add(result);return result;
 }
 export function governance24VerifiedUpgrade(proof) { need(completed.has(proof),'Unverified complete governance migration.');return proof; }

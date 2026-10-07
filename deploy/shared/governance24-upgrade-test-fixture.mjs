@@ -83,6 +83,10 @@ export function createGovernance24Fixture({phase='done',waiting=false,pending=tr
   const current=(block)=>state.phase==='done' && block>=1090;
   const proxyNames={factory:'Governance24FreshPoolFactory',portfolioFactory:'Governance24BudgetPortfolioFactory',shareMarket:'CoreGovernance24ShareMarket',portfolioShareMarket:'PortfolioGovernance24ShareMarket'};
   const provider={...base.provider,
+    async getLogs(filter){
+      const scheduled=receipts.get(scheduleTxHash).logs.filter(log=>same(log.topics[0],abi.getEvent('CallScheduled').topicHash));
+      return structuredClone((state.phase==='scheduled'||state.phase==='done'?scheduled:[]).filter(log=>log.blockNumber>=filter.fromBlock&&log.blockNumber<=filter.toBlock));
+    },
     async getBlock(tag){return tag==='finalized' ? structuredClone(blocks.get(1100)) : blocks.has(tag) ? structuredClone(blocks.get(tag)) : base.provider.getBlock(tag);},
     async getStorage(to,slot,block){
       for (const [name,replacement] of Object.entries(proxyNames)) if (same(to,a[name]) && current(block)) return `0x${replacements[replacement].slice(2).toLowerCase().padStart(64,'0')}`;
