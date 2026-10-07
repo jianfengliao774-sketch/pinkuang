@@ -4,6 +4,10 @@ import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import * as ethers from 'ethers';
+// @ts-ignore The isolated server is tested at runtime through its actual HTTP route.
+import { createGovernance24ReadServer } from '../server/governance24-read/governance24-read-server.mjs';
+// @ts-ignore Canonical scoped event/range validation is owned by the read service.
+import { createGovernance24ScheduledLogs, GOVERNANCE24_OLD_TIMELOCK, GOVERNANCE24_CALL_SCHEDULED_TOPIC } from '../server/governance24-read/scheduled-logs.mjs';
 const source = readFileSync(new URL('./Governance24UpgradeStandalone.tsx', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022,
   module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
@@ -34,6 +38,37 @@ async function fixture(answer: (request: Request, index: number, response: http.
 const result = (response: http.ServerResponse, request: Request, value: unknown) => response.writeHead(200,
   { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: request.payload.id, result: value }));
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+test('actual UI provider.getLogs reaches the actual scoped service with exact numeric CallScheduled filters', async () => {
+  const anchor = 126156767, fromBlock = anchor + 1, toBlock = fromBlock + 2047;
+  const blockHash = `0x${'22'.repeat(32)}`, transactionHash = `0x${'33'.repeat(32)}`;
+  const log = { address: GOVERNANCE24_OLD_TIMELOCK, topics: [GOVERNANCE24_CALL_SCHEDULED_TOPIC, `0x${'11'.repeat(32)}`, ethers.ZeroHash],
+    data: '0x', blockNumber: ethers.toQuantity(fromBlock), blockHash, transactionHash, transactionIndex: '0x0', logIndex: '0x0', removed: false };
+  const observed: ethers.JsonRpcPayload[] = [], archiveRequests: ethers.JsonRpcPayload[] = [];
+  const handler = createGovernance24ScheduledLogs({ rpcUrl: 'https://dummy-archive.invalid/read', reviewAnchorBlock: anchor,
+    archiveReadStartIntervalMs: 1, fetcher: async (_url: string, options: any) => {
+      const payload = JSON.parse(options.body); archiveRequests.push(payload);
+      const value = payload.method === 'eth_chainId' ? '0x38' : payload.method === 'eth_getLogs' ? [log]
+        : { number: ethers.toQuantity(toBlock), hash: blockHash };
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: payload.id, result: value }), { headers: { 'content-type': 'application/json' } });
+    } });
+  const server = createGovernance24ReadServer({ handle: async (_req: unknown, response: http.ServerResponse) => {
+    response.writeHead(403).end('No extra methods in this fixture');
+  } }, async (payload: ethers.JsonRpcPayload, req: unknown) => { observed.push(payload); return handler(payload, req); });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const provider = create(`http://127.0.0.1:${server.address().port}/api/rpc`);
+  try {
+    const filter = { address: GOVERNANCE24_OLD_TIMELOCK, topics: [GOVERNANCE24_CALL_SCHEDULED_TOPIC], fromBlock, toBlock };
+    const logs = await provider.getLogs(filter); assert.equal(logs.length, 1);
+    assert.equal(logs[0].blockNumber, fromBlock); assert.equal(logs[0].transactionHash, transactionHash);
+    assert.deepEqual(observed[0].params, [{ address: GOVERNANCE24_OLD_TIMELOCK, topics: filter.topics,
+      fromBlock: ethers.toQuantity(fromBlock), toBlock: ethers.toQuantity(toBlock) }]);
+    assert.deepEqual(archiveRequests.find(item => item.method === 'eth_getLogs')!.params, observed[0].params);
+    await provider.getLogs(filter); assert.equal(observed.length, 2, 'independent log proofs are not cached');
+    const before = archiveRequests.length;
+    await assert.rejects(provider.getLogs({ ...filter, topics: [ethers.ZeroHash] }));
+    assert.equal(archiveRequests.length, before, 'other log events fail at the scoped route before archive work');
+  } finally { provider.destroy(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(resolve)); }
+});
 test('actual portal provider recovers one 502 after partial success with an identical body; headers remain independent reads', async () => {
   const f = await fixture((request, index, response) => {
     if (index === 2) response.writeHead(502).end('temporary read epoch reset');

@@ -51,7 +51,7 @@ function newSalt() { const bytes = crypto.getRandomValues(new Uint8Array(32)); i
 export function createGovernance24ReadProvider(url: string, signal?: AbortSignal, timeoutMs = 15000): JsonRpcProvider {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 15000) throw new Error('Invalid read deadline.');
   const methods = new Set(['eth_chainId', 'eth_blockNumber', 'eth_getBlockByNumber', 'eth_getCode', 'eth_getStorageAt',
-    'eth_call', 'eth_getTransactionByHash', 'eth_getTransactionReceipt']);
+    'eth_call', 'eth_getTransactionByHash', 'eth_getTransactionReceipt', 'eth_getLogs']);
   class ReadProvider extends JsonRpcProvider {
     private readonly active = new Set<() => void>();
     private stopped = false;
