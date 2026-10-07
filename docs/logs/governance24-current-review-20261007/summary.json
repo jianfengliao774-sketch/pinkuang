@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "kind": "governance24-formal-current-review-summary-v1",
+  "readOnly": true,
+  "chainActionsPerformed": false,
+  "anchor": {
+    "blockNumber": 126156767,
+    "blockHash": "0xed113da760e87a2e61877cccb2e2ae7025a9ffc3bc7a2724f19b4de7be8566de",
+    "timestamp": 1791333225
+  },
+  "checkedAt": "2026-10-07T00:42:38.516Z",
+  "candidateSourceCommit": "fb740903dffc986d9919c32783f41475280ea18d",
+  "candidateArtifactDigest": "0x1bbf8ff3198a692937c1ea0450417c1c49dd91e3c5d1c59a108bac43e3774a0c",
+  "pins": {
+    "trustedPredecessorInputDigest": "0x1beb7d9dd6c51d40737da3f51ba32c84ef0d38e54c2d17654eeda76ab5323929",
+    "trustedUpgradeArtifactDigest": "0x1bbf8ff3198a692937c1ea0450417c1c49dd91e3c5d1c59a108bac43e3774a0c",
+    "trustedReviewCatalogDigest": "0x69789aa6e4fbe63a7c86b4ff166bf60718417762231db3ef147bdcd37bd4e0ad"
+  },
+  "liveReviewEvidenceDigest": "0xdc09dbdf9c2d51c7f04d09357263a31456a636aca971c92118eaaae992d6eb8b",
+  "corePoolCount": 11,
+  "portfolioPoolCount": 0,
+  "linkedAddressClosureCount": 10,
+  "pendingInventoryEvidence": {
+    "fileSha256": "308f4178e10d06141b009c13ac02d9836df056a12ef762f2a25efc0be0d66d2d",
+    "fileKeccak256": "0x2274009c1064cf6c51ffa823df5f24f1e26024fdb7331410cc11f4d8abbf329c",
+    "inventoryDigest": "0x523d2821a3878905102c3701a8b05405a8aa51bc7cf9334f6288d69a172def6c",
+    "scannedFromBlock": 125476240,
+    "throughBlock": 126156767,
+    "anchorBlockHash": "0xed113da760e87a2e61877cccb2e2ae7025a9ffc3bc7a2724f19b4de7be8566de",
+    "birthBlockHash": "0xa65cef31894ec2339a52e9e43452e72b647a46a4c0a0cdab8f08ddce7b08767e",
+    "rangeCount": 69,
+    "eventCount": 14,
+    "operationCount": 4,
+    "pendingOperationIds": [
+      "0x8ae3fceccde348445cdef62041cba8861fccecc9b2a347a213da3503da72709b",
+      "0x5432346a5d2d3558c444d2b0a8b62e99df41bd857abe67191ba365ead83b19ff",
+      "0xe3350ca31df2df72fb1a69ca68d3514e960780f5ab4eafc3434c59a462377a27"
+    ]
+  },
+  "cancellationIds": [
+    "cancel-0x8ae3fceccde348445cdef62041cba8861fccecc9b2a347a213da3503da72709b",
+    "cancel-0x5432346a5d2d3558c444d2b0a8b62e99df41bd857abe67191ba365ead83b19ff",
+    "cancel-0xe3350ca31df2df72fb1a69ca68d3514e960780f5ab4eafc3434c59a462377a27"
+  ],
+  "scope": "current-business-paths-24h-with-48h-legacy-recovery",
+  "baselineVerified": true,
+  "originalPendingWalletProofCount": 3,
+  "protectedArtifactFiles": {
+    "governance24-input.json": {
+      "bytes": 8113492,
+      "sha256": "95013789117d51e38780ca1c1f0805c0851403a97a762494c144029d15615225"
+    },
+    "governance24-review-catalog.json": {
+      "bytes": 21801,
+      "sha256": "60930560b4e94ee0e0e63d5a246814766651e484b0697dc7e69d4897c4909581"
+    },
+    "governance24-live-review.json": {
+      "bytes": 10402,
+      "sha256": "74010643ef368c94910f8e75bab0b98a5472b4ba866a699de99d55dff7597308"
+    },
+    "governance24-review-summary.json": {
+      "bytes": 2326,
+      "sha256": "55b43f99d4d747944c94b6e791351a8fc51994b7eac5ffa08852b466af9a157d"
+    }
+  }
+}
