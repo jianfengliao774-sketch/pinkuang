@@ -1,0 +1,15 @@
+✔ fixed five public inputs and exactly referenced assets pass, including the published renamed entry (19.995708ms)
+✔ both HTML entries and an unreferenced asset containing dummy secret text are rejected (21.080334ms)
+✔ nonlocal module or style, inline script, event handler and embedded execution are rejected (53.052875ms)
+✔ private files, allowed-name symlinks, tampered pinned JSON, missing pins and unreviewed sender fail (29.740666ms)
+✔ missing, extra or redirected public inputs and incomplete review roots are rejected (29.884084ms)
+✔ candidate self-approval cannot create a public governance release without independent roots (1.258375ms)
+✔ publication roots are source-owned literals, and all five public inputs are an exact whitelist (4.7635ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 277.87475
